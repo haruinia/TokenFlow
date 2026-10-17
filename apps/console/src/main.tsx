@@ -17,7 +17,9 @@ import { ActivityPane } from './ActivityPane';
 import {UsageOverview} from './UsageOverview';
 import { SettingsPane } from './SettingsPane';
 import { FileCleanupPane } from './FileCleanupPane';
+import { ConversationContinue, ToolboxTools, type ToolboxTool } from './ConversationHandoff';
 import { RepairChat, type RepairSession } from './RepairChat';
+import type { RepairPage } from './repair-context';
 import { useGatewayOverview } from './gateway-overview';
 import { useUsage } from './usage-data';
 import type { Notice } from './notify';
@@ -29,17 +31,20 @@ import './graphite.css';
 import './refinement.css';
 import './page-layout.css';
 
-type View='accounts'|'apis'|'agents'|'proxy'|'activity'|'usage'|'cleanup'|'settings';
+type View='accounts'|'apis'|'agents'|'proxy'|'activity'|'usage'|'toolbox'|'settings';
 const empty:LocalAgentSnapshot={state:'stopped',loginState:'idle',port:8317,logs:[],accounts:[],models:[],accountError:undefined,lastError:undefined,quotas:{},quotaBusy:false,providers:[],login:undefined};
 const post=(body:unknown={})=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 const gatewayText:Record<string,string>={stopped:'网关已停止',starting:'网关启动中…',stopping:'网关停止中…',failed:'网关启动失败'};
 const saved:[View,string,IconName][]=[['accounts','账号授权','user'],['apis','API 接口','plug']];
 const used:[View,string,IconName][]=[['agents','本地 Agent','model'],['proxy','API 代理','key']];
-const secondary:[View,string,IconName][]=[['usage','用量总览','tokens'],['activity','活动','history'],['cleanup','文件清理','workspace'],['settings','设置','sliders']];
+const secondary:[View,string,IconName][]=[['usage','用量总览','tokens'],['activity','活动','history'],['toolbox','工具箱','briefcase'],['settings','设置','sliders']];
 
 function App(){
  const [view,setView]=useState<View>('agents');
- const [pageSelections,setPageSelections]=useState<Partial<Record<View,MaintenanceContext>>>({});
+ const [tool,setTool]=useState<ToolboxTool>('cleanup');
+ const [repairPage,setRepairPage]=useState<RepairPage>('agents');
+ const repairAside=useRef<RepairPage>('agents');
+ const [pageSelections,setPageSelections]=useState<Partial<Record<RepairPage,MaintenanceContext>>>({});
  const setPageContext=useCallback((context:MaintenanceContext)=>setPageSelections(current=>({...current,[context.page]:context})),[]);
  const [theme,setTheme]=useState<'dark'|'light'>(()=>{try{return localStorage.getItem('token-flow.appearance')==='light'?'light':'dark';}catch{return 'dark';}});
  useEffect(()=>{document.documentElement.dataset.theme=theme;document.querySelector('meta[name=theme-color]')?.setAttribute('content',theme==='dark'?'#161719':'#f7f9fc');try{localStorage.setItem('token-flow.appearance',theme);}catch{}
@@ -55,7 +60,7 @@ function App(){
  const [accountContext,setAccountContext]=useState<{provider?:string;sourceId?:string}>({});
  const [warnings,setWarnings]=useState<string[]>([]);
  const overview=useGatewayOverview();
- const usage=useUsage(view!=='settings'&&view!=='cleanup');
+ const usage=useUsage(view!=='settings'&&view!=='toolbox');
  const firstLoad=useRef(true);
 
  const refresh=useCallback(async()=>{
@@ -88,7 +93,11 @@ function App(){
  },[accountIDs,local.accountsLoading,local.state]);
  useEffect(()=>{const previous=previousLoginStatus.current;previousLoginStatus.current=local.login?.status;if(previous&&['starting','waiting_for_browser','verifying'].includes(previous)&&local.login?.status==='completed')notifyNativeLoginChanged();},[local.login?.status]);
  const dismissNotice=useCallback(()=>setNotice(undefined),[]);
- useEffect(()=>{document.querySelector('main')?.scrollTo(0,0);},[view]);
+ useEffect(()=>{
+  if(view!=='toolbox'){repairAside.current=view;setRepairPage(view);return;}
+  setRepairPage(tool==='cleanup'?'cleanup':repairAside.current);
+ },[view,tool]);
+ useEffect(()=>{document.querySelector('main')?.scrollTo(0,0);},[view,tool]);
  const openRepair=useCallback((chain:MaintenanceChain,intent?:'codex-history')=>{setRepair({id:Date.now(),chain,intent});setRepairOpen(true);},[]);
  useEffect(()=>{const open=()=>setRepairOpen(true);window.addEventListener('token-flow:open-repair',open);return()=>window.removeEventListener('token-flow:open-repair',open);},[]);
 
@@ -139,12 +148,13 @@ function App(){
    {view==='proxy'&&<div className="tfPage tfProxyPage">{overview.error&&<LoadError message={overview.error} retry={overview.reload}/>} {!overview.loaded?(!overview.error&&<LoadingSkeleton label="正在加载 API 代理" variant="cards"/>):<KeyOutflow onContext={setPageContext} local={local} keys={exported} usage={usage} reload={overview.reload} notify={setNotice}/>}</div>}
    {view==='activity'&&<ActivityPane onContext={setPageContext} local={local} overview={overview} usage={usage}/>}
    {view==='usage'&&<div className="tfPage tfSettingsPage"><UsageOverview onContext={setPageContext} usage={usage} local={local}/></div>}
-   {view==='cleanup'&&<FileCleanupPane onRepair={prompt=>{setRepair({id:Date.now(),context:{page:'cleanup',intent:'file-cleanup'},prompt});setRepairOpen(true);}}/>}
+   {view==='toolbox'&&tool==='cleanup'&&<FileCleanupPane tools={<ToolboxTools tool={tool} onTool={setTool}/>} onRepair={prompt=>{setRepair({id:Date.now(),context:{page:'cleanup',intent:'file-cleanup'},prompt});setRepairOpen(true);}}/>}
+   {view==='toolbox'&&tool==='handoff'&&<ConversationContinue tools={<ToolboxTools tool={tool} onTool={setTool}/>} notify={setNotice}/>}
    {view==='settings'&&<SettingsPane local={local} disabled={busy} onAction={command} theme={theme} onTheme={setTheme}/>}
    </>}
   </main>
   <Notifications notice={notice} onDismiss={dismissNotice} warnings={warnings} onDismissWarning={text=>setWarnings(value=>value.filter(item=>item!==text))} gateway={localLoaded&&gatewayDown?{text:`${gatewayText[local.state]??'网关未运行'}${local.state==='failed'&&local.lastError?`：${local.lastError}`:''}`,canStart:['stopped','failed'].includes(local.state),busy,onStart:()=>void command('start')}:undefined}/>
-  <RepairChat selectionContext={pageSelections[view]} range={usage.range} page={view} accountContext={accountContext} local={local} session={repair} selectedAgent={selectedAgent} open={repairOpen} onToggle={setRepairOpen} onNew={()=>setRepair({id:Date.now()})}/>
+  <RepairChat selectionContext={pageSelections[repairPage]} range={usage.range} page={repairPage} accountContext={accountContext} local={local} session={repair} selectedAgent={selectedAgent} open={repairOpen} onToggle={setRepairOpen} onNew={()=>setRepair({id:Date.now()})}/>
  </div>;
 }
 createRoot(document.getElementById('root')!).render(<App/>);

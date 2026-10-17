@@ -33,6 +33,7 @@ import {UsageAttribution,mapNativeAccounts} from './usage-attribution.js';
 import {NativeUsageLogins} from './native-usage-logins.js';
 import {AgentUpdates} from './agent-updates.js';
 import { AgentConnections, modelSelectionsSchema, type ModelSelection, agentProcesses, targetSchema, type AgentPaths, type Target } from './agent-connections.js';
+import {ConversationHandoff, handoffAgentSchema} from './conversation-handoff.js';
 import { modelLabel } from './model-label.js';
 import { QoderLifecycle } from './agent-lifecycle.js';
 import { localCredential } from './local-credentials.js';
@@ -160,7 +161,7 @@ export async function createDesktopService(options:ServiceOptions) {
       const localRun=localMaintenance.snapshot();
       if(localRun.active&&localRun.runs[0]?.kind==='upgrade'&&!['/api/maintenance/stop','/api/maintenance/local/stop'].includes(route))return reply.code(409).send({error:'升级正在执行，请等待完成后启动维修或修改权限。'});
     }
-    if((req.method==='PUT'&&(route==='/api/settings'||route==='/api/local-agent/gateway'||route==='/api/sources/:id'))||(req.method==='DELETE'&&(route==='/api/local-agent/accounts/:id'||route==='/api/sources/:id'||route==='/api/maintenance/selection'))||(req.method==='POST'&&['/api/maintenance/local/upgrade','/api/sources','/api/sources/quick','/api/sources/:id/models','/api/sources/:id/check','/api/native-accounts/:provider/switch','/api/native-accounts/:provider/restore','/api/codex-accounts/switch','/api/codex-accounts/restore','/api/claude-desktop/connect','/api/claude-desktop/restore','/api/claude-desktop/official','/api/claude-desktop/restart','/api/a2a/connect','/api/a2a/codex-migration/restore','/api/a2a/program','/api/a2a/restart','/api/a2a/restore','/api/a2a/delete','/api/a2a/import','/api/providers/probe','/api/local-agent/:action','/api/local-agent/login/:action','/api/local-agent/accounts/:id','/api/local-agent/import-local/:provider'].includes(route??''))) {
+    if((req.method==='PUT'&&(route==='/api/settings'||route==='/api/local-agent/gateway'||route==='/api/sources/:id'))||(req.method==='DELETE'&&(route==='/api/local-agent/accounts/:id'||route==='/api/sources/:id'||route==='/api/maintenance/selection'))||(req.method==='POST'&&['/api/maintenance/local/upgrade','/api/sources','/api/sources/quick','/api/sources/:id/models','/api/sources/:id/check','/api/native-accounts/:provider/switch','/api/native-accounts/:provider/restore','/api/codex-accounts/switch','/api/codex-accounts/restore','/api/claude-desktop/connect','/api/claude-desktop/restore','/api/claude-desktop/official','/api/claude-desktop/restart','/api/a2a/connect','/api/a2a/codex-migration/restore','/api/a2a/program','/api/a2a/restart','/api/a2a/restore','/api/a2a/delete','/api/a2a/import','/api/a2a/handoff','/api/providers/probe','/api/local-agent/:action','/api/local-agent/login/:action','/api/local-agent/accounts/:id','/api/local-agent/import-local/:provider'].includes(route??''))) {
       if(localMaintenance.snapshot().active)return reply.code(409).send({error:'本地诊断或升级正在运行，请等待完成后修改配置。'});
       if(mutationOwner)return reply.code(409).send({error:'另一个启动或配置操作正在进行，请稍后重试。'});
       mutationOwner=req.id;
@@ -184,6 +185,7 @@ export async function createDesktopService(options:ServiceOptions) {
     catch(error){throw new RunnerCoreError(error instanceof Error?error.message:'Local Agent 操作失败',{code:'local_agent_error',statusCode:400});}
   };
   const connections=new AgentConnections(root,options.agentPaths,options.agentProcesses);
+  const handoff=new ConversationHandoff(root,connections.paths);
   const claudeDesktop=new ClaudeDesktopConnections(options.secrets,options.claudeDesktop);
   const claudeTerminal=new ClaudeTerminalLifecycle(undefined,undefined,undefined,{},dirname(connections.paths.claude));
   const switchJournal=new SwitchJournal(join(root,'switch-failures.json'));await switchJournal.load();
@@ -689,6 +691,8 @@ export async function createDesktopService(options:ServiceOptions) {
     }
     return record;
   });
+  app.get('/api/a2a/conversations',async req=>{const {agent}=z.object({agent:handoffAgentSchema.optional()}).parse(req.query);return {conversations:await handoff.list(agent)};});
+  app.post('/api/a2a/handoff',async req=>{const input=z.object({source:handoffAgentSchema,id:z.string().min(1).max(700),target:handoffAgentSchema}).strict().parse(req.body);return handoff.transfer(input);});
   app.get('/api/maintenance',async()=>({...maintenance.snapshot(),...approval.snapshot()}));
   app.delete('/api/maintenance/selection',async()=>{
 

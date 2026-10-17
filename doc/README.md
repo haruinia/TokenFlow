@@ -17,6 +17,7 @@
 | 官方登录能否与网关模型并存，Qoder／Codex 名称复核 | [官方登录与自定义模型](testing/official-login-coexist.md) |
 | Windows 进程、授权、窗口与完整功能测试 | [Windows 兼容与验收](待修复的问题win兼容.md) |
 | 文件清理的范围与恢复方式 | [文件清理](guides/file-cleanup.md) |
+| 继续对话已完成的部分和桌面验收 | [继续对话交接](继续对话交接.md) |
 
 ## 技术参考
 

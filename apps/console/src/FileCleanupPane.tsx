@@ -1,4 +1,4 @@
-import {useEffect,useLayoutEffect,useRef,useState,type KeyboardEvent} from 'react';
+import {useEffect,useLayoutEffect,useRef,useState,type KeyboardEvent,type ReactNode} from 'react';
 import {cleanupBytes,cleanupCategoryLabels,cleanupRiskLabels,cleanupPresets,type CleanupMethod,type CleanupCategory,type CleanupEntry,type CleanupRisk,type CleanupSnapshot,type CleanupScanScope} from '../../shared/file-cleanup';
 import {Icon} from './Icons';
 import {requestJSON} from './request';
@@ -18,7 +18,7 @@ function ScanScope({data,disabled,onAdd,onRemove,onScope}:{data:CleanupSnapshot;
  })}</div><div className="tfCleanupProjects"><header className="tfCleanupSectionHead tfCleanupProjectsHead"><div><h2>扫描位置</h2><span>查找缓存、依赖与打包文件</span></div><div className="tfCleanupScopeActions"><label><input type="checkbox" checked={data.scanScope==='all'} disabled={disabled} onChange={event=>onScope(event.target.checked?'all':'common')}/>扫描所有磁盘</label><button type="button" className="textButton" disabled={!data.capabilities.pickDirectory||disabled} onClick={onAdd}><Icon name="plus" size={14}/>添加位置</button></div></header>{data.scanScope==='all'&&<ul>{data.diskRoots.map(root=><li key={root}><Icon name="briefcase" size={15}/><span>{root}</span></li>)}</ul>}{!!data.projectRoots.length&&<ul>{data.projectRoots.map((root,index)=><li key={root}><Icon name="briefcase" size={15}/><span>{root}</span><button type="button" className="textButton" disabled={disabled} aria-label={`移除扫描位置 ${root}`} onClick={()=>onRemove(index)}>移除</button></li>)}</ul>}</div><p className="tfCleanupScopeNote">只读取文件信息；跳过符号链接、系统运行目录和无权访问的位置。</p></div>;
 }
 
-export function FileCleanupPane({onRepair}:{onRepair?:(prompt:string)=>void}){
+export function FileCleanupPane({onRepair,tools}:{onRepair?:(prompt:string)=>void;tools?:ReactNode}){
  const [tab,setTab]=useState<'scan'|'scope'|'help'>('scan');
  const tabItems=[['scan','扫描清理'],['scope','扫描范围'],['help','清理帮助']] as const;
  const tabButtons=useRef<Partial<Record<typeof tab,HTMLButtonElement|null>>>({});
@@ -67,6 +67,8 @@ export function FileCleanupPane({onRepair}:{onRepair?:(prompt:string)=>void}){
  const toggle=(id:string)=>{if(!selected.has(id)&&selected.size>=200){setError('每次最多清理 200 项，请分批处理。');return;}setSelected(current=>{const next=new Set(current);next.has(id)?next.delete(id):next.add(id);return next;});};
  const scope=data&&<ScanScope data={data} disabled={disabled} onAdd={()=>void act('/project-roots')} onRemove={index=>void act(`/project-roots/${index}`,{method:'DELETE'})} onScope={scope=>void act('/scope',post({scope}))}/>;
  return <div className="tfPage tfCleanup tfCleanupPage">
+  {tools}
+  <div className="tfCleanupWork" id={tools?'toolbox-panel-cleanup':undefined} role={tools?'tabpanel':undefined} aria-labelledby={tools?'toolbox-tab-cleanup':undefined}>
   <header className="tfPageHead tfCleanupPageHead"><h1 ref={heading} tabIndex={-1}>文件清理</h1><button type="button" className={scanning?'':'primary'} disabled={!data||working||confirm||data.status==='cleaning'} onClick={()=>{setTab('scan');if(scanning){void act('/cancel');return;}setRisk('all');setCategory('all');setQuery('');void act('/scan');}}><Icon name={scanning?'close':data?.scanId?'refresh':'search'} size={15}/>{scanning?'停止扫描':data?.status==='cleaning'?'正在清理…':data?.scanId?'重新扫描':'开始扫描'}</button></header>
   <div className="tfCleanupTabs" role="tablist" aria-label="文件清理功能">{tabItems.map(([id,label])=><button type="button" key={id} id={`cleanup-tab-${id}`} ref={node=>{tabButtons.current[id]=node;}} role="tab" aria-selected={tab===id} aria-controls={`cleanup-panel-${id}`} tabIndex={tab===id?0:-1} disabled={confirm||active&&id==='scope'} onKeyDown={event=>tabKey(event,id)} onClick={()=>setTab(id)}>{label}{id==='scope'&&!!data?.projectRoots.length&&<span>{data.projectRoots.length}</span>}</button>)}</div>
   <div className="tfCleanupBody" ref={body}>
@@ -107,5 +109,6 @@ export function FileCleanupPane({onRepair}:{onRepair?:(prompt:string)=>void}){
   </section>
   </div>
   {data?.scanId&&!active&&tab==='scan'&&<footer className="tfCleanupFoot"><strong>已选 {chosen.length} 项<span> · {cleanupBytes(bytes)}</span></strong><div className="tfCleanupFootActions">{confirm?<><button type="button" className="textButton" disabled={working} onClick={()=>setConfirm(false)}>返回选择</button><button type="button" className="primary" disabled={working||!chosen.length||!canClean||data.status!=='complete'||!closedApps||(hasReview&&!reviewed)||(method==='delete'&&permanentText!=='永久删除')} onClick={()=>void act('/clean',post({scanId:data.scanId,ids:chosen.map(e=>e.id),method,confirmReview:reviewed,confirmProtected:hasProtected,confirmPermanent:method==='delete'&&permanentText==='永久删除'})).then(ok=>{if(ok){setConfirm(false);setSelected(new Set());}})}>{method==='delete'?'确认永久删除':`确认移入${trashName}`}</button></>:<><div className="tfCleanupMethod"><select aria-label="清理方式" value={method} disabled={disabled} onChange={e=>setMethod(e.target.value as CleanupMethod)}><option value="trash" disabled={!data.capabilities.trash}>移入{trashName}</option><option value="delete" disabled={!data.capabilities.delete}>永久删除</option></select><Icon name="chevron" size={12}/></div><button type="button" className="primary" disabled={disabled||!canClean||data.status!=='complete'||!chosen.length} onClick={()=>{resultsScroll.current=body.current?.scrollTop??0;setConfirm(true);setClosedApps(false);setReviewed(false);setPermanentText('');}}>清理所选</button></>}</div></footer>}
+  </div>
  </div>;
 }
