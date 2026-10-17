@@ -31,7 +31,7 @@ export function providerLoginOverlay(replacements, patchDir) {
     if (from < 0 || to < 0) throw new Error('ZCode login source changed');
     section = section.slice(0, from) + `
  zcAuth := zcode.NewZCodeAuth(h.cfg)
- flow, errStart := zcAuth.StartCLIFlow(c.Request.Context())
+ flow, errStart := zcAuth.StartCLIFlowFor(c.Request.Context(), c.Query("provider"))
  if errStart != nil {
   c.JSON(http.StatusBadGateway, gin.H{"error":"ZCode official authorization could not be started"})
   return

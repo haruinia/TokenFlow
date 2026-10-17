@@ -26,7 +26,7 @@ export function ClaudeDesktopPanel({clientSwitch,local,usage,notify}:{clientSwit
  const available=sourceOptions(local);
  const models=draft??status?.selections??[];
  const tooMany=models.length>claudeDesktopModelLimit;const blocked=busy||!status||!!status.unavailableReason;
- const rows=usage.allRows.filter(row=>row.day===localDay(new Date())&&row.target==='claude');
+ const rows=usage.allRows.filter(row=>row.day===localDay(new Date())&&row.target==='claude-desktop');
  const askConnect=(choices=models)=>{const fallback=choices[0];const fast=choices.find(item=>item.model===status?.fastModel)??fallback;setRoleDefault(fallback?.model??'');setRoleFast(fast?.model??'');setAction('connect');};
  const apply=async()=>{if(!action||busy)return;setBusy(true);try{
   const current=await refresh();

@@ -335,6 +335,8 @@ to{opacity:1;transform:none}
 .tfRestartOptions label{min-width:0;max-width:100%}
 .tfRestartOptions select{max-width:100%}
 .tfDialog{padding:0;border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--text);width:min(520px,calc(100vw - 32px));max-height:calc(100dvh - 48px);overflow:auto;box-shadow:0 20px 80px color-mix(in srgb,var(--text) 15%,transparent)}
+/* Native window drag regions behind a modal otherwise swallow pointer and wheel input. */
+.tfDialog{-webkit-app-region:no-drag}
 .tfDialog::backdrop{background:color-mix(in srgb,var(--text) 24%,transparent)}
 .tfDialogContent{padding:24px}
 .tfDialogContent>header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}

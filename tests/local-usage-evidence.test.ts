@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createHmac} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
-import {codexRouteEvidence,gatewayResponseEvidence,routeChannel} from '../packages/core/src/local-usage-evidence.js';
+import {claudeDesktopViaGateway,codexRouteEvidence,gatewayResponseEvidence,routeChannel} from '../packages/core/src/local-usage-evidence.js';
 import {LocalUsageParser} from '../packages/core/src/local-usage.js';
 const time='2026-10-13T08:00:00Z',ms=Date.parse(time);
 describe('historical usage evidence',()=>{
@@ -25,6 +25,17 @@ describe('historical usage evidence',()=>{
    add.run(ms/1000,'mcp','codex_mcp::rmcp_client','https://chatgpt.com/backend-api/codex/responses');db.close();const before=await stat(path);
    const routes=await codexRouteEvidence(root,[9527]);expect(routes).toHaveLength(4);expect(routeChannel(routes,'official',time)).toBe('official');expect(routeChannel(routes,'api',time)).toBe('api');expect(routeChannel(routes,'proxy',time)).toBe('gateway');expect(routeChannel(routes,'other-proxy',time)).toBe('unknown');expect((await stat(path)).mtimeMs).toBe(before.mtimeMs);
    const parser=new LocalUsageParser('codex','proxy',{channelFor:(id,stamp)=>routeChannel(routes,id,stamp)});parser.accept({type:'session_meta',payload:{id:'proxy',model_provider:'openai'}});parser.accept({type:'token_usage_record',timestamp:time,payload:{response_id:'plain-response',usage:{input_tokens:10,output_tokens:5}}});expect(parser.rows()).toEqual([]);
+  }finally{await rm(root,{recursive:true,force:true});}
+ });
+ it('treats Claude Desktop third-party logs as gateway usage only while its applied profile targets this gateway',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'tf-desktop-route-'));try{
+   const id='11111111-2222-3333-4444-555555555555',library=join(root,'configLibrary');await mkdir(library,{recursive:true});
+   const write=async(mode:string,url:string,extra:object={})=>{await writeFile(join(root,'claude_desktop_config.json'),JSON.stringify({deploymentMode:mode}));await writeFile(join(library,'_meta.json'),JSON.stringify({appliedId:id,...extra}));await writeFile(join(library,`${id}.json`),JSON.stringify({inferenceProvider:'gateway',inferenceGatewayBaseUrl:url}));};
+   await write('3p','http://127.0.0.1:9527');expect(await claudeDesktopViaGateway(root,[9527])).toBe(true);expect(await claudeDesktopViaGateway(root,[8317])).toBe(false);
+   await write('1p','http://127.0.0.1:9527');expect(await claudeDesktopViaGateway(root,[9527])).toBe(false);
+   await write('3p','https://gateway.example.test');expect(await claudeDesktopViaGateway(root,[9527])).toBe(false);
+   await write('3p','http://127.0.0.1:9527',{hybridPointer:{bootstrapUrl:'https://example.test'}});expect(await claudeDesktopViaGateway(root,[9527])).toBe(false);
+   expect(await claudeDesktopViaGateway(join(root,'missing'),[9527])).toBe(false);
   }finally{await rm(root,{recursive:true,force:true});}
  });
  it('matches the salted response identity in old gateway traces, independently of model aliases',async()=>{

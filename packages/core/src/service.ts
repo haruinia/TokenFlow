@@ -221,8 +221,8 @@ export async function createDesktopService(options:ServiceOptions) {
   const cursorNativeUsage=await CursorNativeUsage.open(root,()=>proxy.cursor.nativeUsageReaders());
   // A managed Agent uses the model selected here even if an existing conversation retains an older model ID.
   // Bind by saved connection key, never by its editable display name or by an arbitrary single-model key.
-  const fixedRoutes=new Map<string,{target:Target;sourceId:string;model:string;selections?:ModelSelection[];modelAliases?:Record<string,string>}>((await connections.status()).flatMap(t=>t.connection?.state==='applied'?[[t.connection.keyId,{target:t.id,sourceId:t.connection.sourceId,model:t.connection.model,selections:t.connection.selections,modelAliases:t.connection.modelAliases}] as const]:[]));
-  const desktopRoute=await claudeDesktop.route().catch(()=>null);if(desktopRoute?.keyId&&desktopRoute.selections[0])fixedRoutes.set(desktopRoute.keyId,{target:'claude',...desktopRoute.selections[0],selections:desktopRoute.selections,modelAliases:desktopRoute.modelAliases});
+  const fixedRoutes=new Map<string,{target:Target|'claude-desktop';sourceId:string;model:string;selections?:ModelSelection[];modelAliases?:Record<string,string>}>((await connections.status()).flatMap(t=>t.connection?.state==='applied'?[[t.connection.keyId,{target:t.id,sourceId:t.connection.sourceId,model:t.connection.model,selections:t.connection.selections,modelAliases:t.connection.modelAliases}] as const]:[]));
+  const desktopRoute=await claudeDesktop.route().catch(()=>null);if(desktopRoute?.keyId&&desktopRoute.selections[0])fixedRoutes.set(desktopRoute.keyId,{target:'claude-desktop',...desktopRoute.selections[0],selections:desktopRoute.selections,modelAliases:desktopRoute.modelAliases});
   const codexContext=new CodexContext(root,connections.paths.codex,gatewayContext);
   const codexContextScopes=async()=>((await connections.status()).find(t=>t.id==='codex')?.backups??[]).flatMap(record=>(record.selections??[record]).map(item=>({owner:record.keyId,source:item.sourceId,model:item.model})));
   const codexLifecycle=new CodexSwitchLifecycle(()=>options.agentProcesses?options.agentProcesses('codex'):agentProcesses('codex'));
@@ -508,7 +508,7 @@ export async function createDesktopService(options:ServiceOptions) {
     const now=Date.now();while(probeTimes.length&&probeTimes[0]<now-60000)probeTimes.shift();if(probeTimes.length>=6)throw new Error('一分钟内已执行 6 次最小调用，请先分析已有结果。');
     probeActive=true;probeTimes.push(now);const controller=new AbortController();probeControllers.add(controller);let created:Awaited<ReturnType<typeof gatewayKeys.create>>|undefined;
     try{
-      created=await gatewayKeys.create(gatewayKeyInput.parse({name:'维修 · 实际调用检查',models:[model],sourceId,tokenLimit:4096}));
+      created=await gatewayKeys.create(gatewayKeyInput.parse({name:'内部 · 维修实际调用检查',models:[model],sourceId,tokenLimit:4096}));
       const result=await probeModelHTTP(protocol,model,(body,requestSignal)=>fetch(`http://127.0.0.1:${address.port}/v1/${protocol}`,{method:'POST',headers:{authorization:`Bearer ${created!.apiKey}`,'content-type':'application/json',...(protocol==='messages'?{'anthropic-version':'2023-06-01'}:{})},body:JSON.stringify(body),redirect:'error',signal:requestSignal}),AbortSignal.any([signal,controller.signal]));
       return {...result,sourceId,model,target,configurationState:installed?.configurationState,selectedKeyChecked:!!key,clientVerified:false,credentialMode:'使用绑定所选来源和模型的临时诊断 Key，测试后撤销；没有读取或验证客户端保存的原 Key。'};
     }finally{probeActive=false;probeControllers.delete(controller);if(created)await gatewayKeys.remove(created.key.id);}
@@ -536,8 +536,8 @@ export async function createDesktopService(options:ServiceOptions) {
     const target=(await connections.status()).find(t=>t.id==='codex')!;
     if(target.connection)await restoreConnection(target.connection.id,{revision:target.revision,allowRunning:input.allowRunning},input.model.slice('codex/'.length),input.restoreHistory);
     else await restoreCodexHistory(input.restoreHistory,input.model.slice('codex/'.length));
-    await codexAccounts.switch({...input,revision:target.connection?(await codexAccounts.status()).revision:input.revision},credential);
-    await enableAttribution();return codexAccountStatus();
+    const switched=await codexAccounts.switch({...input,revision:target.connection?(await codexAccounts.status()).revision:input.revision},credential);
+    await enableAttribution();return {...await codexAccountStatus(),message:switched.message};
     });
   });
   app.post('/api/codex-accounts/restore',async req=>{
@@ -641,7 +641,7 @@ export async function createDesktopService(options:ServiceOptions) {
       const local=await localSnapshot();
       await claudeDesktop.connect({revision:input.revision,selections:input.selections,fastModel:input.fast?.model,origin:`http://${req.headers.host}`,keyId:created.key.id,key:created.apiKey,labels:Object.fromEntries(input.selections.map(s=>[s.model,modelLabel(local.models,s.model,local.apiSources)]))});saved=true;
       const applied=await claudeDesktop.route();
-      fixedRoutes.set(created.key.id,{target:'claude',...input.selections[0],selections:input.selections,modelAliases:applied?.modelAliases});
+      fixedRoutes.set(created.key.id,{target:'claude-desktop',...input.selections[0],selections:input.selections,modelAliases:applied?.modelAliases});
       if(prior.keyId){fixedRoutes.delete(prior.keyId);if(gatewayKeys.list().some(k=>k.id===prior.keyId))await gatewayKeys.remove(prior.keyId);}
     });}catch(error){const current=await claudeDesktop.status().catch(()=>null);if(!saved&&current?.keyId!==created.key.id)await gatewayKeys.remove(created.key.id);if(saved)throw Object.assign(new Error('Claude Desktop 模型配置已保存，重新打开未确认。请手动打开 Claude Desktop；原登录和恢复备份保留。'),{statusCode:409});throw error;}
     return {...await claudeDesktopStatus(),message:process.platform==='linux'?'配置已保存，请重新打开 Claude Desktop。':'Claude Desktop 已重新打开，请在新会话确认模型。'};
@@ -956,7 +956,7 @@ export async function createDesktopService(options:ServiceOptions) {
   });
   app.post('/api/local-agent/import-local/:provider',async req=>{
 
-    const provider=z.enum(['trae','workbuddy','zcode','cursor']).parse((req.params as {provider:string}).provider);
+    const provider=z.enum(['trae','workbuddy','workbuddy-ai','zcode','cursor']).parse((req.params as {provider:string}).provider);
     return localOperation(()=>proxy.importLocal(provider));
   });
   // Stable authenticated gateway for external local AI clients. Translation is performed by CLIProxyAPI.

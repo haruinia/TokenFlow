@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chartSpan, dailyTokens, durationText, groupUsage, localDay, percentText, sourceKey, totalsOf, type UsageRow } from '../apps/console/src/usage-model.js';
+import { chartSpan, dailyTokens, durationText, groupUsage, localDay, percentText, sourceKey, spentByPlatform, totalsOf, type UsageRow } from '../apps/console/src/usage-model.js';
 
 const row = (overrides: Partial<UsageRow> = {}): UsageRow => ({
   day: '2026-10-12', target: 'codex', keyId: 'k', keyName: 'A2A · codex', sourceId: 'acct', model: 'codex/gpt-5',
@@ -56,6 +56,16 @@ describe('usage model', () => {
   it('formats durations', () => {
     expect([durationText(null), durationText(420), durationText(2500), durationText(42_000), durationText(180_000)]).toEqual(['—', '420 ms', '2.5 秒', '42 秒', '3 分钟']);
   });
+});
+
+it('charges account authorization only for the serving account or a proven official local login',()=>{
+ const antigravity={id:'antigravity',accounts:[{id:'ag-1'}]},claude={id:'claude',accounts:[{id:'cl-1'}]};
+ const desktopViaGateway=row({target:'claude-desktop',sourceId:'ag-1',model:'antigravity/claude-opus-4-6-thinking',origin:'gateway',channel:'official'});
+ expect(spentByPlatform(desktopViaGateway,antigravity)).toBe(true);expect(spentByPlatform(desktopViaGateway,claude)).toBe(false);
+ const local=(channel:'official'|'api'|'unknown')=>row({target:'claude-desktop',sourceId:'',model:'claude-sonnet-4-6',origin:'native',provider:'claude',channel});
+ expect(spentByPlatform(local('official'),claude)).toBe(true);expect(spentByPlatform(local('unknown'),claude)).toBe(false);expect(spentByPlatform(local('api'),claude)).toBe(false);
+ expect(spentByPlatform(row({sourceId:'',model:'claude/claude-sonnet-4-6',origin:'gateway',channel:'official'}),claude)).toBe(true);
+ expect(spentByPlatform(row({sourceId:'api-src',model:'api-0123456789abcdef01234567/claude-sonnet',origin:'gateway',channel:'api'}),claude)).toBe(false);
 });
 
 it('splits cache writes from uncached input without adding reasoning again, and uses weighted streaming rate',()=>{

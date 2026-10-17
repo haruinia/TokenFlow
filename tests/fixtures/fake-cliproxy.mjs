@@ -100,7 +100,8 @@ const server = createServer(async(req,res) => {
    const target=encodeURIComponent(`https://www.trae.ai/authorization?login_trace_id=${state}&auth_callback_url=http%3A%2F%2F127.0.0.1%3A1455%2Fauthorize`);
    return send(200,{status:'ok',state,url:fixtureMode==='unsafe'?'https://evil.test/login':`https://www.trae.ai/login?redirect_url=${target}`});
   }
-  return send(200,{status:'ok',state,url:fixtureMode==='unsafe'?'https://evil.test/oauth/authorize':`${provider==='antigravity'?'https://accounts.google.com/o/oauth2/v2/auth':`https://${provider==='codex'?'auth.openai.com':'claude.ai'}/oauth/authorize`}?state=${state}&code_challenge=fixture`});
+  const redirect=provider==='claude'?`&redirect_uri=${encodeURIComponent(url.searchParams.get('mode')==='manual'?'https://platform.claude.com/oauth/code/callback':'http://localhost:54545/callback')}`:'';
+  return send(200,{status:'ok',state,url:fixtureMode==='unsafe'?'https://evil.test/oauth/authorize':`${provider==='antigravity'?'https://accounts.google.com/o/oauth2/v2/auth':`https://${provider==='codex'?'auth.openai.com':'claude.ai'}/oauth/authorize`}?state=${state}&code_challenge=fixture${redirect}`});
  }
  if(path==='/get-auth-status'){const s=sessions.get(url.searchParams.get('state'));return send(200,{status:s?.status??'error',error:'opaque-error-secret-never-expose'});}
  if(path==='/oauth-session'){const s=sessions.get(url.searchParams.get('state'));const cancelled=s?.status==='wait';if(cancelled){s.status='error';cancelCount++;}return send(200,{status:'ok',cancelled});}
@@ -125,7 +126,7 @@ const server = createServer(async(req,res) => {
   return send(200,{status_code:404,header:{},body:'not found'});
  }
  if(path==='/oauth-callback') {
-  let body='';for await(const c of req)body+=c;const input=JSON.parse(body);const callback=new URL(input.redirect_url);const s=sessions.get(callback.searchParams.get('state'));
+  let body='';for await(const c of req)body+=c;const input=JSON.parse(body);const s=sessions.get(input.state??new URL(input.redirect_url).searchParams.get('state'));
   if(!s||s.status!=='wait')return send(409,{error:'stale'});callbackCount++;s.status='ok';saveAccount(s);return send(200,{status:'ok'});
  }
  return send(404,{error:'unknown fixture route'});

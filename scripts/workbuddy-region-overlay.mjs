@@ -10,7 +10,11 @@ export function workbuddyRegionOverlay(replacements,dir){
   const start=s.indexOf('\tvar candidates []string',s.indexOf('func ImportLocalAuth()'));
   const end=s.indexOf('\n\tvar raw []byte',start);
   if(start<0||end<0)throw Error('WorkBuddy import paths anchor changed');
-  s=s.slice(0,start)+'\tcandidates := localWorkBuddyAuthPaths(runtime.GOOS, homeDir, os.Getenv)\n'+s.slice(end);
+  s=s.slice(0,start)+'\tcandidates := localWorkBuddyAuthPathsFor(runtime.GOOS, homeDir, os.Getenv, overseas)\n'+s.slice(end);
+  s=replace(s,'func ImportLocalAuth() (*WorkBuddyTokenData, error) {',`func ImportLocalAuth() (*WorkBuddyTokenData, error) { return ImportLocalAuthRegion(false) }
+
+// ImportLocalAuthRegion reads the domestic WorkBuddy or the international WorkBuddyAI desktop login.
+func ImportLocalAuthRegion(overseas bool) (*WorkBuddyTokenData, error) {`);
   // A logged-out client may retain an auth file; never import that stale session.
   s=replace(s,'for _, p := range candidates {','for _, p := range candidates {\n if _, err := os.Stat(p+".logged-out"); err == nil || !os.IsNotExist(err) { continue }');
   s=replace(s,'cfg    *config.Config','cfg    *config.Config\n base string');
@@ -33,6 +37,11 @@ func (w *WorkBuddyAuth) setCommonHeaders`);
   const start=s.indexOf('func (h *Handler) RequestWorkBuddyToken'),end=s.indexOf('func (h *Handler) ImportWorkBuddyLocalToken',start);let part=s.slice(start,end);
   part=replace(part,'wbAuth := workbuddy.NewWorkBuddyAuth(h.cfg)','wbAuth := workbuddy.NewWorkBuddyAuth(h.cfg)\n overseas := c.Query("region") == "overseas"\n if c.Query("region") != "" && !overseas { c.JSON(400,gin.H{"error":"unsupported region"}); return }\n if overseas { wbAuth.SetDomain("www.workbuddy.ai") }');
   part=replace(part,'record := &coreauth.Auth{','if overseas { fileName = "workbuddy-overseas-"+strings.TrimPrefix(fileName,"workbuddy-"); label += " · 海外" }\n record := &coreauth.Auth{');
-  return s.slice(0,start)+part+s.slice(end);
+  s=s.slice(0,start)+part+s.slice(end);
+  const importStart=s.indexOf('func (h *Handler) ImportWorkBuddyLocalToken'),importEnd=s.indexOf('\nfunc ',importStart+1);let imported=s.slice(importStart,importEnd);
+  imported=replace(imported,'tokenData, errImport := workbuddy.ImportLocalAuth()','overseas := c.Query("region") == "overseas"\n if c.Query("region") != "" && !overseas { c.JSON(400,gin.H{"error":"unsupported region"}); return }\n tokenData, errImport := workbuddy.ImportLocalAuthRegion(overseas)');
+  imported=replace(imported,'wbAuth := workbuddy.NewWorkBuddyAuth(h.cfg)','wbAuth := workbuddy.NewWorkBuddyAuth(h.cfg)\n if overseas { wbAuth.SetDomain("www.workbuddy.ai"); tokenData.Domain = "www.workbuddy.ai" }');
+  imported=replace(imported,'record := &coreauth.Auth{','if overseas { fileName = "workbuddy-overseas-"+strings.TrimPrefix(fileName,"workbuddy-"); label += " · 海外" }\n record := &coreauth.Auth{');
+  return s.slice(0,importStart)+imported+s.slice(importEnd);
  });
 }

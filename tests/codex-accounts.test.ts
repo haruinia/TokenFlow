@@ -7,7 +7,8 @@ import { parse } from 'smol-toml';
 import { CodexAccounts } from '../packages/core/src/codex-accounts.js';
 const roots:string[]=[];afterEach(async()=>{for(const root of roots.splice(0))await rm(root,{recursive:true,force:true});});
 const oauth=(id:string)=>({account_id:id,access_token:`secret-access-${id}`,refresh_token:`secret-refresh-${id}`,id_token:`x.${Buffer.from(JSON.stringify({email:`${id}@example.test`})).toString('base64url')}.x`});
-async function setup(){const root=await mkdtemp(join(await realpath(tmpdir()),'codex-switch-'));roots.push(root);await mkdir(join(root,'codex'));const config=join(root,'codex/config.toml'),auth=join(root,'codex/auth.json');let pids:number[]=[];return {root,config,auth,manager:new CodexAccounts(root,config,async()=>pids),running:(value:number[])=>pids=value};}
+const quiet={managed:async()=>[],loginStatus:async()=>'ok' as const};
+async function setup(){const root=await mkdtemp(join(await realpath(tmpdir()),'codex-switch-'));roots.push(root);await mkdir(join(root,'codex'));const config=join(root,'codex/config.toml'),auth=join(root,'codex/auth.json');let pids:number[]=[];return {root,config,auth,manager:new CodexAccounts(root,config,async()=>pids,quiet),running:(value:number[])=>pids=value};}
 it('switches between two members of the same ChatGPT workspace',async()=>{
  const {config,auth,manager}=await setup();await writeFile(config,'model = "gpt-5"\n');
  const member=(name:string)=>({...oauth('team'),access_token:`secret-access-${name}`,id_token:`x.${Buffer.from(JSON.stringify({email:`${name}@example.test`})).toString('base64url')}.x`});
@@ -26,7 +27,7 @@ it('switches two accounts and default models, retains original backup and restor
  expect(JSON.parse(await readFile(auth,'utf8')).tokens.account_id).toBe('b');
  expect(JSON.stringify(await manager.status())).not.toMatch(/secret-|refresh_token|access_token/);
  for(const path of [auth,config,join(root,'codex-account-backup.json')])expect((await stat(path)).mode&0o777).toBe(0o600);
- const restarted=new CodexAccounts(root,config,async()=>[]);await restarted.restore({revision:(await restarted.status()).revision,allowRunning:false});expect(await readFile(config,'utf8')).toBe(original);expect(await readFile(auth,'utf8')).toBe('{"original":"secret-native"}');expect((await restarted.status()).backup).toBeNull();
+ const restarted=new CodexAccounts(root,config,async()=>[],quiet);await restarted.restore({revision:(await restarted.status()).revision,allowRunning:false});expect(await readFile(config,'utf8')).toBe(original);expect(await readFile(auth,'utf8')).toBe('{"original":"secret-native"}');expect((await restarted.status()).backup).toBeNull();
 });
 it('rejects stale previews, running processes, invalid credentials and external edits',async()=>{
  const {manager,config,auth,running}=await setup();const input={revision:(await manager.status()).revision,allowRunning:false,model:'codex/gpt-6-sol'};
@@ -97,4 +98,21 @@ it('distinguishes unsupported credential storage and ignores stale profiles with
  await writeFile(config,'');expect(await manager.status()).toMatchObject({loginState:'signed-in',email:'a@example.test'});
  for(const value of [{tokens:{...oauth('a'),access_token:''}},{auth_mode:'api_key',tokens:oauth('a')},{OPENAI_API_KEY:'private-api-key',tokens:oauth('a')}]){await writeFile(auth,JSON.stringify(value));expect(await manager.status()).toMatchObject({loginState:'signed-out',email:null,accountId:null});}
  await writeFile(auth,'invalid');expect(await manager.status()).toMatchObject({loginState:'unreadable',email:null});
+});
+it('refuses to switch when an administrator layer forces another credential store',async()=>{
+ const {root,config,auth}=await setup();await writeFile(config,'');await writeFile(auth,JSON.stringify({tokens:oauth('a')}));
+ const manager=new CodexAccounts(root,config,async()=>[],{managed:async()=>['not toml [','cli_auth_credentials_store = "keyring"\n'],loginStatus:async()=>'ok'});
+ expect((await manager.status()).readError).toContain('keyring');
+ await expect(manager.switch({revision:(await manager.status()).revision,allowRunning:false,model:'codex/gpt-5'},oauth('b'))).rejects.toMatchObject({statusCode:409});
+ expect(JSON.parse(await readFile(auth,'utf8')).tokens.account_id).toBe('a');
+ const allowed=new CodexAccounts(root,config,async()=>[],{managed:async()=>['cli_auth_credentials_store = "file"\n'],loginStatus:async()=>'ok'});
+ expect((await allowed.status()).readError).toBe('');
+});
+it('reports when codex login status cannot read the switched login',async()=>{
+ const {root,config}=await setup();await writeFile(config,'');const homes:string[]=[];
+ for(const [check,expected] of [['ok',undefined],['failed',expect.stringContaining('codex login status')],['unavailable',expect.stringContaining('未找到')]] as const){
+  const manager=new CodexAccounts(root,config,async()=>[],{managed:async()=>[],loginStatus:async home=>{homes.push(home);return check;}});
+  expect((await manager.switch({revision:(await manager.status()).revision,allowRunning:false,model:'codex/gpt-5'},oauth(check))).message).toEqual(expected);
+ }
+ expect(new Set(homes)).toEqual(new Set([join(root,'codex')]));
 });

@@ -4,8 +4,8 @@ import { isoFromAny, num, percent, pick, record, str, parseJSON, clampPercent, Q
 import type { QuotaCall, QuotaProvider, QuotaReport, QuotaWindow } from './types.js';
 
 const headers = {
-  Authorization: 'Bearer $TOKEN$', 'x-xai-token-auth': 'xai-grok-cli', 'x-grok-client-version': '0.2.91',
-  accept: '*/*', 'user-agent': 'grok-pager/0.2.91 grok-shell/0.2.91 (macos; aarch64)',
+  Authorization: 'Bearer $TOKEN$', 'x-xai-token-auth': 'xai-grok-cli', 'x-grok-client-version': '1.0.62',
+  accept: '*/*', 'user-agent': 'grok-pager/1.0.62 grok-shell/1.0.62 (macos; aarch64)',
 };
 const cents = (value: unknown) => {const n = num(value); return n === undefined ? undefined : n / 100;};
 

@@ -22,8 +22,9 @@ export const qoderQuota: QuotaProvider = {
 
     const windows: QuotaWindow[] = [];
 
-    for(const [id,label] of [['userQuota','套餐 Credits'],['addOnQuota','加购 Credits'],['orgResourcePackage','组织资源包']] as const){
-      const entry=record(data[id]);if(!entry||entry.available===false)continue;
+    // Same aliases as qodercli: snake_case first, and the organization package may arrive as a shared quota.
+    for(const [id,keys,label] of [['userQuota',['user_quota','userQuota'],'套餐 Credits'],['addOnQuota',['add_on_quota','addOnQuota'],'加购 Credits'],['orgResourcePackage',['org_resource_package','orgResourcePackage','shared_quota','sharedQuota'],'组织资源包']] as const){
+      const entry=record(pick(data,...keys));if(!entry||entry.available===false)continue;
       const total=num(pick(entry,'total','cap'));let used=num(entry.used);const remaining=num(entry.remaining);
       if(used===undefined&&total!==undefined&&remaining!==undefined)used=Math.max(0,total-remaining);
       const ratio=num(entry.percentage);

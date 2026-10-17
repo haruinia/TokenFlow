@@ -8,10 +8,15 @@ import { nativeConflict, nativeDigest, writePrivate, type NativeStore, type Nati
 import type {NativeUsageLogin} from './native-usage-logins.js';
 const exec=promisify(execFile);
 export interface CredentialStore {read():Promise<string|null>;write(value:string|null):Promise<void>}
+export function claudeKeychainService(configDir:string,env:NodeJS.ProcessEnv=process.env){
+  const secureDir=env.CLAUDE_SECURESTORAGE_CONFIG_DIR,configEnv=env.CLAUDE_CONFIG_DIR;
+  // Claude Code hashes the raw variable value, not a resolved path. Without the variable (e.g. launched from Finder),
+  // a non-default directory can only belong to a CLI started with CLAUDE_CONFIG_DIR set to it.
+  const custom=secureDir!==undefined?secureDir:configEnv?configEnv:resolve(configDir)!==join(homedir(),'.claude')?configDir:'';
+  return `Claude Code-credentials${custom?`-${createHash('sha256').update(custom.normalize('NFC')).digest('hex').slice(0,8)}`:''}`;
+}
 export function claudeKeychain(configDir:string):CredentialStore {
-  const secureDir=process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR;
-  const custom=secureDir!==undefined?secureDir:process.env.CLAUDE_CONFIG_DIR?configDir:resolve(configDir)!==join(homedir(),'.claude')?configDir:'';
-  const service=`Claude Code-credentials${custom?`-${createHash('sha256').update(custom.normalize('NFC')).digest('hex').slice(0,8)}`:''}`;
+  const service=claudeKeychainService(configDir);
   const user=process.env.USER||userInfo().username;const account=/^[a-zA-Z0-9._-]+$/.test(user)?user:'claude-code-user';
   return {
     async read(){try{return (await exec('/usr/bin/security',['find-generic-password','-a',account,'-s',service,'-w'],{timeout:10000,maxBuffer:2*1024*1024})).stdout.trim();}catch(e){if((e as {code?:number}).code===44)return null;throw nativeConflict('无法读取 Claude Code 钥匙串，请解锁系统钥匙串后重试。');}},

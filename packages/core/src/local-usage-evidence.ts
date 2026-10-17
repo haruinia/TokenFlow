@@ -27,6 +27,16 @@ export async function codexRouteEvidence(home:string,gatewayPorts:number[]=[]):P
   }return routes;
  }catch{return [];}finally{db?.close();}
 }
+/** Desktop third-party logs don't name the endpoint; only the applied profile tells whether this gateway already counted them. */
+export async function claudeDesktopViaGateway(directory:string,gatewayPorts:readonly number[]){
+ try{
+  const read=async(path:string)=>{if((await stat(path)).size>1024*1024)throw Error('large config');return JSON.parse(await readFile(path,'utf8'));};
+  const meta=await read(join(directory,'configLibrary','_meta.json')),mode=await read(join(directory,'claude_desktop_config.json'));
+  if(mode?.deploymentMode!=='3p'||meta?.hybridPointer||!/^[a-f0-9-]{36}$/.test(meta?.appliedId??''))return false;
+  const profile=await read(join(directory,'configLibrary',`${meta.appliedId}.json`)),url=new URL(profile?.inferenceGatewayBaseUrl);
+  return profile.inferenceProvider==='gateway'&&url.protocol==='http:'&&['127.0.0.1','localhost','[::1]'].includes(url.hostname)&&gatewayPorts.includes(Number(url.port));
+ }catch{return false;}
+}
 /** Old traces used a salted response reference. Match exactly without copying messages or response IDs. */
 export async function gatewayResponseEvidence(root:string){
  try{

@@ -9,7 +9,7 @@ export type LocalUsageSnapshot={rows:LocalUsageRow[];recent?:LocalUsageRow[];cov
 export const nativeIdentity=(provider:string,id:string)=>createHash('sha256').update(`${provider}:${id}`).digest('hex');
 const number=(v:unknown)=>typeof v==='number'&&Number.isFinite(v)&&v>=0?Math.min(Number.MAX_SAFE_INTEGER,Math.round(v)):0;
 const gatewayModel=(v:unknown)=>typeof v==='string'&&/^(?:token-flow[/: ·]|(?:custom-local:)?(?:api-[a-f0-9]{24}\/|(?:codex|claude|antigravity|workbuddy|qoder|zcode|kimi|trae|cursor)\/))/i.test(v);
-type Sample={id:string;timestamp:string;model:string;provider:string;channel:UsageChannel;account?:string;input:number;read:number;write:number;output:number;reasoning:number;cacheKnown:boolean;responseId?:string;threadId?:string;modelUnconfirmed?:boolean};
+type Sample={id:string;timestamp:string;model:string;provider:string;channel:UsageChannel;account?:string;input:number;read:number;write:number;output:number;reasoning:number;cacheKnown:boolean;responseId?:string;threadId?:string;modelUnconfirmed?:boolean;client?:string;unmeasured?:boolean};
 
 export function authChannel(meta:any):UsageChannel{
  const mode=String(meta?.authType??meta?.auth_mode??meta?.authMode??meta?.authentication?.type??'').toLowerCase().replace(/[_-]/g,'');
@@ -17,7 +17,7 @@ export function authChannel(meta:any):UsageChannel{
  if(['apikey','key'].includes(mode)||meta?.requires_openai_auth===false||typeof meta?.apiKey==='string'&&!!meta.apiKey||typeof meta?.apiKeyEnv==='string'&&!!meta.apiKeyEnv)return 'api';
  return 'unknown';
 }
-export type LocalUsageEvidence={matchesResponse?:(id:string)=>boolean;channelFor?:(threadId:string,time:string)=>UsageChannel|'gateway'};
+export type LocalUsageEvidence={matchesResponse?:(id:string)=>boolean;channelFor?:(threadId:string,time:string)=>UsageChannel|'gateway';claudeDesktopGateway?:boolean};
 /** Reads usage metadata only. Message content, arguments and credentials never enter the output. */
 export class LocalUsageParser{
  private samples=new Map<string,Sample>();private provider='';private model='';private account='';private explicit:UsageChannel='unknown';private cumulative=0;private previousUsage:any;private legacy:Sample[]=[];private hasCodexRecords=false;private threadId='';
@@ -48,7 +48,7 @@ export class LocalUsageParser{
   if(this.target==='deepseek'){
    const route=record.type==='request/header'?data.header?.config:record.type==='session/title-llm-request'?data.route:undefined;
    if(route){this.provider=route.provider??this.provider;this.model=route.model??this.model;const auth=authChannel(route);this.explicit=auth;}
-   if((record.type==='assistant/message'||record.type==='session/title-llm-request')&&data.usage){const u=data.usage;this.add({id:String(data.requestId??data.id??record.seq),timestamp,model:data.model??this.model,provider:data.provider??this.provider,channel:recordChannel!=='unknown'?recordChannel:this.explicit!=='unknown'?this.explicit:['openai-codex','deepseek-account'].includes(this.provider)?'official':this.provider==='deepseek'?'api':'unknown',responseId:data.responseId,input:number(u.inputTokens)+number(u.cacheReadTokens)+number(u.cacheWriteTokens),read:number(u.cacheReadTokens),write:number(u.cacheWriteTokens),output:number(u.outputTokens),reasoning:number(u.reasoningTokens),cacheKnown:u.cacheReadTokens!==undefined},gatewayModel(data.model??this.model)||this.provider==='token-flow');}
+   if((record.type==='assistant/message'||record.type==='session/title-llm-request'||record.type==='compaction/summary')&&data.usage){const u=data.usage,provider=data.provider??this.provider;this.add({id:String(data.requestId??data.id??data.compactionId??record.seq),timestamp,model:data.model??this.model,provider,channel:recordChannel!=='unknown'?recordChannel:this.explicit!=='unknown'?this.explicit:['openai-codex','deepseek-account'].includes(provider)?'official':provider==='deepseek'?'api':'unknown',responseId:data.responseId,input:number(u.inputTokens)+number(u.cacheReadTokens)+number(u.cacheWriteTokens),read:number(u.cacheReadTokens),write:number(u.cacheWriteTokens),output:number(u.outputTokens),reasoning:number(u.reasoningTokens),cacheKnown:u.cacheReadTokens!==undefined},gatewayModel(data.model??this.model)||provider==='token-flow');}
    return;
   }
   const u=m.usage??record.usage;if(!u)return;
@@ -68,8 +68,12 @@ export class LocalUsageParser{
    this.add({id,timestamp,model,provider:this.target,channel:record.modelSource==='custom'||String(model).startsWith('custom-local:')?'api':'official',account:this.account,input:number(raw.prompt_tokens??raw.input_tokens)+(inclusive?0:read+write),read,write,output:number(raw.completion_tokens??raw.output_tokens),reasoning:number(raw.completion_tokens_details?.reasoning_tokens),cacheKnown:raw.prompt_tokens_details?.cached_tokens!==undefined||raw.cache_read_input_tokens!==undefined},routed);return;
   }
   const read=number(u.cache_read_input_tokens),write=number(u.cache_creation_input_tokens);
-  const sampleChannel:UsageChannel=recordChannel!=='unknown'?recordChannel:this.explicit!=='unknown'?this.explicit:this.target==='qoder'?(record.modelSource==='custom'?'api':record.modelSource==='builtin'||record.modelSource==='official'?'official':'unknown'):record.authType==='oauth'?'official':record.authType==='api-key'?'api':'unknown';
-  this.add({id,timestamp,model,provider:this.target,channel:sampleChannel,responseId:m.id??record.responseId,account:record.accountId??this.account,input:number(u.input_tokens)+read+write,read,write,output:number(u.output_tokens),reasoning:number(u.output_tokens_details?.thinking_tokens),cacheKnown:u.cache_read_input_tokens!==undefined},routed);
+  // Claude Desktop shares the CLI log folder. Its third-party mode never spends the Claude account.
+  const desktop=this.target==='claude'&&typeof record.entrypoint==='string'&&record.entrypoint.startsWith('claude-desktop'),thirdParty=desktop&&record.entrypoint.endsWith('-3p');
+  const sampleChannel:UsageChannel=thirdParty?'api':recordChannel!=='unknown'?recordChannel:this.explicit!=='unknown'?this.explicit:desktop?'official':this.target==='qoder'?(record.modelSource==='custom'?'api':record.modelSource==='builtin'||record.modelSource==='official'?'official':'unknown'):record.authType==='oauth'?'official':record.authType==='api-key'?'api':'unknown';
+  this.add({id,timestamp,model,provider:this.target,channel:sampleChannel,responseId:m.id??record.responseId,account:thirdParty?undefined:record.accountId??this.account,input:number(u.input_tokens)+read+write,read,write,output:number(u.output_tokens),reasoning:number(u.output_tokens_details?.thinking_tokens),cacheKnown:u.cache_read_input_tokens!==undefined,...(desktop?{client:'claude-desktop'}:{}),
+   // Qoder's built-in models bill credits and leave every token counter at zero.
+   ...(this.target==='qoder'&&!number(u.input_tokens)&&!number(u.output_tokens)&&(number(u.credits)>0||u.billable===true)?{unmeasured:true}:{})},routed||thirdParty&&!!this.evidence.claudeDesktopGateway);
  }
  /** Parent session context is not request-level model, account or route evidence for a child thread. */
  private codex(u:any,timestamp:string,id:string,responseId?:string,threadId=this.threadId){
@@ -77,15 +81,15 @@ export class LocalUsageParser{
   this.add({id,responseId,threadId,modelUnconfirmed:child,timestamp,model:child?'未标注模型':this.model,provider:'codex',channel:inferred!=='unknown'?inferred:!child?this.explicit:'unknown',account:u.account_id??(!child?this.account:undefined),input:number(u.input_tokens),read:number(u.cached_input_tokens),write:number(u.cache_write_input_tokens),output:number(u.output_tokens),reasoning:number(u.reasoning_output_tokens),cacheKnown:u.cached_input_tokens!==undefined},!child&&(/token.?flow/i.test(this.provider)||gatewayModel(this.model)));
  }
  private add(sample:Sample,routed:boolean){
-  if(routed||sample.responseId&&this.evidence.matchesResponse?.(sample.responseId)||typeof sample.timestamp!=='string'||!Number.isFinite(Date.parse(sample.timestamp))||!sample.input&&!sample.output)return;
+  if(routed||sample.responseId&&this.evidence.matchesResponse?.(sample.responseId)||typeof sample.timestamp!=='string'||!Number.isFinite(Date.parse(sample.timestamp))||!sample.input&&!sample.output&&!sample.unmeasured)return;
   sample.model=typeof sample.model==='string'?sample.model.slice(0,300):'未标注模型';sample.read=Math.min(sample.read,sample.input);sample.write=Math.min(sample.write,Math.max(0,sample.input-sample.read));sample.reasoning=Math.min(sample.reasoning,sample.output);
   // Streaming assistant fragments share one provider response ID. Keep the final/largest sample.
   const previous=this.samples.get(sample.id);if(!previous||sample.input+sample.output>=previous.input+previous.output)this.samples.set(sample.id,sample);
  }
  rows():LocalUsageRow[]{
   const samples=this.target==='codex'&&!this.hasCodexRecords?this.legacy:[...this.samples.values()];const rows=new Map<string,LocalUsageRow>();
-  for(const s of samples){const identity=s.account?nativeIdentity(s.provider,s.account):'';const day=dayOf(s.timestamp);const sampleId=nativeIdentity(this.target,`${s.responseId??s.id}${s.responseId?'':':'+s.timestamp}`);const key=sampleId;const row=rows.get(key)??{day,target:this.target,keyId:`native:${identity||this.target}`,keyName:s.channel==='official'?'官方登录':s.channel==='api'?'API Key':'本机记录 · 渠道未标注',sourceId:'',model:s.model,requests:0,failed:0,unmeasured:0,inputTokens:0,cachedTokens:0,cacheBaseTokens:0,outputTokens:0,durationMs:0,last:s.timestamp,origin:'native',channel:s.channel,provider:s.provider,sampleId,...(this.target==='codex'&&s.threadId?{nativeThreadId:nativeIdentity('thread',s.threadId)}:{}),...(s.modelUnconfirmed?{nativeModelUnconfirmed:true}:{}),...(s.responseId?{responseHash:nativeIdentity('response',s.responseId)}:{}),...(identity?{nativeAccountId:identity}:{})};
-   row.requests++;row.inputTokens+=s.input;row.outputTokens+=s.output;row.cachedTokens+=s.read;if(s.cacheKnown)row.cacheBaseTokens+=s.input;row.cacheWriteTokens=(row.cacheWriteTokens??0)+s.write;row.reasoningTokens=(row.reasoningTokens??0)+s.reasoning;if(s.timestamp>row.last)row.last=s.timestamp;rows.set(key,row);
+  for(const s of samples){const identity=s.account?nativeIdentity(s.provider,s.account):'';const day=dayOf(s.timestamp);const sampleId=nativeIdentity(this.target,`${s.responseId??s.id}${s.responseId?'':':'+s.timestamp}`);const key=sampleId;const row=rows.get(key)??{day,target:s.client??this.target,keyId:`native:${identity||s.client||this.target}`,keyName:s.channel==='official'?'官方登录':s.channel==='api'?'API Key':'本机记录 · 渠道未标注',sourceId:'',model:s.model,requests:0,failed:0,unmeasured:0,inputTokens:0,cachedTokens:0,cacheBaseTokens:0,outputTokens:0,durationMs:0,last:s.timestamp,origin:'native',channel:s.channel,provider:s.provider,sampleId,...(this.target==='codex'&&s.threadId?{nativeThreadId:nativeIdentity('thread',s.threadId)}:{}),...(s.modelUnconfirmed?{nativeModelUnconfirmed:true}:{}),...(s.responseId?{responseHash:nativeIdentity('response',s.responseId)}:{}),...(identity?{nativeAccountId:identity}:{})};
+   row.requests++;if(s.unmeasured)row.unmeasured++;row.inputTokens+=s.input;row.outputTokens+=s.output;row.cachedTokens+=s.read;if(s.cacheKnown)row.cacheBaseTokens+=s.input;row.cacheWriteTokens=(row.cacheWriteTokens??0)+s.write;row.reasoningTokens=(row.reasoningTokens??0)+s.reasoning;if(s.timestamp>row.last)row.last=s.timestamp;rows.set(key,row);
   }return [...rows.values()];
  }
 }

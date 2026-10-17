@@ -32,6 +32,34 @@ func TestWorkBuddyLocalPaths(t *testing.T) {
 		}
 	}
 }
+func TestWorkBuddyLocalImportReadsInternationalClientSeparately(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	for _, platform := range []string{"darwin", "windows", "linux"} {
+		for _, path := range localWorkBuddyAuthPathsFor(platform, home, os.Getenv, true) {
+			if filepath.Base(path) != "workbuddy-desktop-ai.info" {
+				t.Fatalf("%s: international login read from %q", platform, path)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(`{"auth":{"accessToken":"fixture-overseas"},"account":{"uid":"overseas-user"}}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if _, err := ImportLocalAuth(); err == nil {
+		t.Fatal("the domestic import must not pick up the international login")
+	}
+	token, err := ImportLocalAuthRegion(true)
+	if err != nil || token.AccessToken != "fixture-overseas" || token.UID != "overseas-user" {
+		t.Fatal("international login not imported")
+	}
+}
+
 func TestWorkBuddyLocalImportIgnoresLoggedOutSession(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

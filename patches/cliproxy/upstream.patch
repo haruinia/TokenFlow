@@ -1,6 +1,6 @@
 diff --git a/assets/logo/qoder.svg b/assets/logo/qoder.svg
 new file mode 100644
-index 0000000..3620fa7
+index 00000000..3620fa73
 --- /dev/null
 +++ b/assets/logo/qoder.svg
 @@ -0,0 +1,5 @@
@@ -9,8 +9,23 @@ index 0000000..3620fa7
 +  <path d="M32 14C22.059 14 14 22.059 14 32C14 41.941 22.059 50 32 50C36.32 50 40.28 48.47 43.4 45.92L47.41 49.93C48.2 50.72 49.46 50.72 50.24 49.93C51.02 49.15 51.02 47.89 50.24 47.11L46.22 43.09C48.59 40 50 36.16 50 32C50 22.06 41.94 14 32 14ZM32 20C38.63 20 44 25.37 44 32C44 38.63 38.63 44 32 44C25.37 44 20 38.63 20 32C20 25.37 25.37 20 32 20Z" fill="#0284C7"/>
 +  <path d="M27 28L23 32L27 36M37 28L41 32L37 36" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
 +</svg>
+diff --git a/cmd/fetch_codex_models/main.go b/cmd/fetch_codex_models/main.go
+index 48c71036..cb38cdf0 100644
+--- a/cmd/fetch_codex_models/main.go
++++ b/cmd/fetch_codex_models/main.go
+@@ -42,8 +42,8 @@ import (
+ const (
+ 	codexModelsBaseURL       = "https://chatgpt.com/backend-api/codex"
+ 	codexModelsPath          = "/models"
+-	defaultClientVersion     = "0.153.3"
+-	defaultCodexUserAgent    = "codex_cli_rs/0.153.3 (Mac OS 26.3.1; arm64) iTerm.app/3.6.9"
++	defaultClientVersion     = "0.154.0"
++	defaultCodexUserAgent    = "codex_cli_rs/0.154.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.9"
+ 	defaultCodexOriginator   = "codex_cli_rs"
+ 	accessTokenRefreshLeeway = 30 * time.Second
+ )
 diff --git a/cmd/server/main.go b/cmd/server/main.go
-index e2d4474..630c412 100644
+index e2d4474d..630c412b 100644
 --- a/cmd/server/main.go
 +++ b/cmd/server/main.go
 @@ -81,6 +81,11 @@ func main() {
@@ -64,7 +79,7 @@ index e2d4474..630c412 100644
  		// In cloud deploy mode without config file, just wait for shutdown signals
  		if isCloudDeploy && !configFileExists {
 diff --git a/config.example.yaml b/config.example.yaml
-index c172fd1..897db93 100644
+index c172fd1b..897db93e 100644
 --- a/config.example.yaml
 +++ b/config.example.yaml
 @@ -592,7 +592,8 @@ nonstream-keepalive-interval: 0
@@ -78,7 +93,7 @@ index c172fd1..897db93 100644
  # betas real Claude Code also sends, and they are placed at their observed positions;
  # anything else is dropped so the outgoing set stays one a real client could produce.
 diff --git a/internal/api/handlers/management/api_tools.go b/internal/api/handlers/management/api_tools.go
-index a619afd..430f060 100644
+index a619afd1..430f0604 100644
 --- a/internal/api/handlers/management/api_tools.go
 +++ b/internal/api/handlers/management/api_tools.go
 @@ -141,25 +141,29 @@ func (h *Handler) APICall(c *gin.Context) {
@@ -154,7 +169,7 @@ index a619afd..430f060 100644
  }
  
 diff --git a/internal/api/handlers/management/api_tools_test.go b/internal/api/handlers/management/api_tools_test.go
-index a50da2d..939129a 100644
+index a50da2d3..939129a4 100644
 --- a/internal/api/handlers/management/api_tools_test.go
 +++ b/internal/api/handlers/management/api_tools_test.go
 @@ -315,3 +315,17 @@ func TestAuthByIndexDistinguishesSharedAPIKeysAcrossProviders(t *testing.T) {
@@ -176,7 +191,7 @@ index a50da2d..939129a 100644
 +	t.Logf("code=%d body=%s", recorder.Code, recorder.Body.String())
 +}
 diff --git a/internal/api/handlers/management/auth_files_provider_oauth.go b/internal/api/handlers/management/auth_files_provider_oauth.go
-index 3928d60..03d4ba2 100644
+index 3928d605..6edbe166 100644
 --- a/internal/api/handlers/management/auth_files_provider_oauth.go
 +++ b/internal/api/handlers/management/auth_files_provider_oauth.go
 @@ -17,8 +17,13 @@ import (
@@ -193,7 +208,41 @@ index 3928d60..03d4ba2 100644
  	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
  	"github.com/router-for-me/CLIProxyAPI/v7/internal/pluginhost"
  	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
-@@ -717,6 +722,988 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
+@@ -58,8 +63,13 @@ func (h *Handler) RequestAnthropicToken(c *gin.Context) {
+ 	// Initialize Claude auth service
+ 	anthropicAuth := claude.NewClaudeAuth(h.cfg)
+ 
+-	// Generate authorization URL (then override redirect_uri to reuse server port)
+-	authURL, state, err := anthropicAuth.GenerateAuthURL(state, pkceCodes)
++	// The manual mode needs no loopback port; the code is pasted back through /oauth-callback.
++	manual := c.Query("mode") == "manual"
++	redirectURI := claude.RedirectURI
++	if manual {
++		redirectURI = claude.ManualRedirectURI
++	}
++	authURL, state, err := anthropicAuth.GenerateAuthURLFor(state, pkceCodes, redirectURI)
+ 	if err != nil {
+ 		log.Errorf("Failed to generate authorization URL: %v", err)
+ 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate authorization url"})
+@@ -68,7 +78,7 @@ func (h *Handler) RequestAnthropicToken(c *gin.Context) {
+ 
+ 	RegisterOAuthSession(state, "anthropic")
+ 
+-	isWebUI := isWebUIRequest(c)
++	isWebUI := isWebUIRequest(c) && !manual
+ 	var forwarder *callbackForwarder
+ 	if isWebUI {
+ 		targetURL, errTarget := h.managementCallbackURL("/anthropic/callback")
+@@ -142,7 +152,7 @@ func (h *Handler) RequestAnthropicToken(c *gin.Context) {
+ 		code := strings.Split(rawCode, "#")[0]
+ 
+ 		// Exchange code for tokens using internal auth service
+-		bundle, errExchange := anthropicAuth.ExchangeCodeForTokens(ctx, code, state, pkceCodes)
++		bundle, errExchange := anthropicAuth.ExchangeCodeForTokensFor(ctx, code, state, pkceCodes, redirectURI)
+ 		if errExchange != nil {
+ 			authErr := claude.NewAuthenticationError(claude.ErrCodeExchangeFailed, errExchange)
+ 			log.Errorf("Failed to exchange authorization code for tokens: %v", authErr)
+@@ -717,6 +727,1002 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
  	c.JSON(200, response)
  }
  
@@ -256,6 +305,9 @@ index 3928d60..03d4ba2 100644
 +		}
 +		if strings.TrimSpace(authBundle.TokenData.Email) != "" {
 +			metadata["email"] = strings.TrimSpace(authBundle.TokenData.Email)
++		}
++		if strings.TrimSpace(authBundle.MachineID) != "" {
++			metadata["machine_id"] = strings.TrimSpace(authBundle.MachineID)
 +		}
 +
 +		label := "Qoder User"
@@ -709,9 +761,20 @@ index 3928d60..03d4ba2 100644
 +	if storage.JWT != "" {
 +		metadata["jwt"] = storage.JWT
 +	}
++	if storage.RefreshToken != "" {
++		metadata["refresh_token"] = storage.RefreshToken
++	}
++	if storage.Email != "" {
++		metadata["email"] = storage.Email
++	}
++	if storage.Expired != "" {
++		metadata["expired"] = storage.Expired
++	}
 +
 +	label := "ZCode Desktop"
-+	if storage.UID != "" {
++	if storage.Email != "" {
++		label = fmt.Sprintf("ZCode (%s)", storage.Email)
++	} else if storage.UID != "" {
 +		label = fmt.Sprintf("ZCode (%s)", storage.UID)
 +	}
 +
@@ -1183,7 +1246,7 @@ index 3928d60..03d4ba2 100644
  func watchOAuthSessionCancel(pollCtx context.Context, cancel context.CancelFunc, state, provider string) {
  	if cancel == nil {
 diff --git a/internal/api/handlers/management/handler.go b/internal/api/handlers/management/handler.go
-index 78fd505..0426bb6 100644
+index 78fd505d..0426bb66 100644
 --- a/internal/api/handlers/management/handler.go
 +++ b/internal/api/handlers/management/handler.go
 @@ -58,8 +58,8 @@ type Handler struct {
@@ -1198,7 +1261,7 @@ index 78fd505..0426bb6 100644
  
  type configReloadSnapshot struct {
 diff --git a/internal/api/handlers/management/oauth_sessions.go b/internal/api/handlers/management/oauth_sessions.go
-index d370d92..045a2a0 100644
+index d370d92a..045a2a05 100644
 --- a/internal/api/handlers/management/oauth_sessions.go
 +++ b/internal/api/handlers/management/oauth_sessions.go
 @@ -368,6 +368,18 @@ func NormalizeOAuthProvider(provider string) (string, error) {
@@ -1291,7 +1354,7 @@ index d370d92..045a2a0 100644
 +	})
 +}
 diff --git a/internal/api/handlers/management/oauth_sessions_test.go b/internal/api/handlers/management/oauth_sessions_test.go
-index cce61b2..7dfdc37 100644
+index cce61b2d..7dfdc37c 100644
 --- a/internal/api/handlers/management/oauth_sessions_test.go
 +++ b/internal/api/handlers/management/oauth_sessions_test.go
 @@ -5,6 +5,7 @@ import (
@@ -1365,7 +1428,7 @@ index cce61b2..7dfdc37 100644
 +	}
 +}
 diff --git a/internal/api/handlers/management/plugin_store.go b/internal/api/handlers/management/plugin_store.go
-index 81b6363..2a70c2b 100644
+index 81b6363e..2a70c2b1 100644
 --- a/internal/api/handlers/management/plugin_store.go
 +++ b/internal/api/handlers/management/plugin_store.go
 @@ -8,8 +8,8 @@ import (
@@ -1608,7 +1671,7 @@ index 81b6363..2a70c2b 100644
  	files, errDiscover := pluginhost.DiscoverPluginFiles(pluginsDir, pluginStoreDesiredVersions(configs))
 diff --git a/internal/api/handlers/management/plugin_store_release.go b/internal/api/handlers/management/plugin_store_release.go
 new file mode 100644
-index 0000000..cd4ada0
+index 00000000..cd4ada0b
 --- /dev/null
 +++ b/internal/api/handlers/management/plugin_store_release.go
 @@ -0,0 +1,167 @@
@@ -1781,7 +1844,7 @@ index 0000000..cd4ada0
 +}
 diff --git a/internal/api/handlers/management/plugin_store_release_test.go b/internal/api/handlers/management/plugin_store_release_test.go
 new file mode 100644
-index 0000000..41d8aee
+index 00000000..41d8aee6
 --- /dev/null
 +++ b/internal/api/handlers/management/plugin_store_release_test.go
 @@ -0,0 +1,465 @@
@@ -2251,7 +2314,7 @@ index 0000000..41d8aee
 +	}
 +}
 diff --git a/internal/api/handlers/management/plugin_store_test.go b/internal/api/handlers/management/plugin_store_test.go
-index 3b3e881..a0b495f 100644
+index 3b3e881b..a0b495f1 100644
 --- a/internal/api/handlers/management/plugin_store_test.go
 +++ b/internal/api/handlers/management/plugin_store_test.go
 @@ -301,6 +301,7 @@ func TestListPluginStoreShowsLatestReleaseVersionAndCaches(t *testing.T) {
@@ -2290,7 +2353,7 @@ index 3b3e881..a0b495f 100644
  
  func TestInstallPluginFromStoreRejectsImplicitSourceSwitch(t *testing.T) {
 diff --git a/internal/api/server_management.go b/internal/api/server_management.go
-index fef0889..e951385 100644
+index fef08895..e951385e 100644
 --- a/internal/api/server_management.go
 +++ b/internal/api/server_management.go
 @@ -177,6 +177,18 @@ func (s *Server) registerManagementRoutes() {
@@ -2313,7 +2376,7 @@ index fef0889..e951385 100644
  		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
  		mgmt.DELETE("/oauth-session", s.mgmt.CancelAuthSession)
 diff --git a/internal/api/server_routes.go b/internal/api/server_routes.go
-index 1c6ce6d..90d63dc 100644
+index 1c6ce6d6..90d63dca 100644
 --- a/internal/api/server_routes.go
 +++ b/internal/api/server_routes.go
 @@ -184,6 +184,40 @@ func (s *Server) setupRoutes() {
@@ -2358,7 +2421,7 @@ index 1c6ce6d..90d63dc 100644
  }
  
 diff --git a/internal/api/server_test.go b/internal/api/server_test.go
-index e7512d8..e6a14df 100644
+index e7512d89..e6a14dfb 100644
 --- a/internal/api/server_test.go
 +++ b/internal/api/server_test.go
 @@ -20,6 +20,7 @@ import (
@@ -2444,9 +2507,100 @@ index e7512d8..e6a14df 100644
  func TestCodexLiveRoutesRequireAuthAndAreRegistered(t *testing.T) {
  	server := newTestServer(t)
  
+diff --git a/internal/auth/claude/anthropic_auth.go b/internal/auth/claude/anthropic_auth.go
+index 162ff446..cdfb22cb 100644
+--- a/internal/auth/claude/anthropic_auth.go
++++ b/internal/auth/claude/anthropic_auth.go
+@@ -32,6 +32,8 @@ const (
+ 	RolesURL         = "https://api.anthropic.com/api/oauth/claude_cli/roles"
+ 	ClientID         = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+ 	RedirectURI      = "http://localhost:54545/callback"
++	// ManualRedirectURI is Claude Code's no-loopback flow: the page displays "code#state" for the user to paste.
++	ManualRedirectURI = "https://platform.claude.com/oauth/code/callback"
+ 	ClaudeOAuthScope = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+ 
+ 	claudeRefreshMinBackoff       = 5 * time.Second
+@@ -317,6 +319,15 @@ func (o *ClaudeAuth) inspectOAuthAccount(ctx context.Context, accessToken string
+ //   - string: The state parameter for verification
+ //   - error: An error if PKCE codes are missing or URL generation fails
+ func (o *ClaudeAuth) GenerateAuthURL(state string, pkceCodes *PKCECodes) (string, string, error) {
++	return o.GenerateAuthURLFor(state, pkceCodes, RedirectURI)
++}
++
++// GenerateAuthURLFor builds the authorization URL for the loopback callback or
++// Claude Code's manual flow, where the official page shows "code#state" to paste.
++func (o *ClaudeAuth) GenerateAuthURLFor(state string, pkceCodes *PKCECodes, redirectURI string) (string, string, error) {
++	if redirectURI != RedirectURI && redirectURI != ManualRedirectURI {
++		return "", "", fmt.Errorf("unsupported Claude redirect URI")
++	}
+ 	if pkceCodes == nil {
+ 		return "", "", fmt.Errorf("PKCE codes are required")
+ 	}
+@@ -325,7 +336,7 @@ func (o *ClaudeAuth) GenerateAuthURL(state string, pkceCodes *PKCECodes) (string
+ 		"code":                  {"true"},
+ 		"client_id":             {ClientID},
+ 		"response_type":         {"code"},
+-		"redirect_uri":          {RedirectURI},
++		"redirect_uri":          {redirectURI},
+ 		"scope":                 {ClaudeOAuthScope},
+ 		"code_challenge":        {pkceCodes.CodeChallenge},
+ 		"code_challenge_method": {"S256"},
+@@ -368,6 +379,11 @@ func (c *ClaudeAuth) parseCodeAndState(code string) (parsedCode, parsedState str
+ //   - *ClaudeAuthBundle: The complete authentication bundle with tokens
+ //   - error: An error if token exchange fails
+ func (o *ClaudeAuth) ExchangeCodeForTokens(ctx context.Context, code, state string, pkceCodes *PKCECodes) (*ClaudeAuthBundle, error) {
++	return o.ExchangeCodeForTokensFor(ctx, code, state, pkceCodes, RedirectURI)
++}
++
++// ExchangeCodeForTokensFor exchanges a code issued for the given redirect URI; it must match the authorization request.
++func (o *ClaudeAuth) ExchangeCodeForTokensFor(ctx context.Context, code, state string, pkceCodes *PKCECodes, redirectURI string) (*ClaudeAuthBundle, error) {
+ 	if pkceCodes == nil {
+ 		return nil, fmt.Errorf("PKCE codes are required for token exchange")
+ 	}
+@@ -379,7 +395,7 @@ func (o *ClaudeAuth) ExchangeCodeForTokens(ctx context.Context, code, state stri
+ 	reqBody := authorizationCodeExchangeRequest{
+ 		GrantType:    "authorization_code",
+ 		Code:         newCode,
+-		RedirectURI:  RedirectURI,
++		RedirectURI:  redirectURI,
+ 		ClientID:     ClientID,
+ 		CodeVerifier: pkceCodes.CodeVerifier,
+ 		State:        state,
+diff --git a/internal/auth/claude/anthropic_auth_test.go b/internal/auth/claude/anthropic_auth_test.go
+index 21764ccc..6080f5f3 100644
+--- a/internal/auth/claude/anthropic_auth_test.go
++++ b/internal/auth/claude/anthropic_auth_test.go
+@@ -538,3 +538,27 @@ func TestUpdateTokenStoragePreservesAccountWhenRefreshOmitsIt(t *testing.T) {
+ 		t.Fatalf("organization = %q/%q, want preserved", storage.OrganizationUUID, storage.OrganizationName)
+ 	}
+ }
++
++func TestTokenFlowClaudeManualCodeRedirect(t *testing.T) {
++	pkce := &PKCECodes{CodeVerifier: "fixture-verifier", CodeChallenge: "fixture-challenge"}
++	auth := &ClaudeAuth{}
++	authURL, _, err := auth.GenerateAuthURLFor("fixture-state", pkce, ManualRedirectURI)
++	if err != nil || !strings.Contains(authURL, "redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback") {
++		t.Fatalf("manual authorization URL uses the wrong redirect: %v", err)
++	}
++	if _, _, err := auth.GenerateAuthURLFor("fixture-state", pkce, "https://evil.test/cb"); err == nil {
++		t.Fatal("unknown redirect URI accepted")
++	}
++	var sent string
++	auth.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
++		body, _ := io.ReadAll(req.Body)
++		sent = string(body)
++		return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(strings.NewReader(`{"error":"probe"}`)), Header: make(http.Header), Request: req}, nil
++	})}
++	if _, err := auth.ExchangeCodeForTokensFor(context.Background(), "fixture-code#fixture-state", "fixture-state", pkce, ManualRedirectURI); err == nil {
++		t.Fatal("expected the probe exchange to fail")
++	}
++	if !strings.Contains(sent, `"code":"fixture-code"`) || !strings.Contains(sent, `"redirect_uri":"https://platform.claude.com/oauth/code/callback"`) {
++		t.Fatalf("token exchange must reuse the manual redirect URI: %s", sent)
++	}
++}
 diff --git a/internal/auth/doubao/doubao.go b/internal/auth/doubao/doubao.go
 new file mode 100644
-index 0000000..d0fecc0
+index 00000000..d0fecc05
 --- /dev/null
 +++ b/internal/auth/doubao/doubao.go
 @@ -0,0 +1,407 @@
@@ -2859,7 +3013,7 @@ index 0000000..d0fecc0
 +}
 diff --git a/internal/auth/doubao/doubao_test.go b/internal/auth/doubao/doubao_test.go
 new file mode 100644
-index 0000000..a3d28a5
+index 00000000..a3d28a54
 --- /dev/null
 +++ b/internal/auth/doubao/doubao_test.go
 @@ -0,0 +1,110 @@
@@ -2975,7 +3129,7 @@ index 0000000..a3d28a5
 +}
 diff --git a/internal/auth/doubao/token.go b/internal/auth/doubao/token.go
 new file mode 100644
-index 0000000..f611159
+index 00000000..f611159f
 --- /dev/null
 +++ b/internal/auth/doubao/token.go
 @@ -0,0 +1,166 @@
@@ -3147,10 +3301,10 @@ index 0000000..f611159
 +}
 diff --git a/internal/auth/qoder/qoder.go b/internal/auth/qoder/qoder.go
 new file mode 100644
-index 0000000..a540aff
+index 00000000..297e2a32
 --- /dev/null
 +++ b/internal/auth/qoder/qoder.go
-@@ -0,0 +1,690 @@
+@@ -0,0 +1,699 @@
 +// Package qoder provides authentication and token management for Alibaba Qoder API.
 +// It handles OAuth2 PKCE device flow and Personal Access Token (PAT) authentication.
 +package qoder
@@ -3247,6 +3401,15 @@ index 0000000..a540aff
 +		TokenData: tokenData,
 +		MachineID: q.client.machineID,
 +	}, nil
++}
++
++// WithMachineID reuses the machine identifier the account was authorized with.
++// Qoder sends it on every token request; a fresh random ID per refresh looks like a new device.
++func (q *QoderAuth) WithMachineID(machineID string) *QoderAuth {
++	if id := strings.TrimSpace(machineID); id != "" {
++		q.client.machineID = id
++	}
++	return q
 +}
 +
 +// RefreshToken exchanges an existing refresh token for a new access token.
@@ -3843,7 +4006,7 @@ index 0000000..a540aff
 +}
 diff --git a/internal/auth/qoder/qoder_test.go b/internal/auth/qoder/qoder_test.go
 new file mode 100644
-index 0000000..30c5e22
+index 00000000..30c5e22a
 --- /dev/null
 +++ b/internal/auth/qoder/qoder_test.go
 @@ -0,0 +1,169 @@
@@ -4018,7 +4181,7 @@ index 0000000..30c5e22
 +}
 diff --git a/internal/auth/qoder/token.go b/internal/auth/qoder/token.go
 new file mode 100644
-index 0000000..a84736c
+index 00000000..a84736ca
 --- /dev/null
 +++ b/internal/auth/qoder/token.go
 @@ -0,0 +1,139 @@
@@ -4163,7 +4326,7 @@ index 0000000..a84736c
 +}
 diff --git a/internal/auth/trae/token.go b/internal/auth/trae/token.go
 new file mode 100644
-index 0000000..fa323fd
+index 00000000..fa323fd8
 --- /dev/null
 +++ b/internal/auth/trae/token.go
 @@ -0,0 +1,158 @@
@@ -4327,10 +4490,10 @@ index 0000000..fa323fd
 +}
 diff --git a/internal/auth/trae/trae.go b/internal/auth/trae/trae.go
 new file mode 100644
-index 0000000..3517493
+index 00000000..ec4665a6
 --- /dev/null
 +++ b/internal/auth/trae/trae.go
-@@ -0,0 +1,487 @@
+@@ -0,0 +1,522 @@
 +// Package trae implements authentication, local credential discovery,
 +// and token refresh for ByteDance Trae and MarsCode AI developer services.
 +package trae
@@ -4347,6 +4510,7 @@ index 0000000..3517493
 +	"os"
 +	"path/filepath"
 +	"runtime"
++	"strconv"
 +	"strings"
 +	"time"
 +
@@ -4414,6 +4578,9 @@ index 0000000..3517493
 +
 +	if tokenData.AccessToken == "" {
 +		return nil, errors.New("extracted Trae auth info contains empty access token")
++	}
++	if localSessionExpired(tokenData, time.Now()) {
++		return nil, errors.New("the local Trae sign-in has expired; open Trae and sign in again, or add the account in TokenFlow")
 +	}
 +
 +	host := tokenData.Host
@@ -4816,21 +4983,55 @@ index 0000000..3517493
 +		return fmt.Errorf("refresh failed: %s (code %s)", result.ResponseMetadata.Error.Message, result.ResponseMetadata.Error.Code)
 +	}
 +
-+	return nil
++	// A 200 without a token would otherwise leave the expired token in place and be recorded as a successful refresh.
++	return errors.New("refresh returned no token")
++}
++
++// localSessionExpired reports whether neither the access token nor the refresh token can still be used.
++func localSessionExpired(data TraeTokenData, now time.Time) bool {
++	refresh, okRefresh := parseTraeTime(data.RefreshExpiredAt)
++	if okRefresh && !refresh.After(now) {
++		return true
++	}
++	if strings.TrimSpace(data.RefreshToken) != "" {
++		return false
++	}
++	access, okAccess := parseTraeTime(data.ExpiredAt)
++	return okAccess && !access.After(now)
++}
++
++func parseTraeTime(value string) (time.Time, bool) {
++	value = strings.TrimSpace(value)
++	if value == "" {
++		return time.Time{}, false
++	}
++	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
++		return parsed, true
++	}
++	if number, err := strconv.ParseInt(value, 10, 64); err == nil && number > 0 {
++		if number > 1e11 {
++			return time.UnixMilli(number), true
++		}
++		return time.Unix(number, 0), true
++	}
++	return time.Time{}, false
 +}
 diff --git a/internal/auth/trae/trae_test.go b/internal/auth/trae/trae_test.go
 new file mode 100644
-index 0000000..211d455
+index 00000000..f73ef604
 --- /dev/null
 +++ b/internal/auth/trae/trae_test.go
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,171 @@
 +package trae
 +
 +import (
 +	"context"
 +	"encoding/json"
++	"net/http"
++	"net/http/httptest"
 +	"os"
 +	"path/filepath"
++	"strconv"
 +	"strings"
 +	"testing"
 +	"time"
@@ -4957,9 +5158,44 @@ index 0000000..211d455
 +		t.Errorf("expected username 'TestUser', got %q", storage.Username)
 +	}
 +}
++
++func TestTokenFlowTraeLocalSessionExpiry(t *testing.T) {
++	now := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
++	past, future := now.Add(-time.Hour).Format(time.RFC3339), now.Add(time.Hour).Format(time.RFC3339)
++	cases := []struct {
++		name    string
++		data    TraeTokenData
++		expired bool
++	}{
++		{"refresh token expired", TraeTokenData{RefreshToken: "r", RefreshExpiredAt: past, ExpiredAt: future}, true},
++		{"refresh token expired in milliseconds", TraeTokenData{RefreshToken: "r", RefreshExpiredAt: strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10)}, true},
++		{"access expired but refreshable", TraeTokenData{RefreshToken: "r", RefreshExpiredAt: future, ExpiredAt: past}, false},
++		{"access expired without refresh token", TraeTokenData{ExpiredAt: past}, true},
++		{"no expiry information", TraeTokenData{RefreshToken: "r"}, false},
++	}
++	for _, c := range cases {
++		if got := localSessionExpired(c.data, now); got != c.expired {
++			t.Fatalf("%s: expired=%v", c.name, got)
++		}
++	}
++}
++
++func TestTokenFlowTraeRefreshWithoutTokenFails(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		_, _ = w.Write([]byte(`{"ResponseMetadata":{},"Result":{}}`))
++	}))
++	defer server.Close()
++	ts := &TraeTokenStorage{AccessToken: "old-access", RefreshToken: "fixture-refresh", Host: server.URL}
++	if err := RefreshToken(context.Background(), ts); err == nil {
++		t.Fatal("an empty refresh response must not count as success")
++	}
++	if ts.AccessToken != "old-access" {
++		t.Fatal("failed refresh changed the stored token")
++	}
++}
 diff --git a/internal/auth/workbuddy/token.go b/internal/auth/workbuddy/token.go
 new file mode 100644
-index 0000000..aba5223
+index 00000000..aba5223c
 --- /dev/null
 +++ b/internal/auth/workbuddy/token.go
 @@ -0,0 +1,110 @@
@@ -5075,7 +5311,7 @@ index 0000000..aba5223
 +}
 diff --git a/internal/auth/workbuddy/workbuddy.go b/internal/auth/workbuddy/workbuddy.go
 new file mode 100644
-index 0000000..a6f2298
+index 00000000..7e38f64a
 --- /dev/null
 +++ b/internal/auth/workbuddy/workbuddy.go
 @@ -0,0 +1,496 @@
@@ -5109,7 +5345,7 @@ index 0000000..a6f2298
 +	// WorkBuddyOriginReferer is the origin and referer header expected by Tencent upstream.
 +	WorkBuddyOriginReferer = "https://www.codebuddy.cn"
 +	// WorkBuddyClientUA is the official CLI user agent string.
-+	WorkBuddyClientUA = "CLI/2.63.2 CodeBuddy/2.63.2"
++	WorkBuddyClientUA = "CLI/2.161.0 CodeBuddy/2.161.0"
 +
 +	// WorkBuddyAuthStateURL starts device authorization and gets the login URL.
 +	WorkBuddyAuthStateURL = WorkBuddyBaseURL + "/v2/plugin/auth/state?platform=CLI"
@@ -5364,7 +5600,7 @@ index 0000000..a6f2298
 +		}
 +		w.setCommonHeaders(req)
 +		req.Header.Set("X-Refresh-Token", refreshToken)
-+		req.Header.Set("X-Auth-Refresh-Source", "workbuddy")
++		req.Header.Set("X-Auth-Refresh-Source", "plugin")
 +
 +		resp, errDo := w.client.Do(req)
 +		if errDo != nil {
@@ -5577,7 +5813,7 @@ index 0000000..a6f2298
 +}
 diff --git a/internal/auth/workbuddy/workbuddy_test.go b/internal/auth/workbuddy/workbuddy_test.go
 new file mode 100644
-index 0000000..dfc77fc
+index 00000000..dfc77fc7
 --- /dev/null
 +++ b/internal/auth/workbuddy/workbuddy_test.go
 @@ -0,0 +1,190 @@
@@ -5773,7 +6009,7 @@ index 0000000..dfc77fc
 +}
 diff --git a/internal/auth/zcode/oauth_server.go b/internal/auth/zcode/oauth_server.go
 new file mode 100644
-index 0000000..ce1bcae
+index 00000000..ce1bcae8
 --- /dev/null
 +++ b/internal/auth/zcode/oauth_server.go
 @@ -0,0 +1,112 @@
@@ -5891,7 +6127,7 @@ index 0000000..ce1bcae
 +}
 diff --git a/internal/auth/zcode/token.go b/internal/auth/zcode/token.go
 new file mode 100644
-index 0000000..e21b8b4
+index 00000000..e21b8b40
 --- /dev/null
 +++ b/internal/auth/zcode/token.go
 @@ -0,0 +1,126 @@
@@ -6023,10 +6259,10 @@ index 0000000..e21b8b4
 +}
 diff --git a/internal/auth/zcode/zcode.go b/internal/auth/zcode/zcode.go
 new file mode 100644
-index 0000000..eb45c5b
+index 00000000..d17d3b45
 --- /dev/null
 +++ b/internal/auth/zcode/zcode.go
-@@ -0,0 +1,532 @@
+@@ -0,0 +1,598 @@
 +package zcode
 +
 +import (
@@ -6440,6 +6676,11 @@ index 0000000..eb45c5b
 +		return nil, fmt.Errorf("failed to get user home dir: %w", errHome)
 +	}
 +
++	storage, errShared := a.importSharedCLICredentials(filepath.Join(home, ".zcode", "v2", "credentials.json"))
++	if storage != nil || errShared != nil {
++		return storage, errShared
++	}
++
 +	candidates := []string{
 +		filepath.Join(home, ".zcode-proxy", "credentials.json"),
 +		filepath.Join(home, ".zcode", "cli", "config.json"),
@@ -6485,6 +6726,67 @@ index 0000000..eb45c5b
 +	}
 +
 +	return nil, fmt.Errorf("no local ZCode configuration found in ~/.zcode/ or ~/.zcode-proxy/")
++}
++
++// importSharedCLICredentials reads the flat key/value store shared by the ZCode app and CLI.
++// It returns (nil, nil) when the file is absent so older config locations are still tried.
++func (a *ZCodeAuth) importSharedCLICredentials(path string) (*ZCodeTokenStorage, error) {
++	data, errRead := os.ReadFile(path)
++	if errRead != nil {
++		return nil, nil
++	}
++	gj := gjson.ParseBytes(data)
++	if !gj.IsObject() {
++		return nil, errors.New("ZCode shared credentials are not readable JSON")
++	}
++	value := func(key string) string { return strings.TrimSpace(gj.Get(gjson.Escape(key)).String()) }
++	provider := strings.ToLower(value("oauth:active_provider"))
++	if provider != "bigmodel" && provider != "zai" {
++		provider = "zai"
++		if value("oauth:zai:access_token") == "" && value("oauth:bigmodel:access_token") != "" {
++			provider = "bigmodel"
++		}
++	}
++	accessToken := value("oauth:" + provider + ":access_token")
++	if accessToken == "" {
++		return nil, nil
++	}
++	jwt := value("zcodejwttoken")
++	// The desktop app can wrap stored values with its own cipher; never send ciphertext upstream as a token.
++	if !plainCredential(accessToken) || (jwt != "" && strings.Count(jwt, ".") != 2) {
++		return nil, errors.New("ZCode local credentials are encrypted by the app; sign in from TokenFlow instead")
++	}
++	storage := &ZCodeTokenStorage{AccessToken: accessToken, RefreshToken: value("oauth:" + provider + ":refresh_token"), JWT: jwt, Provider: provider, Type: "zcode", TokenType: "Bearer"}
++	if user := gjson.Parse(value("oauth:" + provider + ":user_info")); user.IsObject() {
++		storage.UID = strings.TrimSpace(firstNonEmpty(user.Get("user_id").String(), user.Get("userId").String(), user.Get("id").String()))
++		storage.Email = strings.TrimSpace(user.Get("email").String())
++	}
++	if provider == "bigmodel" {
++		return storage, nil
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
++	defer cancel()
++	token, expiresIn, errExchange := a.ExchangeBusinessToken(ctx, accessToken)
++	if errExchange != nil {
++		return nil, fmt.Errorf("ZCode local Z.ai sign-in has expired or was rejected: %w", errExchange)
++	}
++	storage.AccessToken = token
++	if expiresIn > 0 {
++		storage.Expired = time.Now().Add(time.Duration(expiresIn) * time.Second).UTC().Format(time.RFC3339)
++	}
++	return storage, nil
++}
++
++func plainCredential(token string) bool {
++	if len(token) < 16 || len(token) > 8192 {
++		return false
++	}
++	for _, r := range token {
++		if r <= ' ' || r > '~' || r == '"' {
++			return false
++		}
++	}
++	return true
 +}
 +
 +// Login executes the interactive CLI login flow.
@@ -6561,7 +6863,7 @@ index 0000000..eb45c5b
 +}
 diff --git a/internal/auth/zcode/zcode_test.go b/internal/auth/zcode/zcode_test.go
 new file mode 100644
-index 0000000..aa07cbc
+index 00000000..aa07cbcd
 --- /dev/null
 +++ b/internal/auth/zcode/zcode_test.go
 @@ -0,0 +1,150 @@
@@ -6715,8 +7017,21 @@ index 0000000..aa07cbc
 +		t.Fatalf("expected actualPort > 0, got %d", actualPort)
 +	}
 +}
+diff --git a/internal/client/codex/optimize-multi-agent-v2/optimize_multi_agent_v2_test.go b/internal/client/codex/optimize-multi-agent-v2/optimize_multi_agent_v2_test.go
+index 702ba656..c11bda00 100644
+--- a/internal/client/codex/optimize-multi-agent-v2/optimize_multi_agent_v2_test.go
++++ b/internal/client/codex/optimize-multi-agent-v2/optimize_multi_agent_v2_test.go
+@@ -30,7 +30,7 @@ func TestIsCodexMultiAgentClient(t *testing.T) {
+ 		},
+ 		{
+ 			name:      "codex tui",
+-			userAgent: "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)",
++			userAgent: "codex-tui/0.154.0 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)",
+ 			want:      true,
+ 		},
+ 		{
 diff --git a/internal/cmd/auth_manager.go b/internal/cmd/auth_manager.go
-index 8d19be1..d0043fc 100644
+index 8d19be1c..d0043fc7 100644
 --- a/internal/cmd/auth_manager.go
 +++ b/internal/cmd/auth_manager.go
 @@ -18,6 +18,11 @@ func newAuthManager() *sdkAuth.Manager {
@@ -6733,7 +7048,7 @@ index 8d19be1..d0043fc 100644
  }
 diff --git a/internal/cmd/doubao_login.go b/internal/cmd/doubao_login.go
 new file mode 100644
-index 0000000..01e22de
+index 00000000..01e22de7
 --- /dev/null
 +++ b/internal/cmd/doubao_login.go
 @@ -0,0 +1,38 @@
@@ -6777,7 +7092,7 @@ index 0000000..01e22de
 +}
 diff --git a/internal/cmd/qoder_login.go b/internal/cmd/qoder_login.go
 new file mode 100644
-index 0000000..7d166ff
+index 00000000..7d166ff9
 --- /dev/null
 +++ b/internal/cmd/qoder_login.go
 @@ -0,0 +1,40 @@
@@ -6823,7 +7138,7 @@ index 0000000..7d166ff
 +}
 diff --git a/internal/cmd/trae_login.go b/internal/cmd/trae_login.go
 new file mode 100644
-index 0000000..e7836c2
+index 00000000..e7836c27
 --- /dev/null
 +++ b/internal/cmd/trae_login.go
 @@ -0,0 +1,38 @@
@@ -6867,7 +7182,7 @@ index 0000000..e7836c2
 +}
 diff --git a/internal/cmd/workbuddy_login.go b/internal/cmd/workbuddy_login.go
 new file mode 100644
-index 0000000..04bf4e3
+index 00000000..04bf4e3a
 --- /dev/null
 +++ b/internal/cmd/workbuddy_login.go
 @@ -0,0 +1,40 @@
@@ -6913,7 +7228,7 @@ index 0000000..04bf4e3
 +}
 diff --git a/internal/cmd/zcode_login.go b/internal/cmd/zcode_login.go
 new file mode 100644
-index 0000000..fae7c74
+index 00000000..fae7c748
 --- /dev/null
 +++ b/internal/cmd/zcode_login.go
 @@ -0,0 +1,38 @@
@@ -6957,7 +7272,7 @@ index 0000000..fae7c74
 +}
 diff --git a/internal/homeplugins/network_scope_test.go b/internal/homeplugins/network_scope_test.go
 new file mode 100644
-index 0000000..f0b1ac2
+index 00000000..f0b1ac2d
 --- /dev/null
 +++ b/internal/homeplugins/network_scope_test.go
 @@ -0,0 +1,69 @@
@@ -7031,7 +7346,7 @@ index 0000000..f0b1ac2
 +	}
 +}
 diff --git a/internal/homeplugins/sync.go b/internal/homeplugins/sync.go
-index 3272454..788f7f4 100644
+index 32724547..788f7f4b 100644
 --- a/internal/homeplugins/sync.go
 +++ b/internal/homeplugins/sync.go
 @@ -803,21 +803,27 @@ func yamlMappingValue(node *yaml.Node, key string) *yaml.Node {
@@ -7070,7 +7385,7 @@ index 3272454..788f7f4 100644
  
  func pluginConfigEnabled(item config.PluginInstanceConfig) bool {
 diff --git a/internal/logging/gin_logger.go b/internal/logging/gin_logger.go
-index ad905fc..b09e55d 100644
+index ad905fcb..b09e55d5 100644
 --- a/internal/logging/gin_logger.go
 +++ b/internal/logging/gin_logger.go
 @@ -55,6 +55,12 @@ func GinLogrusLogger() gin.HandlerFunc {
@@ -7087,7 +7402,7 @@ index ad905fc..b09e55d 100644
  			return
  		}
 diff --git a/internal/logging/gin_logger_test.go b/internal/logging/gin_logger_test.go
-index 20ade05..a31a761 100644
+index 20ade057..a31a7611 100644
 --- a/internal/logging/gin_logger_test.go
 +++ b/internal/logging/gin_logger_test.go
 @@ -7,6 +7,8 @@ import (
@@ -7145,7 +7460,7 @@ index 20ade05..a31a761 100644
 +	}
 +}
 diff --git a/internal/pluginhost/management.go b/internal/pluginhost/management.go
-index 3857e9b..585870a 100644
+index 3857e9bc..585870aa 100644
 --- a/internal/pluginhost/management.go
 +++ b/internal/pluginhost/management.go
 @@ -9,6 +9,7 @@ import (
@@ -7211,7 +7526,7 @@ index 3857e9b..585870a 100644
  	if h == nil || record.route.Handler == nil || h.isPluginFused(record.pluginID) || !h.pluginIdentityCurrent(record.pluginID, record.path, record.version) {
  		return pluginapi.ManagementResponse{}, nil
 diff --git a/internal/pluginhost/management_test.go b/internal/pluginhost/management_test.go
-index 319add6..84b26d4 100644
+index 319add6f..84b26d4f 100644
 --- a/internal/pluginhost/management_test.go
 +++ b/internal/pluginhost/management_test.go
 @@ -8,6 +8,7 @@ import (
@@ -7368,7 +7683,7 @@ index 319add6..84b26d4 100644
  	host := newHostWithRecords(capabilityRecord{
  		id: "panic",
 diff --git a/internal/pluginstore/github.go b/internal/pluginstore/github.go
-index 8e52a7e..dfed68c 100644
+index 8e52a7ef..dfed68cb 100644
 --- a/internal/pluginstore/github.go
 +++ b/internal/pluginstore/github.go
 @@ -22,12 +22,16 @@ const maxPluginStoreRedirects = 10
@@ -7477,7 +7792,7 @@ index 8e52a7e..dfed68c 100644
  		reader = io.LimitReader(resp.Body, maxSize+1)
 diff --git a/internal/pluginstore/github_rate_limit.go b/internal/pluginstore/github_rate_limit.go
 new file mode 100644
-index 0000000..114ebc1
+index 00000000..114ebc1d
 --- /dev/null
 +++ b/internal/pluginstore/github_rate_limit.go
 @@ -0,0 +1,190 @@
@@ -7673,7 +7988,7 @@ index 0000000..114ebc1
 +}
 diff --git a/internal/pluginstore/github_rate_limit_test.go b/internal/pluginstore/github_rate_limit_test.go
 new file mode 100644
-index 0000000..342aa9b
+index 00000000..342aa9b8
 --- /dev/null
 +++ b/internal/pluginstore/github_rate_limit_test.go
 @@ -0,0 +1,341 @@
@@ -8020,7 +8335,7 @@ index 0000000..342aa9b
 +}
 diff --git a/internal/pluginstore/request_identity.go b/internal/pluginstore/request_identity.go
 new file mode 100644
-index 0000000..fa3ea06
+index 00000000..fa3ea06a
 --- /dev/null
 +++ b/internal/pluginstore/request_identity.go
 @@ -0,0 +1,65 @@
@@ -8091,7 +8406,7 @@ index 0000000..fa3ea06
 +}
 diff --git a/internal/pluginstore/request_identity_test.go b/internal/pluginstore/request_identity_test.go
 new file mode 100644
-index 0000000..d58ed18
+index 00000000..d58ed18c
 --- /dev/null
 +++ b/internal/pluginstore/request_identity_test.go
 @@ -0,0 +1,82 @@
@@ -8178,7 +8493,7 @@ index 0000000..d58ed18
 +	}
 +}
 diff --git a/internal/redisqueue/plugin.go b/internal/redisqueue/plugin.go
-index 119557b..0b3bf10 100644
+index 119557bb..0b3bf108 100644
 --- a/internal/redisqueue/plugin.go
 +++ b/internal/redisqueue/plugin.go
 @@ -8,6 +8,7 @@ import (
@@ -8199,7 +8514,7 @@ index 119557b..0b3bf10 100644
  		parentSessionID = ""
  	}
 diff --git a/internal/redisqueue/plugin_test.go b/internal/redisqueue/plugin_test.go
-index 6de6663..248f2a5 100644
+index 6de66638..248f2a50 100644
 --- a/internal/redisqueue/plugin_test.go
 +++ b/internal/redisqueue/plugin_test.go
 @@ -10,6 +10,7 @@ import (
@@ -8274,7 +8589,7 @@ index 6de6663..248f2a5 100644
  			t.Fatalf("expected parent_session_id to be omitted when record is independent root, got %s", payload["parent_session_id"])
  		}
 diff --git a/internal/registry/model_definitions.go b/internal/registry/model_definitions.go
-index 649888e..4cfc590 100644
+index 649888ef..4cfc5906 100644
 --- a/internal/registry/model_definitions.go
 +++ b/internal/registry/model_definitions.go
 @@ -30,6 +30,11 @@ type staticModelsJSON struct {
@@ -8350,8 +8665,21 @@ index 649888e..4cfc590 100644
  	}
  	for _, models := range allModels {
  		for _, m := range models {
+diff --git a/internal/registry/model_definitions_test.go b/internal/registry/model_definitions_test.go
+index 6d940165..66607c18 100644
+--- a/internal/registry/model_definitions_test.go
++++ b/internal/registry/model_definitions_test.go
+@@ -10,7 +10,7 @@ func TestGetStaticModelDefinitionsByChannelSupportsGeminiInteractions(t *testing
+ }
+ 
+ func TestModelOverrideHeadersFromEmbeddedModels(t *testing.T) {
+-	const wantUA = "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)"
++	const wantUA = "codex-tui/0.154.0 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)"
+ 	got := ModelOverrideHeaders("gpt-5.6-luna")
+ 	if got == nil {
+ 		t.Fatal("ModelOverrideHeaders(gpt-5.6-luna) = nil, want headers")
 diff --git a/internal/registry/model_updater.go b/internal/registry/model_updater.go
-index 8025f08..7f18799 100644
+index 8025f083..7f18799d 100644
 --- a/internal/registry/model_updater.go
 +++ b/internal/registry/model_updater.go
 @@ -121,6 +121,10 @@ func tryRefreshModels(ctx context.Context, label string) {
@@ -8423,7 +8751,7 @@ index 8025f08..7f18799 100644
  		return
 diff --git a/internal/registry/model_updater_test.go b/internal/registry/model_updater_test.go
 new file mode 100644
-index 0000000..387c6dd
+index 00000000..387c6dd2
 --- /dev/null
 +++ b/internal/registry/model_updater_test.go
 @@ -0,0 +1,87 @@
@@ -8515,9 +8843,45 @@ index 0000000..387c6dd
 +	return false
 +}
 diff --git a/internal/registry/models/models.json b/internal/registry/models/models.json
-index 2a54c31..12a53f0 100644
+index 2a54c310..5c5b9b86 100644
 --- a/internal/registry/models/models.json
 +++ b/internal/registry/models/models.json
+@@ -2459,7 +2459,7 @@
+       },
+       "config": {
+         "override_header": {
+-          "user-agent": "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)",
++          "user-agent": "codex-tui/0.154.0 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)",
+           "originator": "codex-tui"
+         }
+       },
+@@ -2651,7 +2651,7 @@
+       },
+       "config": {
+         "override_header": {
+-          "user-agent": "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)",
++          "user-agent": "codex-tui/0.154.0 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)",
+           "originator": "codex-tui"
+         }
+       },
+@@ -2872,7 +2872,7 @@
+       },
+       "config": {
+         "override_header": {
+-          "user-agent": "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)",
++          "user-agent": "codex-tui/0.154.0 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)",
+           "originator": "codex-tui"
+         }
+       },
+@@ -3093,7 +3093,7 @@
+       },
+       "config": {
+         "override_header": {
+-          "user-agent": "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)",
++          "user-agent": "codex-tui/0.154.0 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)",
+           "originator": "codex-tui"
+         }
+       },
 @@ -3642,7 +3642,6 @@
          "text"
        ]
@@ -9742,7 +10106,7 @@ index 2a54c31..12a53f0 100644
 +}
 \ No newline at end of file
 diff --git a/internal/runtime/executor/antigravity_executor.go b/internal/runtime/executor/antigravity_executor.go
-index cc9a264..9c94354 100644
+index cc9a264b..9c943549 100644
 --- a/internal/runtime/executor/antigravity_executor.go
 +++ b/internal/runtime/executor/antigravity_executor.go
 @@ -219,10 +219,15 @@ func closeAntigravityAuthIdleTransports(auth *cliproxyauth.Auth) {
@@ -9911,7 +10275,7 @@ index cc9a264..9c94354 100644
  
  func validateAntigravityRequestSignatures(ctx context.Context, modelName string, from sdktranslator.Format, rawJSON []byte) ([]byte, error) {
 diff --git a/internal/runtime/executor/antigravity_executor_transport_test.go b/internal/runtime/executor/antigravity_executor_transport_test.go
-index 956b520..2a0456b 100644
+index 956b5202..2a0456bd 100644
 --- a/internal/runtime/executor/antigravity_executor_transport_test.go
 +++ b/internal/runtime/executor/antigravity_executor_transport_test.go
 @@ -915,7 +915,14 @@ func TestCloseAntigravityAuthIdleTransportsEvictsIdlePool(t *testing.T) {
@@ -9987,7 +10351,7 @@ index 956b520..2a0456b 100644
 +	}
 +}
 diff --git a/internal/runtime/executor/antigravity_preupstream_rewrite_differential_test.go b/internal/runtime/executor/antigravity_preupstream_rewrite_differential_test.go
-index 1f4da53..126b451 100644
+index 1f4da536..126b4516 100644
 --- a/internal/runtime/executor/antigravity_preupstream_rewrite_differential_test.go
 +++ b/internal/runtime/executor/antigravity_preupstream_rewrite_differential_test.go
 @@ -5,9 +5,11 @@ import (
@@ -10220,7 +10584,7 @@ index 1f4da53..126b451 100644
 +	return []byte(payload.String())
 +}
 diff --git a/internal/runtime/executor/claude_executor_native_helper_test.go b/internal/runtime/executor/claude_executor_native_helper_test.go
-index 3e2dab5..69d846d 100644
+index 3e2dab54..69d846d3 100644
 --- a/internal/runtime/executor/claude_executor_native_helper_test.go
 +++ b/internal/runtime/executor/claude_executor_native_helper_test.go
 @@ -10,6 +10,7 @@ import (
@@ -10333,7 +10697,7 @@ index 3e2dab5..69d846d 100644
 +	}
 +}
 diff --git a/internal/runtime/executor/claude_executor_request.go b/internal/runtime/executor/claude_executor_request.go
-index 76a5067..f2f4e0f 100644
+index 76a5067b..f2f4e0fe 100644
 --- a/internal/runtime/executor/claude_executor_request.go
 +++ b/internal/runtime/executor/claude_executor_request.go
 @@ -50,6 +50,7 @@ const (
@@ -10471,7 +10835,7 @@ index 76a5067..f2f4e0f 100644
  		}
  		if stream && !isAnthropicBase {
 diff --git a/internal/runtime/executor/claude_executor_test.go b/internal/runtime/executor/claude_executor_test.go
-index 9edfb7b..4d93bf9 100644
+index 9edfb7b0..4d93bf90 100644
 --- a/internal/runtime/executor/claude_executor_test.go
 +++ b/internal/runtime/executor/claude_executor_test.go
 @@ -7786,7 +7786,7 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
@@ -10657,7 +11021,7 @@ index 9edfb7b..4d93bf9 100644
  	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "key-stream-accept"}}
  	body := []byte(`{"model":"claude-opus-4-6","stream":true}`)
 diff --git a/internal/runtime/executor/claude_mid_system_model_test.go b/internal/runtime/executor/claude_mid_system_model_test.go
-index 650c538..14f0feb 100644
+index 650c538f..14f0feb6 100644
 --- a/internal/runtime/executor/claude_mid_system_model_test.go
 +++ b/internal/runtime/executor/claude_mid_system_model_test.go
 @@ -282,7 +282,7 @@ func TestClaudeExecutor_PayloadOverrideReconcilesRelocatedSystemPrompt(t *testin
@@ -10669,9 +11033,35 @@ index 650c538..14f0feb 100644
  
  	if _, err := ex.Execute(upstream.context(t, headers), midSystemAuth(), cliproxyexecutor.Request{
  		Model:   "claude-haiku-4-5-20251001",
+diff --git a/internal/runtime/executor/codex_executor_request.go b/internal/runtime/executor/codex_executor_request.go
+index 6842ed8f..42ca0c5a 100644
+--- a/internal/runtime/executor/codex_executor_request.go
++++ b/internal/runtime/executor/codex_executor_request.go
+@@ -23,7 +23,7 @@ import (
+ )
+ 
+ const (
+-	codexUserAgent             = "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)"
++	codexUserAgent             = "codex-tui/0.154.0 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)"
+ 	codexOriginator            = "codex-tui"
+ 	codexDefaultImageToolModel = "gpt-image-2"
+ 	codexResponsesLiteHeader   = "X-OpenAI-Internal-Codex-Responses-Lite"
+diff --git a/internal/runtime/executor/codex_websockets_executor_test.go b/internal/runtime/executor/codex_websockets_executor_test.go
+index 39617239..3cb70c15 100644
+--- a/internal/runtime/executor/codex_websockets_executor_test.go
++++ b/internal/runtime/executor/codex_websockets_executor_test.go
+@@ -1822,7 +1822,7 @@ func TestApplyCodexWebsocketHeaders_EmptyAPIKey_OmitsAuthorizationAndOAuthHeader
+ }
+ 
+ func TestApplyModelHeaderOverridesFromModelConfig(t *testing.T) {
+-	const wantUA = "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)"
++	const wantUA = "codex-tui/0.154.0 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)"
+ 	req, err := http.NewRequest(http.MethodPost, "https://example.com/responses", nil)
+ 	if err != nil {
+ 		t.Fatalf("NewRequest() error = %v", err)
 diff --git a/internal/runtime/executor/doubao_executor.go b/internal/runtime/executor/doubao_executor.go
 new file mode 100644
-index 0000000..607a8c1
+index 00000000..607a8c1f
 --- /dev/null
 +++ b/internal/runtime/executor/doubao_executor.go
 @@ -0,0 +1,348 @@
@@ -11025,7 +11415,7 @@ index 0000000..607a8c1
 +}
 diff --git a/internal/runtime/executor/doubao_executor_test.go b/internal/runtime/executor/doubao_executor_test.go
 new file mode 100644
-index 0000000..7adc8cb
+index 00000000..7adc8cbe
 --- /dev/null
 +++ b/internal/runtime/executor/doubao_executor_test.go
 @@ -0,0 +1,58 @@
@@ -11088,7 +11478,7 @@ index 0000000..7adc8cb
 +	}
 +}
 diff --git a/internal/runtime/executor/helps/claude_client_detection.go b/internal/runtime/executor/helps/claude_client_detection.go
-index 295ac92..ed08d75 100644
+index 295ac924..ed08d75b 100644
 --- a/internal/runtime/executor/helps/claude_client_detection.go
 +++ b/internal/runtime/executor/helps/claude_client_detection.go
 @@ -273,18 +273,24 @@ func measuredClaudeCodeHelperHeadersMatch(headers http.Header, cfg *config.Confi
@@ -11125,7 +11515,7 @@ index 295ac92..ed08d75 100644
  
  func measuredClaudeCodeHelperSessionMatches(headers http.Header, payload []byte) bool {
 diff --git a/internal/runtime/executor/helps/claude_client_detection_test.go b/internal/runtime/executor/helps/claude_client_detection_test.go
-index d334e62..b1381bf 100644
+index d334e62b..b1381bfb 100644
 --- a/internal/runtime/executor/helps/claude_client_detection_test.go
 +++ b/internal/runtime/executor/helps/claude_client_detection_test.go
 @@ -24,11 +24,11 @@ func confirmedClaudeCodeHeaders() http.Header {
@@ -11307,7 +11697,7 @@ index d334e62..b1381bf 100644
  			t.Fatalf("detection = %#v, want a non-measured timeout to disqualify the helper profile", detection)
 diff --git a/internal/runtime/executor/helps/doubao_helpers.go b/internal/runtime/executor/helps/doubao_helpers.go
 new file mode 100644
-index 0000000..f77aedb
+index 00000000..f77aedbf
 --- /dev/null
 +++ b/internal/runtime/executor/helps/doubao_helpers.go
 @@ -0,0 +1,49 @@
@@ -11362,7 +11752,7 @@ index 0000000..f77aedb
 +}
 diff --git a/internal/runtime/executor/helps/kimi_responses.go b/internal/runtime/executor/helps/kimi_responses.go
 new file mode 100644
-index 0000000..044accc
+index 00000000..044accc5
 --- /dev/null
 +++ b/internal/runtime/executor/helps/kimi_responses.go
 @@ -0,0 +1,21 @@
@@ -11389,7 +11779,7 @@ index 0000000..044accc
 +}
 diff --git a/internal/runtime/executor/helps/kimi_responses_test.go b/internal/runtime/executor/helps/kimi_responses_test.go
 new file mode 100644
-index 0000000..9f875f0
+index 00000000..9f875f03
 --- /dev/null
 +++ b/internal/runtime/executor/helps/kimi_responses_test.go
 @@ -0,0 +1,56 @@
@@ -11451,7 +11841,7 @@ index 0000000..9f875f0
 +}
 diff --git a/internal/runtime/executor/helps/qoder_protocol.go b/internal/runtime/executor/helps/qoder_protocol.go
 new file mode 100644
-index 0000000..79c9c7c
+index 00000000..79c9c7cf
 --- /dev/null
 +++ b/internal/runtime/executor/helps/qoder_protocol.go
 @@ -0,0 +1,405 @@
@@ -11862,7 +12252,7 @@ index 0000000..79c9c7c
 +}
 diff --git a/internal/runtime/executor/helps/qoder_protocol_test.go b/internal/runtime/executor/helps/qoder_protocol_test.go
 new file mode 100644
-index 0000000..21903fe
+index 00000000..21903fe2
 --- /dev/null
 +++ b/internal/runtime/executor/helps/qoder_protocol_test.go
 @@ -0,0 +1,18 @@
@@ -11886,7 +12276,7 @@ index 0000000..21903fe
 +}
 diff --git a/internal/runtime/executor/helps/trae_helpers.go b/internal/runtime/executor/helps/trae_helpers.go
 new file mode 100644
-index 0000000..d3e381d
+index 00000000..d3e381d9
 --- /dev/null
 +++ b/internal/runtime/executor/helps/trae_helpers.go
 @@ -0,0 +1,55 @@
@@ -11946,7 +12336,7 @@ index 0000000..d3e381d
 +	return sjson.SetBytes(raw, "model", modelKey)
 +}
 diff --git a/internal/runtime/executor/helps/usage_helpers.go b/internal/runtime/executor/helps/usage_helpers.go
-index b059c84..85909cf 100644
+index b059c84c..85909cf4 100644
 --- a/internal/runtime/executor/helps/usage_helpers.go
 +++ b/internal/runtime/executor/helps/usage_helpers.go
 @@ -137,6 +137,9 @@ func isHierarchyParent(primary, parent string) bool {
@@ -11961,7 +12351,7 @@ index b059c84..85909cf 100644
  
 diff --git a/internal/runtime/executor/helps/workbuddy_helpers.go b/internal/runtime/executor/helps/workbuddy_helpers.go
 new file mode 100644
-index 0000000..fbab621
+index 00000000..5c8fe2c2
 --- /dev/null
 +++ b/internal/runtime/executor/helps/workbuddy_helpers.go
 @@ -0,0 +1,135 @@
@@ -11983,7 +12373,7 @@ index 0000000..fbab621
 +	// WorkBuddyReferer is the referer header expected by Tencent upstream.
 +	WorkBuddyReferer = "https://www.codebuddy.cn/"
 +	// WorkBuddyUserAgent is the official CLI user agent string.
-+	WorkBuddyUserAgent = "CLI/2.63.2 CodeBuddy/2.63.2"
++	WorkBuddyUserAgent = "CLI/2.161.0 CodeBuddy/2.161.0"
 +	// WorkBuddyProductHeader is the product identifier expected by Tencent upstream.
 +	WorkBuddyProductHeader = "SaaS"
 +)
@@ -12102,10 +12492,10 @@ index 0000000..fbab621
 +}
 diff --git a/internal/runtime/executor/helps/zcode_helpers.go b/internal/runtime/executor/helps/zcode_helpers.go
 new file mode 100644
-index 0000000..6ac8b83
+index 00000000..6e0ad392
 --- /dev/null
 +++ b/internal/runtime/executor/helps/zcode_helpers.go
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,76 @@
 +package helps
 +
 +import (
@@ -12118,6 +12508,8 @@ index 0000000..6ac8b83
 +const (
 +	// ZCodeBigModelChatURL is the standard BigModel / 智谱 OpenAI chat completion endpoint.
 +	ZCodeBigModelChatURL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
++	// ZCodeBigModelCodingChatURL is the BigModel GLM Coding Plan endpoint; plan quota is not billed on the general endpoint.
++	ZCodeBigModelCodingChatURL = "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
 +	// ZCodeZAIChatURL is the Z.AI coding chat completion endpoint.
 +	ZCodeZAIChatURL = "https://api.z.ai/api/coding/paas/v4/chat/completions"
 +)
@@ -12126,7 +12518,9 @@ index 0000000..6ac8b83
 +func NormalizeZCodeModel(model string) string {
 +	m := strings.ToLower(strings.TrimSpace(model))
 +	switch m {
-+	case "glm-5.3", "glm-5.3-flash", "glm-53":
++	case "glm-5.3", "glm-53":
++		return "glm-5.3"
++	case "glm-5.3-flash":
 +		return "glm-5.3-flash"
 +	case "glm-5.2", "glm-52":
 +		return "glm-5.2"
@@ -12179,7 +12573,7 @@ index 0000000..6ac8b83
 +	return ""
 +}
 diff --git a/internal/runtime/executor/kimi_executor.go b/internal/runtime/executor/kimi_executor.go
-index 2232aed..3e1cacf 100644
+index 2232aed5..3e1cacfa 100644
 --- a/internal/runtime/executor/kimi_executor.go
 +++ b/internal/runtime/executor/kimi_executor.go
 @@ -55,6 +55,9 @@ func (e *KimiExecutor) RequestToFormat(_ cliproxyexecutor.Request, opts cliproxy
@@ -12480,7 +12874,7 @@ index 2232aed..3e1cacf 100644
  func (e *KimiExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
  	auth.Attributes["base_url"] = kimiauth.KimiAPIBaseURL
 diff --git a/internal/runtime/executor/kimi_executor_test.go b/internal/runtime/executor/kimi_executor_test.go
-index 0a98d12..d1c6a32 100644
+index 0a98d121..d1c6a32f 100644
 --- a/internal/runtime/executor/kimi_executor_test.go
 +++ b/internal/runtime/executor/kimi_executor_test.go
 @@ -2,6 +2,7 @@ package executor
@@ -12867,7 +13261,7 @@ index 0a98d12..d1c6a32 100644
  		t.Fatalf("upstream stream tool parameter still contains $ref: %s", tool.Get("parameters").Raw)
 diff --git a/internal/runtime/executor/qoder_claude_test.go b/internal/runtime/executor/qoder_claude_test.go
 new file mode 100644
-index 0000000..8022289
+index 00000000..8022289e
 --- /dev/null
 +++ b/internal/runtime/executor/qoder_claude_test.go
 @@ -0,0 +1,159 @@
@@ -13032,7 +13426,7 @@ index 0000000..8022289
 +}
 diff --git a/internal/runtime/executor/qoder_executor.go b/internal/runtime/executor/qoder_executor.go
 new file mode 100644
-index 0000000..06b45e0
+index 00000000..06b45e0f
 --- /dev/null
 +++ b/internal/runtime/executor/qoder_executor.go
 @@ -0,0 +1,499 @@
@@ -13537,7 +13931,7 @@ index 0000000..06b45e0
 +}
 diff --git a/internal/runtime/executor/qoder_executor_test.go b/internal/runtime/executor/qoder_executor_test.go
 new file mode 100644
-index 0000000..9260f52
+index 00000000..9260f526
 --- /dev/null
 +++ b/internal/runtime/executor/qoder_executor_test.go
 @@ -0,0 +1,106 @@
@@ -13649,7 +14043,7 @@ index 0000000..9260f52
 +}
 diff --git a/internal/runtime/executor/trae_executor.go b/internal/runtime/executor/trae_executor.go
 new file mode 100644
-index 0000000..7a31e33
+index 00000000..7a31e33a
 --- /dev/null
 +++ b/internal/runtime/executor/trae_executor.go
 @@ -0,0 +1,338 @@
@@ -13993,7 +14387,7 @@ index 0000000..7a31e33
 +}
 diff --git a/internal/runtime/executor/trae_executor_test.go b/internal/runtime/executor/trae_executor_test.go
 new file mode 100644
-index 0000000..4645341
+index 00000000..46453418
 --- /dev/null
 +++ b/internal/runtime/executor/trae_executor_test.go
 @@ -0,0 +1,58 @@
@@ -14057,7 +14451,7 @@ index 0000000..4645341
 +}
 diff --git a/internal/runtime/executor/workbuddy_executor.go b/internal/runtime/executor/workbuddy_executor.go
 new file mode 100644
-index 0000000..aba46e6
+index 00000000..aba46e6c
 --- /dev/null
 +++ b/internal/runtime/executor/workbuddy_executor.go
 @@ -0,0 +1,358 @@
@@ -14421,7 +14815,7 @@ index 0000000..aba46e6
 +}
 diff --git a/internal/runtime/executor/workbuddy_executor_test.go b/internal/runtime/executor/workbuddy_executor_test.go
 new file mode 100644
-index 0000000..15801ed
+index 00000000..15801edc
 --- /dev/null
 +++ b/internal/runtime/executor/workbuddy_executor_test.go
 @@ -0,0 +1,134 @@
@@ -14559,12 +14953,25 @@ index 0000000..15801ed
 +	}
 +	return false
 +}
+diff --git a/internal/runtime/executor/xai_executor.go b/internal/runtime/executor/xai_executor.go
+index 5a4fb0aa..f30ca7d6 100644
+--- a/internal/runtime/executor/xai_executor.go
++++ b/internal/runtime/executor/xai_executor.go
+@@ -48,7 +48,7 @@ const (
+ 	xaiTokenAuthValue           = "xai-grok-cli"
+ 	xaiClientVersionHeader      = "x-grok-client-version"
+ 	// Keep in sync with the current Grok CLI client version that chat-proxy expects.
+-	xaiClientVersionValue         = "0.2.120"
++	xaiClientVersionValue         = "1.0.62"
+ 	xaiClientIdentifierHeader     = "x-grok-client-identifier"
+ 	xaiClientIdentifierValue      = "grok-shell"
+ 	xaiAuthenticateResponseHeader = "x-authenticateresponse"
 diff --git a/internal/runtime/executor/zcode_executor.go b/internal/runtime/executor/zcode_executor.go
 new file mode 100644
-index 0000000..8e00100
+index 00000000..d2d9d2c6
 --- /dev/null
 +++ b/internal/runtime/executor/zcode_executor.go
-@@ -0,0 +1,280 @@
+@@ -0,0 +1,283 @@
 +package executor
 +
 +import (
@@ -14749,8 +15156,11 @@ index 0000000..8e00100
 +	}
 +
 +	chatURL := helps.ZCodeBigModelChatURL
-+	if provider == "zai" {
++	switch provider {
++	case "zai":
 +		chatURL = helps.ZCodeZAIChatURL
++	case "bigmodel":
++		chatURL = helps.ZCodeBigModelCodingChatURL
 +	}
 +	if baseURL != "" {
 +		chatURL = strings.TrimRight(baseURL, "/") + "/chat/completions"
@@ -14847,7 +15257,7 @@ index 0000000..8e00100
 +var _ = zcode.ErrDeviceFlowPending
 diff --git a/internal/runtime/executor/zcode_executor_test.go b/internal/runtime/executor/zcode_executor_test.go
 new file mode 100644
-index 0000000..ba5ed49
+index 00000000..ba5ed49f
 --- /dev/null
 +++ b/internal/runtime/executor/zcode_executor_test.go
 @@ -0,0 +1,58 @@
@@ -14910,7 +15320,7 @@ index 0000000..ba5ed49
 +	}
 +}
 diff --git a/internal/thinking/apply.go b/internal/thinking/apply.go
-index 92e6161..3dbf38d 100644
+index 92e6161c..3dbf38dd 100644
 --- a/internal/thinking/apply.go
 +++ b/internal/thinking/apply.go
 @@ -195,7 +195,7 @@ func ApplyThinkingWithModelInfoAndSummary(body, sourceBody []byte, model string,
@@ -14923,7 +15333,7 @@ index 92e6161..3dbf38d 100644
  	}
  	providerKey = strings.ToLower(strings.TrimSpace(providerKey))
 diff --git a/internal/translator/antigravity/gemini/antigravity_gemini_request.go b/internal/translator/antigravity/gemini/antigravity_gemini_request.go
-index 04269bf..b8bc766 100644
+index 04269bfa..b8bc766e 100644
 --- a/internal/translator/antigravity/gemini/antigravity_gemini_request.go
 +++ b/internal/translator/antigravity/gemini/antigravity_gemini_request.go
 @@ -58,6 +58,8 @@ func ConvertGeminiRequestToAntigravity(modelName string, inputRawJSON []byte, _
@@ -14964,7 +15374,7 @@ index 04269bf..b8bc766 100644
  // or invalid and therefore requires rebuilding the contents array.
  func geminiContentRolesNeedNormalization(contents gjson.Result) bool {
 diff --git a/internal/translator/antigravity/gemini/antigravity_gemini_request_test.go b/internal/translator/antigravity/gemini/antigravity_gemini_request_test.go
-index aea8b72..e1a8405 100644
+index aea8b721..e1a84052 100644
 --- a/internal/translator/antigravity/gemini/antigravity_gemini_request_test.go
 +++ b/internal/translator/antigravity/gemini/antigravity_gemini_request_test.go
 @@ -1177,3 +1177,92 @@ func TestNormalizeRoles_InvalidRoleWithFunctionResponseNormalizesToUser(t *testi
@@ -15061,7 +15471,7 @@ index aea8b72..e1a8405 100644
 +	}
 +}
 diff --git a/internal/translator/antigravity/openai/responses/antigravity_openai-responses_request_test.go b/internal/translator/antigravity/openai/responses/antigravity_openai-responses_request_test.go
-index 2d1f2f8..eabef8d 100644
+index 2d1f2f88..eabef8d4 100644
 --- a/internal/translator/antigravity/openai/responses/antigravity_openai-responses_request_test.go
 +++ b/internal/translator/antigravity/openai/responses/antigravity_openai-responses_request_test.go
 @@ -574,3 +574,25 @@ func TestConvertOpenAIResponsesRequestToAntigravity_ReasoningSummaries(t *testin
@@ -15091,7 +15501,7 @@ index 2d1f2f8..eabef8d 100644
 +	}
 +}
 diff --git a/internal/translator/claude/openai/responses/claude_openai-responses_request.go b/internal/translator/claude/openai/responses/claude_openai-responses_request.go
-index 7309b5f..83cb854 100644
+index 7309b5ff..83cb8544 100644
 --- a/internal/translator/claude/openai/responses/claude_openai-responses_request.go
 +++ b/internal/translator/claude/openai/responses/claude_openai-responses_request.go
 @@ -273,116 +273,92 @@ func convertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte
@@ -15505,7 +15915,7 @@ index 7309b5f..83cb854 100644
  	flushPendingMessage()
  	hadMessages := len(messageBlocks) > 0
 diff --git a/internal/translator/claude/openai/responses/claude_openai-responses_request_test.go b/internal/translator/claude/openai/responses/claude_openai-responses_request_test.go
-index 84110c5..24b7767 100644
+index 84110c5f..24b77674 100644
 --- a/internal/translator/claude/openai/responses/claude_openai-responses_request_test.go
 +++ b/internal/translator/claude/openai/responses/claude_openai-responses_request_test.go
 @@ -1895,3 +1895,161 @@ func TestConvertOpenAIResponsesRequestToClaude_TextFormatStructuredOutput(t *tes
@@ -15671,7 +16081,7 @@ index 84110c5..24b7767 100644
 +	}
 +}
 diff --git a/internal/translator/codex/claude/codex_claude_request.go b/internal/translator/codex/claude/codex_claude_request.go
-index 8e12208..5e883c3 100644
+index 8e122087..5e883c37 100644
 --- a/internal/translator/codex/claude/codex_claude_request.go
 +++ b/internal/translator/codex/claude/codex_claude_request.go
 @@ -6,8 +6,10 @@
@@ -15785,7 +16195,7 @@ index 8e12208..5e883c3 100644
  
  // codexSchemaMapKeywords holds JSON Schema keywords whose values are maps of
 diff --git a/internal/translator/codex/claude/codex_claude_request_test.go b/internal/translator/codex/claude/codex_claude_request_test.go
-index 14b4e0d..931ad3d 100644
+index 14b4e0df..931ad3d9 100644
 --- a/internal/translator/codex/claude/codex_claude_request_test.go
 +++ b/internal/translator/codex/claude/codex_claude_request_test.go
 @@ -939,3 +939,188 @@ func TestConvertClaudeRequestToCodex_OutputConfigFormat(t *testing.T) {
@@ -15978,7 +16388,7 @@ index 14b4e0d..931ad3d 100644
 +	}
 +}
 diff --git a/internal/translator/codex/claude/codex_claude_response.go b/internal/translator/codex/claude/codex_claude_response.go
-index 1d0730a..59d6f74 100644
+index 1d0730a7..59d6f748 100644
 --- a/internal/translator/codex/claude/codex_claude_response.go
 +++ b/internal/translator/codex/claude/codex_claude_response.go
 @@ -166,6 +166,7 @@ func ConvertCodexResponseToClaude(_ context.Context, _ string, originalRequestRa
@@ -16027,7 +16437,7 @@ index 1d0730a..59d6f74 100644
  func buildReverseMapFromClaudeOriginalShortToOriginal(original []byte) map[string]string {
  	tools := gjson.GetBytes(original, "tools")
 diff --git a/internal/translator/codex/claude/codex_claude_response_test.go b/internal/translator/codex/claude/codex_claude_response_test.go
-index 582bca4..813545d 100644
+index 582bca4d..813545d4 100644
 --- a/internal/translator/codex/claude/codex_claude_response_test.go
 +++ b/internal/translator/codex/claude/codex_claude_response_test.go
 @@ -1522,3 +1522,232 @@ func TestConvertCodexResponseToClaudeNonStream_PreservesCacheWriteUsage(t *testi
@@ -16264,7 +16674,7 @@ index 582bca4..813545d 100644
 +	}
 +}
 diff --git a/internal/translator/common/gemini.go b/internal/translator/common/gemini.go
-index 0142182..51567be 100644
+index 0142182d..51567bed 100644
 --- a/internal/translator/common/gemini.go
 +++ b/internal/translator/common/gemini.go
 @@ -43,6 +43,7 @@ func MergeAdjacentGeminiContents(contents [][]byte) [][]byte {
@@ -16316,7 +16726,7 @@ index 0142182..51567be 100644
  // but leaves turns containing functionResponse unmerged to preserve tool-call/response boundaries.
  func MergeAdjacentGeminiUserContents(contents [][]byte) [][]byte {
 diff --git a/internal/translator/common/gemini_test.go b/internal/translator/common/gemini_test.go
-index 35da2a8..d9975a3 100644
+index 35da2a85..d9975a3c 100644
 --- a/internal/translator/common/gemini_test.go
 +++ b/internal/translator/common/gemini_test.go
 @@ -83,6 +83,27 @@ func TestMergeAdjacentGeminiContents(t *testing.T) {
@@ -16418,7 +16828,7 @@ index 35da2a8..d9975a3 100644
 +	})
 +}
 diff --git a/internal/translator/common/responses.go b/internal/translator/common/responses.go
-index 17fce87..1804f36 100644
+index 17fce87f..1804f368 100644
 --- a/internal/translator/common/responses.go
 +++ b/internal/translator/common/responses.go
 @@ -1,6 +1,11 @@
@@ -16590,7 +17000,7 @@ index 17fce87..1804f36 100644
 +	return normalized
 +}
 diff --git a/internal/translator/common/responses_test.go b/internal/translator/common/responses_test.go
-index a1274f4..409eea3 100644
+index a1274f40..409eea33 100644
 --- a/internal/translator/common/responses_test.go
 +++ b/internal/translator/common/responses_test.go
 @@ -68,3 +68,123 @@ func TestSetResponsesToolCallIdentity(t *testing.T) {
@@ -16718,7 +17128,7 @@ index a1274f4..409eea3 100644
 +	})
 +}
 diff --git a/internal/translator/gemini/claude/gemini_claude_request.go b/internal/translator/gemini/claude/gemini_claude_request.go
-index 0ab8724..b05058e 100644
+index 0ab87243..b05058e1 100644
 --- a/internal/translator/gemini/claude/gemini_claude_request.go
 +++ b/internal/translator/gemini/claude/gemini_claude_request.go
 @@ -205,6 +205,9 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
@@ -16732,7 +17142,7 @@ index 0ab8724..b05058e 100644
  			} else if contentsResult.Type == gjson.String {
  				part := []byte(`{"text":""}`)
 diff --git a/internal/translator/gemini/claude/gemini_claude_request_test.go b/internal/translator/gemini/claude/gemini_claude_request_test.go
-index 72210bf..54a052e 100644
+index 72210bf3..54a052ef 100644
 --- a/internal/translator/gemini/claude/gemini_claude_request_test.go
 +++ b/internal/translator/gemini/claude/gemini_claude_request_test.go
 @@ -393,8 +393,11 @@ func TestConvertClaudeRequestToGemini_AlignsPermutedParallelToolResultsWithMixed
@@ -16815,7 +17225,7 @@ index 72210bf..54a052e 100644
 +	}
 +}
 diff --git a/internal/translator/gemini/openai/responses/gemini_openai-responses_request.go b/internal/translator/gemini/openai/responses/gemini_openai-responses_request.go
-index cc97e4c..bd06728 100644
+index cc97e4cf..bd06728c 100644
 --- a/internal/translator/gemini/openai/responses/gemini_openai-responses_request.go
 +++ b/internal/translator/gemini/openai/responses/gemini_openai-responses_request.go
 @@ -54,6 +54,7 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
@@ -16906,7 +17316,7 @@ index cc97e4c..bd06728 100644
  				break
  			}
 diff --git a/internal/translator/gemini/openai/responses/gemini_openai-responses_request_test.go b/internal/translator/gemini/openai/responses/gemini_openai-responses_request_test.go
-index 7cea2ea..ecb27f3 100644
+index 7cea2ea6..ecb27f3f 100644
 --- a/internal/translator/gemini/openai/responses/gemini_openai-responses_request_test.go
 +++ b/internal/translator/gemini/openai/responses/gemini_openai-responses_request_test.go
 @@ -1980,3 +1980,306 @@ func TestConvertOpenAIResponsesRequestToGemini_TwoTurnCustomToolRoundtripWithRea
@@ -17217,7 +17627,7 @@ index 7cea2ea..ecb27f3 100644
 +	}
 +}
 diff --git a/internal/translator/openai/claude/openai_claude_request.go b/internal/translator/openai/claude/openai_claude_request.go
-index f79e24b..e28679d 100644
+index f79e24b7..e28679d4 100644
 --- a/internal/translator/openai/claude/openai_claude_request.go
 +++ b/internal/translator/openai/claude/openai_claude_request.go
 @@ -338,8 +338,10 @@ func convertClaudeRequestToOpenAI(modelName string, inputRawJSON []byte, stream
@@ -17233,7 +17643,7 @@ index f79e24b..e28679d 100644
  
  			toolItems = append(toolItems, openAIToolJSON)
 diff --git a/internal/translator/openai/claude/openai_claude_request_test.go b/internal/translator/openai/claude/openai_claude_request_test.go
-index 08f5b71..639f7f8 100644
+index 08f5b711..639f7f80 100644
 --- a/internal/translator/openai/claude/openai_claude_request_test.go
 +++ b/internal/translator/openai/claude/openai_claude_request_test.go
 @@ -976,3 +976,44 @@ func TestConvertClaudeRequestToOpenAI_StopSequences(t *testing.T) {
@@ -17282,7 +17692,7 @@ index 08f5b71..639f7f8 100644
 +	}
 +}
 diff --git a/internal/translator/openai/claude/openai_claude_response.go b/internal/translator/openai/claude/openai_claude_response.go
-index 66ba16a..2e61a67 100644
+index 66ba16af..2e61a67a 100644
 --- a/internal/translator/openai/claude/openai_claude_response.go
 +++ b/internal/translator/openai/claude/openai_claude_response.go
 @@ -58,6 +58,10 @@ type ConvertOpenAIResponseToAnthropicParams struct {
@@ -17575,7 +17985,7 @@ index 66ba16a..2e61a67 100644
  }
  
 diff --git a/internal/translator/openai/claude/openai_claude_response_test.go b/internal/translator/openai/claude/openai_claude_response_test.go
-index ce52827..98831e7 100644
+index ce528271..98831e7e 100644
 --- a/internal/translator/openai/claude/openai_claude_response_test.go
 +++ b/internal/translator/openai/claude/openai_claude_response_test.go
 @@ -865,3 +865,171 @@ func TestNonStreamingUsage_PreservesCacheWriteTokens(t *testing.T) {
@@ -17751,7 +18161,7 @@ index ce52827..98831e7 100644
 +	}
 +}
 diff --git a/internal/translator/openai/openai/responses/openai_openai-responses_request.go b/internal/translator/openai/openai/responses/openai_openai-responses_request.go
-index db902a7..4bfcc7c 100644
+index db902a71..4bfcc7ca 100644
 --- a/internal/translator/openai/openai/responses/openai_openai-responses_request.go
 +++ b/internal/translator/openai/openai/responses/openai_openai-responses_request.go
 @@ -66,14 +66,14 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
@@ -17869,7 +18279,7 @@ index db902a7..4bfcc7c 100644
  					flushDeferredMessages()
  				}
 diff --git a/internal/translator/openai/openai/responses/openai_openai-responses_request_test.go b/internal/translator/openai/openai/responses/openai_openai-responses_request_test.go
-index 988d61d..93e261e 100644
+index 988d61d3..93e261ee 100644
 --- a/internal/translator/openai/openai/responses/openai_openai-responses_request_test.go
 +++ b/internal/translator/openai/openai/responses/openai_openai-responses_request_test.go
 @@ -1139,3 +1139,186 @@ func TestResponsesCustomToolNames_OnlyReportsMergedTools(t *testing.T) {
@@ -18060,7 +18470,7 @@ index 988d61d..93e261e 100644
 +	}
 +}
 diff --git a/internal/tui/oauth_tab.go b/internal/tui/oauth_tab.go
-index 4eb03b0..45265d1 100644
+index 4eb03b0b..45265d12 100644
 --- a/internal/tui/oauth_tab.go
 +++ b/internal/tui/oauth_tab.go
 @@ -24,6 +24,11 @@ var oauthProviders = []oauthProvider{
@@ -18087,7 +18497,7 @@ index 4eb03b0..45265d1 100644
  					providerKey = "xai"
  				}
 diff --git a/sdk/api/handlers/handlers_metadata_test.go b/sdk/api/handlers/handlers_metadata_test.go
-index 1f5603b..5ab3b6b 100644
+index 1f5603bd..5ab3b6b2 100644
 --- a/sdk/api/handlers/handlers_metadata_test.go
 +++ b/sdk/api/handlers/handlers_metadata_test.go
 @@ -283,4 +283,20 @@ func TestEnrichContextWithSessionHierarchyFromBody(t *testing.T) {
@@ -18112,7 +18522,7 @@ index 1f5603b..5ab3b6b 100644
 +	}
  }
 diff --git a/sdk/api/management.go b/sdk/api/management.go
-index 8a03909..4588435 100644
+index 8a03909a..45884356 100644
 --- a/sdk/api/management.go
 +++ b/sdk/api/management.go
 @@ -22,6 +22,9 @@ type ManagementTokenRequester interface {
@@ -18145,7 +18555,7 @@ index 8a03909..4588435 100644
  	m.handler.GetAuthStatus(c)
  }
 diff --git a/sdk/auth/antigravity.go b/sdk/auth/antigravity.go
-index 40a9243..3742472 100644
+index 40a9243a..37424724 100644
 --- a/sdk/auth/antigravity.go
 +++ b/sdk/auth/antigravity.go
 @@ -187,39 +187,16 @@ waitForCallback:
@@ -18327,7 +18737,7 @@ index 40a9243..3742472 100644
 +}
 diff --git a/sdk/auth/antigravity_headless_test.go b/sdk/auth/antigravity_headless_test.go
 new file mode 100644
-index 0000000..0381dba
+index 00000000..0381dba4
 --- /dev/null
 +++ b/sdk/auth/antigravity_headless_test.go
 @@ -0,0 +1,323 @@
@@ -18656,7 +19066,7 @@ index 0000000..0381dba
 +}
 diff --git a/sdk/auth/doubao.go b/sdk/auth/doubao.go
 new file mode 100644
-index 0000000..66f4930
+index 00000000..66f49307
 --- /dev/null
 +++ b/sdk/auth/doubao.go
 @@ -0,0 +1,152 @@
@@ -18814,7 +19224,7 @@ index 0000000..66f4930
 +}
 diff --git a/sdk/auth/qoder.go b/sdk/auth/qoder.go
 new file mode 100644
-index 0000000..8ee3561
+index 00000000..8ee3561e
 --- /dev/null
 +++ b/sdk/auth/qoder.go
 @@ -0,0 +1,153 @@
@@ -18972,7 +19382,7 @@ index 0000000..8ee3561
 +	}, nil
 +}
 diff --git a/sdk/auth/refresh_registry.go b/sdk/auth/refresh_registry.go
-index e2c0aba..3a3f578 100644
+index e2c0aba9..3a3f578b 100644
 --- a/sdk/auth/refresh_registry.go
 +++ b/sdk/auth/refresh_registry.go
 @@ -12,6 +12,11 @@ func init() {
@@ -18988,7 +19398,7 @@ index e2c0aba..3a3f578 100644
  
  func registerRefreshLead(provider string, factory func() Authenticator) {
 diff --git a/sdk/auth/refresh_registry_test.go b/sdk/auth/refresh_registry_test.go
-index a6b7742..cf1fe10 100644
+index a6b77427..cf1fe10f 100644
 --- a/sdk/auth/refresh_registry_test.go
 +++ b/sdk/auth/refresh_registry_test.go
 @@ -16,6 +16,10 @@ func TestProviderRefreshLeads(t *testing.T) {
@@ -19004,7 +19414,7 @@ index a6b7742..cf1fe10 100644
  	for _, test := range tests {
 diff --git a/sdk/auth/trae.go b/sdk/auth/trae.go
 new file mode 100644
-index 0000000..bce7ec7
+index 00000000..bce7ec7a
 --- /dev/null
 +++ b/sdk/auth/trae.go
 @@ -0,0 +1,148 @@
@@ -19158,7 +19568,7 @@ index 0000000..bce7ec7
 +}
 diff --git a/sdk/auth/workbuddy.go b/sdk/auth/workbuddy.go
 new file mode 100644
-index 0000000..75d5c34
+index 00000000..75d5c34b
 --- /dev/null
 +++ b/sdk/auth/workbuddy.go
 @@ -0,0 +1,161 @@
@@ -19325,7 +19735,7 @@ index 0000000..75d5c34
 +}
 diff --git a/sdk/auth/zcode.go b/sdk/auth/zcode.go
 new file mode 100644
-index 0000000..e3c5dfa
+index 00000000..e3c5dfa5
 --- /dev/null
 +++ b/sdk/auth/zcode.go
 @@ -0,0 +1,210 @@
@@ -19540,7 +19950,7 @@ index 0000000..e3c5dfa
 +	}, nil
 +}
 diff --git a/sdk/cliproxy/auth/auto_refresh_loop.go b/sdk/cliproxy/auth/auto_refresh_loop.go
-index b4217b3..6230a25 100644
+index b4217b31..6230a256 100644
 --- a/sdk/cliproxy/auth/auto_refresh_loop.go
 +++ b/sdk/cliproxy/auth/auto_refresh_loop.go
 @@ -10,6 +10,12 @@ import (
@@ -19594,7 +20004,7 @@ index b4217b3..6230a25 100644
  		select {
  		case <-timer.C:
 diff --git a/sdk/cliproxy/auth/auto_refresh_loop_test.go b/sdk/cliproxy/auth/auto_refresh_loop_test.go
-index 9fb7d8f..efb42a6 100644
+index 9fb7d8fd..efb42a69 100644
 --- a/sdk/cliproxy/auth/auto_refresh_loop_test.go
 +++ b/sdk/cliproxy/auth/auto_refresh_loop_test.go
 @@ -185,3 +185,63 @@ func TestNextRefreshCheckAt_RefreshEvaluatorFallback(t *testing.T) {
@@ -19662,7 +20072,7 @@ index 9fb7d8f..efb42a6 100644
 +	}
 +}
 diff --git a/sdk/cliproxy/auth/conductor_cooldown.go b/sdk/cliproxy/auth/conductor_cooldown.go
-index eb40f06..ca76438 100644
+index eb40f06e..ca76438a 100644
 --- a/sdk/cliproxy/auth/conductor_cooldown.go
 +++ b/sdk/cliproxy/auth/conductor_cooldown.go
 @@ -850,7 +850,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
@@ -19693,7 +20103,7 @@ index eb40f06..ca76438 100644
  	return next, nextLevel
  }
 diff --git a/sdk/cliproxy/auth/conductor_execution.go b/sdk/cliproxy/auth/conductor_execution.go
-index be113d1..430c10e 100644
+index be113d19..430c10e4 100644
 --- a/sdk/cliproxy/auth/conductor_execution.go
 +++ b/sdk/cliproxy/auth/conductor_execution.go
 @@ -410,7 +410,7 @@ func requestToFormat(provider string, executor ProviderExecutor, req cliproxyexe
@@ -19707,7 +20117,7 @@ index be113d1..430c10e 100644
  		return sdktranslator.FormatAntigravity
 diff --git a/sdk/cliproxy/auth/conductor_quota_clock_test.go b/sdk/cliproxy/auth/conductor_quota_clock_test.go
 new file mode 100644
-index 0000000..2c91318
+index 00000000..2c91318e
 --- /dev/null
 +++ b/sdk/cliproxy/auth/conductor_quota_clock_test.go
 @@ -0,0 +1,149 @@
@@ -19861,7 +20271,7 @@ index 0000000..2c91318
 +	}
 +}
 diff --git a/sdk/cliproxy/auth/conductor_refresh.go b/sdk/cliproxy/auth/conductor_refresh.go
-index 92b0e9c..29843da 100644
+index 92b0e9cc..29843dae 100644
 --- a/sdk/cliproxy/auth/conductor_refresh.go
 +++ b/sdk/cliproxy/auth/conductor_refresh.go
 @@ -572,3 +572,13 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
@@ -19879,7 +20289,7 @@ index 92b0e9c..29843da 100644
 +	return m.refreshAuthForRequest(ctx, id, "")
 +}
 diff --git a/sdk/cliproxy/auth/home_session_alias.go b/sdk/cliproxy/auth/home_session_alias.go
-index 69b0e05..eda948e 100644
+index 69b0e05d..eda948e8 100644
 --- a/sdk/cliproxy/auth/home_session_alias.go
 +++ b/sdk/cliproxy/auth/home_session_alias.go
 @@ -246,6 +246,9 @@ func isHierarchyParent(primary, fallback string) bool {
@@ -19893,7 +20303,7 @@ index 69b0e05..eda948e 100644
  }
  
 diff --git a/sdk/cliproxy/auth/selector.go b/sdk/cliproxy/auth/selector.go
-index 9bf69ec..04c7063 100644
+index 9bf69ecc..04c70633 100644
 --- a/sdk/cliproxy/auth/selector.go
 +++ b/sdk/cliproxy/auth/selector.go
 @@ -20,7 +20,6 @@ import (
@@ -20498,7 +20908,7 @@ index 9bf69ec..04c7063 100644
  
  // extractSessionIDs returns (primaryID, fallbackID) for session affinity.
 diff --git a/sdk/cliproxy/auth/selector_test.go b/sdk/cliproxy/auth/selector_test.go
-index 796674d..d8a17a0 100644
+index 796674d4..d8a17a07 100644
 --- a/sdk/cliproxy/auth/selector_test.go
 +++ b/sdk/cliproxy/auth/selector_test.go
 @@ -2635,3 +2635,68 @@ func TestSessionAffinitySelector_DerivedIDBoundConsistencyOnResult(t *testing.T)
@@ -20571,7 +20981,7 @@ index 796674d..d8a17a0 100644
 +	}
 +}
 diff --git a/sdk/cliproxy/service_executors.go b/sdk/cliproxy/service_executors.go
-index 0213ee4..6e7ddfa 100644
+index 0213ee4f..6e7ddfad 100644
 --- a/sdk/cliproxy/service_executors.go
 +++ b/sdk/cliproxy/service_executors.go
 @@ -209,6 +209,10 @@ func baselineExecutorAuths() []*coreauth.Auth {
@@ -20603,7 +21013,7 @@ index 0213ee4..6e7ddfa 100644
  		providerKey := strings.ToLower(strings.TrimSpace(a.Provider))
  		if providerKey == "" {
 diff --git a/sdk/cliproxy/service_models.go b/sdk/cliproxy/service_models.go
-index 553123b..8f8cf89 100644
+index 553123b5..8f8cf893 100644
 --- a/sdk/cliproxy/service_models.go
 +++ b/sdk/cliproxy/service_models.go
 @@ -155,6 +155,21 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
@@ -20629,7 +21039,7 @@ index 553123b..8f8cf89 100644
  		// Handle OpenAI-compatibility providers by name using config
  		if s.cfg != nil {
 diff --git a/sdk/cliproxy/session/identity.go b/sdk/cliproxy/session/identity.go
-index d1407e2..e3a851e 100644
+index d1407e26..e3a851e5 100644
 --- a/sdk/cliproxy/session/identity.go
 +++ b/sdk/cliproxy/session/identity.go
 @@ -40,6 +40,85 @@ type canonicalPart struct {
@@ -20832,7 +21242,7 @@ index d1407e2..e3a851e 100644
  		if NormalizeExplicitID(root.Get(path).String()) != "" {
  			return true
 diff --git a/sdk/cliproxy/session/identity_test.go b/sdk/cliproxy/session/identity_test.go
-index ac63886..4063109 100644
+index ac638865..4063109b 100644
 --- a/sdk/cliproxy/session/identity_test.go
 +++ b/sdk/cliproxy/session/identity_test.go
 @@ -478,3 +478,146 @@ func TestEnrich_MetadataOnlyCanonicalAndParentSessionPreserved(t *testing.T) {
@@ -20983,7 +21393,7 @@ index ac63886..4063109 100644
 +	}
 +}
 diff --git a/sdk/cliproxy/session/info.go b/sdk/cliproxy/session/info.go
-index 71fe08f..cd06ae2 100644
+index 71fe08f5..cd06ae23 100644
 --- a/sdk/cliproxy/session/info.go
 +++ b/sdk/cliproxy/session/info.go
 @@ -67,14 +67,44 @@ func ExtractSessionInfo(headers http.Header, payload []byte, metadata map[string
@@ -21323,7 +21733,7 @@ index 71fe08f..cd06ae2 100644
  		if val := normalizedSessionCandidate(root.Get(k).String()); val != "" {
  			return true
 diff --git a/sdk/cliproxy/session/info_test.go b/sdk/cliproxy/session/info_test.go
-index 5b82740..8f415c2 100644
+index 5b82740c..8f415c26 100644
 --- a/sdk/cliproxy/session/info_test.go
 +++ b/sdk/cliproxy/session/info_test.go
 @@ -647,3 +647,118 @@ func TestBoundSessionIdentitySafetyAndUniqueness(t *testing.T) {
@@ -21446,7 +21856,7 @@ index 5b82740..8f415c2 100644
 +	}
 +}
 diff --git a/sdk/pluginabi/types.go b/sdk/pluginabi/types.go
-index 1779043..9a1df7b 100644
+index 17790432..9a1df7b1 100644
 --- a/sdk/pluginabi/types.go
 +++ b/sdk/pluginabi/types.go
 @@ -14,7 +14,10 @@ const (
@@ -21472,7 +21882,7 @@ index 1779043..9a1df7b 100644
  
  const (
 diff --git a/sdk/pluginabi/types_test.go b/sdk/pluginabi/types_test.go
-index 5e96820..054dce8 100644
+index 5e96820c..054dce82 100644
 --- a/sdk/pluginabi/types_test.go
 +++ b/sdk/pluginabi/types_test.go
 @@ -27,8 +27,8 @@ func TestEnvelopeRoundTrip(t *testing.T) {
@@ -21497,7 +21907,7 @@ index 5e96820..054dce8 100644
  		t.Fatalf("MethodPluginRegister = %q", MethodPluginRegister)
  	}
 diff --git a/sdk/pluginapi/types.go b/sdk/pluginapi/types.go
-index 50eca03..bb9515b 100644
+index 50eca039..bb9515b8 100644
 --- a/sdk/pluginapi/types.go
 +++ b/sdk/pluginapi/types.go
 @@ -1351,6 +1351,8 @@ type ManagementResponse struct {
@@ -21511,7 +21921,7 @@ index 50eca03..bb9515b 100644
  
 diff --git a/sdk/pluginstore/network_scope_test.go b/sdk/pluginstore/network_scope_test.go
 new file mode 100644
-index 0000000..f8a0b9f
+index 00000000..f8a0b9f5
 --- /dev/null
 +++ b/sdk/pluginstore/network_scope_test.go
 @@ -0,0 +1,70 @@
@@ -21586,7 +21996,7 @@ index 0000000..f8a0b9f
 +	}
 +}
 diff --git a/sdk/pluginstore/pluginstore.go b/sdk/pluginstore/pluginstore.go
-index 8c5d40d..8ab0bed 100644
+index 8c5d40de..8ab0bedd 100644
 --- a/sdk/pluginstore/pluginstore.go
 +++ b/sdk/pluginstore/pluginstore.go
 @@ -91,6 +91,15 @@ func NewClientWithResolvedAuthExpiry(httpClient HTTPDoer, registryURL string, au

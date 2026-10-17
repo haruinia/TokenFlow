@@ -31,10 +31,11 @@ export const kimiQuota: QuotaProvider = {
     const envelope = record(payload.data) ?? payload;
     const data = record(envelope.quota) ?? envelope;
     const windows: QuotaWindow[] = [];
+    // The server sends snake_case (`limit_5h.used_ratio`, `reset_time`); the official client renames them internally.
     const ratios=record(data.usages);
-    for(const [id,label] of [['limit5h','5 小时'],['limit7d','7 天'],['monthTotal','月度总额度'],['monthCode','月度 Code 额度']] as const){
-      const entry=record(ratios?.[id]);const ratio=num(entry?.usedRatio);
-      if(ratio!==undefined&&ratio>=0)windows.push({id,label,usedPercent:clampPercent(ratio*100),resetsAt:isoFromAny(entry?.resetAt)});
+    for(const [id,wire,label] of [['limit5h','limit_5h','5 小时'],['limit7d','limit_7d','7 天'],['monthTotal','limit_month_total','月度总额度'],['monthCode','limit_month_code','月度 Code 额度']] as const){
+      const entry=record(ratios?.[wire])??record(ratios?.[id]);const ratio=num(entry?.used_ratio??entry?.usedRatio);
+      if(ratio!==undefined&&ratio>=0)windows.push({id,label,usedPercent:clampPercent(ratio*100),resetsAt:isoFromAny(entry?.reset_time??entry?.resetAt)});
     }
     const limits = Array.isArray(data.limits) ? data.limits : Array.isArray(data.rate_limits) ? data.rate_limits : Array.isArray(payload.limits) ? payload.limits : [];
     limits.forEach((item, index) => {

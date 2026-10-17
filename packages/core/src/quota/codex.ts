@@ -4,7 +4,7 @@ import type { QuotaProvider, QuotaWindow } from './types.js';
 
 const headers = {
   Authorization: 'Bearer $TOKEN$', 'Content-Type': 'application/json',
-  'User-Agent': 'codex-tui/0.149.1 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.149.1)',
+  'User-Agent': 'codex-tui/0.154.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)',
 };
 
 function rateLimitWindows(prefix: string, label: string, info: Record_ | undefined): QuotaWindow[] {

@@ -1,6 +1,6 @@
 import type {UsageCoverage} from '../../../packages/core/src/local-usage';
 
-export const usageClientNames:Record<string,string>={codex:'Codex',claude:'Claude Code',antigravity:'Antigravity',workbuddy:'WorkBuddy','workbuddy-ai':'WorkBuddyAI',qoder:'Qoder',deepseek:'DeepSeek Harness',pi:'Pi Agent',kimi:'Kimi Code',zcode:'ZCode',trae:'Trae',cursor:'Cursor',xai:'xAI Grok'};
+export const usageClientNames:Record<string,string>={codex:'Codex',claude:'Claude CLI','claude-desktop':'Claude Desktop',antigravity:'Antigravity',workbuddy:'WorkBuddy','workbuddy-ai':'WorkBuddyAI',qoder:'Qoder',deepseek:'DeepSeek Harness',pi:'Pi Agent',kimi:'Kimi Code',zcode:'ZCode',trae:'Trae',cursor:'Cursor',xai:'xAI Grok'};
 export function coverageText(item:UsageCoverage){
  if(item.status==='unsupported')return '尚未采集';
  if(item.status==='scanning')return '正在读取';
@@ -11,6 +11,6 @@ export function coverageText(item:UsageCoverage){
 export function NativeUsageCoverage({coverage,scanning}:{coverage:readonly UsageCoverage[];scanning:boolean}){
  return <details className="tfNativeUsageCoverage"><summary>本机直连采集范围{scanning?' · 正在更新':''}</summary>
   <p className="tfHint">统计受支持客户端的本机记录，Cursor 会结合已授权账号的官方明细核对。未匹配的网页和其他设备账单不累计；无法确认账号的历史用量单独显示。</p>
-  <ul>{coverage.map(item=><li key={item.target}><strong>{usageClientNames[item.target]??item.target}</strong><span>{coverageText(item)}</span>{item.note&&<small>{item.note}</small>}</li>)}</ul>
+  <ul>{coverage.map(item=><li key={item.target}><strong>{item.target==='claude'?'Claude CLI / Desktop':usageClientNames[item.target]??item.target}</strong><span>{coverageText(item)}</span>{item.note&&<small>{item.note}</small>}</li>)}</ul>
  </details>;
 }

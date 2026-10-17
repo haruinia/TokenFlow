@@ -4,69 +4,47 @@
   <p><strong>让你的模型，流向每个 Agent。</strong></p>
 </div>
 
-TokenFlow 是本地桌面模型网关：集中管理 GPT/Codex 等平台的多个账号与独立 API，查看来源模型和额度，再把 WorkBuddy、Qoder 等账号可用的模型接入 Codex、Claude Code 等开发工具。
+TokenFlow 是跑在本机的模型网关。Codex、Claude、WorkBuddy、Qoder、Antigravity 这些账号，以及你自己的 API，都放在这里管理。然后在 DeepSeek Harness、Claude Desktop、Codex、Claude Code 里直接选用。
 
-既可以切换 Agent 自己的官方登录，也可以通过本地网关反代所选来源。你继续在熟悉的客户端工作，TokenFlow 管理模型选择、配置备份、独立 Key、协议转换和用量记录。
+人还在原来的软件里写。TokenFlow 只负责把这一次请求送到选中的来源，并记下用量。名字前面是来源，后面是模型。
 
-**[访问官网](https://token-flow.haruinia.chatgpt.site/)** · **[观看中文使用演示](doc/media/quickstart.mp4)** · **[查看使用指南](doc/guides/usage.md)**
+<p align="center">
+  <img src="doc/media/deepseek-harness-models.png" width="720" alt="DeepSeek Harness 的模型菜单里可以选 WorkBuddy、Qoder、Codex、Antigravity 和 API" />
+</p>
 
-视频演示多账号授权与切换、重启后加载配置、WorkBuddy / Qoder 额度查看与反代接入、独立 Key 请求和用量核对。账号、额度及上游响应使用隔离模拟数据；模拟客户端加载配置并调用真实本机网关，不代表真实厂商或客户端的完整验证。
+DeepSeek Harness 接入之后，新会话的模型菜单里就是这些来源。选 `qoder/DeepSeek-Flash`，这次调用用 Qoder 账号，对话仍在 DeepSeek Harness 里。
 
-## 项目文档
+<p align="center">
+  <img src="doc/media/claude-desktop-models.png" width="720" alt="Claude Desktop 从 TokenFlow 选择 Antigravity、Codex、Qoder 和 WorkBuddy 的模型" />
+</p>
 
-所有项目说明集中在 [doc/ 文档目录](doc/README.md)：[架构](doc/architecture.md)、[当前待办](doc/TODO.md)、[用量来源与本地验证](doc/testing/usage-attribution.md)、[Windows 功能验收](doc/待修复的问题win兼容.md)。历史报告与原始证据分别归档，不作为当前功能承诺。
+Claude Desktop 的 Code 模式连上本机网关后也是同一套菜单。选 `antigravity/Gemini-3.8-Flash-(High)`，用的是 Antigravity 账号，编辑和任务仍在 Claude Desktop 里。
+
+**[下载 macOS 版](https://github.com/haruinia/TokenFlow/releases/tag/v10.15.26)** · **[官网](https://token-flow.haruinia.chatgpt.site/)** · **[使用演示](doc/media/quickstart.mp4)** · **[使用指南](doc/guides/usage.md)**
 
 <a id="三个常用场景"></a>
 
-## 常用场景
+## 能做什么
 
-### GPT / Codex 多账号登录
+**在熟悉的客户端里换模型。** 在账号授权里添加来源，或导入本机已经登录的账号。再到本地 Agent 里勾选要给这个客户端用的模型。重启后，在它自己的模型菜单里选择。调用消耗的是所选来源自己的额度或密钥。
 
-在 **账号授权 → Codex** 分别添加 ChatGPT / OpenAI 账号，按账号查看模型、5 小时 / 周等可查询额度。在 **本地 Agent → Codex → 官方登录账号** 选择账号，保存工作并完全退出重开 Codex，加载新的登录状态。
+**切换官方登录。** Codex、WorkBuddy、Qoder 可以在 TokenFlow 里换成另一个已授权账号，也可以恢复切换前的登录。这改的是客户端自己的登录，不改网页里的账号。官方登录和网关模型互不覆盖：导入模型不会退出官方账号，换官方账号也不会删掉已经导入的模型。
 
-切换官方账号会恢复接入前的接口；官方直连的逐次请求不经过 TokenFlow。此功能切换 Codex 的登录，不修改 ChatGPT 网页的浏览器登录。
+**看额度和用量。** 每个来源显示它自己的剩余额度。用量总览分开记：哪一个客户端在用，请求走的是哪个账号或 API，用了多少 Token。
 
-### WorkBuddy / Qoder 官方账号切换
+**给其他应用一把 Key。** 在 API 代理里创建 Key，只开放需要的来源和模型。把本机地址、Key 和模型名填进那个应用即可。后来新加的来源不会自动进旧 Key。
 
-在 **账号授权 → WorkBuddy / Qoder IDE → 登录此账号**，或 **本地 Agent → WorkBuddy / Qoder → 官方登录账号** 切换。这里的 Qoder 目标是独立桌面版。两处共用账号状态、确认弹窗和“恢复切换前登录”；先校验官方身份，正常退出客户端，备份并写入登录后重新打开。官方登录与自定义模型分别保留，导入网关模型不取消官方身份选中，切换或恢复官方账号也不自动移除自定义模型。区别于 Codex 的当前 provider 切换，见 [共存规则](doc/testing/official-login-coexist.md)。
+来源包括 Codex、Claude、Antigravity、Kimi、xAI、Qoder、WorkBuddy、ZCode、Trae 和 Cursor。能自动写入配置的客户端有 Codex、Claude Code、Claude Desktop、WorkBuddy、Qoder、DeepSeek Harness 和 Pi。Qoder IDE 用来提供账号，Qoder 独立应用用来使用模型，这是两个入口。
 
-macOS / Windows 自动识别各自的登录目录。WorkBuddy 支持国内域名别名，并按用户和企业身份匹配；国内桌面版缺少海外登录配置，海外账号暂不自动写入。旧格式登录由官方客户端启动时迁移加密；Qoder 通过独立 Electron 进程使用官方应用的系统加密身份，首次使用可能出现钥匙串访问提示。原登录文件及退出标记保存在 TokenFlow 的系统加密存储中，连续切换仍保留第一次切换前的原件。客户端刷新令牌后可以恢复；客户端已换成其他账号时拒绝覆盖。Linux 暂不启用自动切换，并显示原因。
+文件、命令、审批和沙箱仍由你正在用的那个客户端负责。TokenFlow 把模型的回复交回去，不代替它执行。
 
-适配依据：WorkBuddy 5.8.2 与 Qoder 独立桌面版 0.3.4 的会话格式。无完整刷新凭据、身份不匹配、文件锁冲突、无法确认进程身份或退出未完成时停止操作。启动未确认时明确提示登录是否已经保存，并保留恢复入口。Windows 进程策略有模拟覆盖，仍需实机测试。
+## 安装
 
-### WorkBuddy、Qoder 等来源额度反代
-
-在 **账号授权** 添加来源账号，或从支持的本机登录导入，刷新模型和额度。然后在 **本地 Agent** 选择目标客户端，展开 WorkBuddy / Qoder 来源卡片，勾选模型并应用；重启目标 Agent 后选用对应模型。
-
-例如让 Codex 使用 WorkBuddy 来源的模型，或让 Claude Code 使用 Qoder 来源的模型。调用消耗所选来源账号自己的额度；网关不会把套餐点数换算成额外额度，也不会放宽官方权限或限制。可用组合以账号、模型及客户端实测为准。
-
-### 其他应用通过 Key 接入
-
-在 **API 代理** 创建独立 Key，只授权需要的来源和模型，将地址、Key、精确模型 ID 填入目标应用。可以跨来源多选、修改已有 Key 的模型权限、停用或撤销。新增来源不会自动扩大旧 Key 权限。
-
-## 核心能力与优化
-
-| 能力 | 当前行为 |
-| --- | --- |
-| 多账号、多平台 | 账号标签、平台独立刷新、模型与额度详情；支持来源的本机授权导入，以及 Codex / Claude / Antigravity 原生登录切换。 |
-| 多 API 来源 | 多个入口分别保存密钥和模型；多模型输入、自动识别三种协议；只改名称无需再次调用模型。 |
-| 模型选择 | 按来源显示共享额度，搜索账号 / 模型、最近使用、跨来源多选、管理 Agent 模型菜单与默认模型。 |
-| 统一接口 | Responses、Chat Completions、Anthropic Messages；来源固定，同名模型按来源区分。 |
-| 安全接入 | 上游 Key 与客户端 Key 分开，密钥加密存储和显式显示，写前备份、配置冲突检查、原接口恢复。 |
-| 连续会话 | 历史续接和上下文压缩，受管 Codex 本机历史恢复、官方切回迁移、子智能体默认模型继承。 |
-| 来源兼容 | Chat 长工具名映射、Claude 模型别名识别、WorkBuddy 固定身份介绍兼容，保留任务、工具及权限。 |
-| 维修与反馈 | 常驻维修对话，配置修改先预览再确认；读取可取消、写超时不自动重试、真实上游错误分类。 |
-| 用量 | 来源额度、模型 / Key tokens、当前运行请求状态与配置切换记录分别展示，不将未知用量当作成功。 |
-
-来源适配包含 Codex、Claude、Antigravity、Kimi、xAI、Qoder IDE、WorkBuddy、ZCode、Trae 和独立 Cursor SDK。自动配置目标为 Codex、Claude Code、WorkBuddy、Qoder 独立应用；**Qoder IDE 的来源授权与 Qoder 独立应用的目标配置是两个入口**。Cursor 等兼容客户端通过导出 Key 手动接入，Cursor 此类入口需要外网可访问的 HTTPS 地址，应用不自动发布公网服务。
-
-模型响应交回目标 Agent 执行工具，文件、Shell、MCP、审批与沙箱仍由目标客户端控制。文本验证、模型目录、额度查询和实际客户端调用是不同证据；工具、图片、Auto Mode 等能力需分别验证。独立诊断和升级适配器仍有后端实现，当前简化界面未提供完整入口，不作为直接可点击功能介绍。
-
-维护结论与原始验证范围见 [历史报告目录](doc/README.md#历史报告与证据)，当前未完成事项统一记录在 [TODO](doc/TODO.md)。
+当前发布的是 Apple 芯片的 macOS 安装包：[TokenFlow 10.15.26](https://github.com/haruinia/TokenFlow/releases/tag/v10.15.26)。安装包没有 Apple 签名。第一次打开时，在 Finder 里对 TokenFlow 按住 Control，再点「打开」。
 
 ## 从源码运行
 
-需要 Node.js **22.19+**、npm、Git 和编译 sidecar 的 Go **1.26+**。
+需要 Node.js 22.19 或更高版本、npm、Git，以及 Go 1.26 或更高版本。
 
 ```bash
 git clone https://github.com/haruinia/TokenFlow.git
@@ -77,33 +55,16 @@ npm run sidecar:build
 npm run dev
 ```
 
-上游版本固定，补丁冲突时停止并保留本地改动。桌面界面使用 Electron，无需安装独立浏览器或浏览器自动化组件。
-
 | 命令 | 用途 |
 | --- | --- |
-| `npm run check` | 类型检查、自动化测试、生产构建。 |
-| `npm run test:sidecar-agents` | 来源执行器和协议转换验证。 |
-| `npm run package` | 本地桌面目录包，不自动发布安装包。 |
+| `npm run dev` | 构建并打开桌面应用。 |
+| `npm run check` | 类型检查、测试和生产构建。 |
+| `npm run package:mac:arm64` | 打 Apple 芯片安装包。 |
 
-自动化回归覆盖网关、账号、Agent 配置、维修和用量逻辑；桌面界面交互需启动应用检查。真实账号 / 厂商调用、目标客户端任务、真实升级和跨系统安装包需要另行验证。
-
-Windows 自动重启会核对可执行文件路径、Electron 应用标识和进程启动时间，不按程序名批量结束进程。Qoder IDE 等已识别的其他应用不会被关闭；身份不明、多实例或运行中的独立 CLI 会要求手动处理。仅请求正常退出，托盘驻留或保存提示未处理时停止重启；Codex 在确认退出后才切换配置。重新启动使用同一安装位置，商店版 Codex 使用安装包清单中的入口。该流程有模拟测试覆盖，仍需 Windows 实机验收。
-
-## 本地空间与版本保留规则
-
-软件旧版本仅通过 Git 提交、分支或标签保存；需要回溯时从 Git 检出并重新构建。不在项目目录保留旧应用、旧安装包、按日期或修复名称复制的版本目录，也不创建 `release/backups/`、`artifacts/app-backups/` 等软件备份。
-
-- `release/` 仅供当前打包临时使用，交付或安装后删除。所有 `npm run package`、`package:win`、`package:mac:arm64`、`package:mac:intel` 入口和 `node scripts/package-release.mjs` 都会在打包开始前自动清空 `release/`、`artifacts/`、`.tmp/`、`output/`；清理失败即停止打包，不累积旧版本。同一次多平台打包仅清理一次，保留本次各平台产物；分开执行打包命令会清掉上一次的产物。可用 `npm run clean:package` 单独清理。
-- `artifacts/`、`.tmp/`、`output/` 是临时诊断、测试和导出目录，任务结束后清理；需要长期保留的结论整理到文档中。
-- 保留源码、未提交改动、`.git/`、当前开发依赖及运行所需资源。清理旧版本不删除账号、密钥、会话和应用运行数据；客户端配置恢复所需备份按原有机制管理。
-- Git 只能恢复已提交的内容。清理前检查目标目录没有需要保留的源码或未归档成果；不通过复制整个应用或工程目录来保存版本。
-
-2026-10-15 已清理本地 `release/`、`artifacts/`、`.tmp/`、`output/` 的旧构建、应用备份与临时输出。
+更细的操作步骤在 [使用指南](doc/guides/usage.md)。架构、待办和验收记录在 [文档目录](doc/README.md)。
 
 ## 数据与许可
 
-桌面资料保存在系统应用数据目录，可用 `AGENT_DATA_ROOT` 指定独立目录。授权文件、密钥、会话、配置备份、日志与安装包不提交 Git；API 来源和可持久保存的客户端 Key 使用桌面加密存储，headless 不接受新增 API 密钥的持久保存。模型请求仍发送到所选来源服务。配置备份不等同于软件回滚。
-
-源码结构：`apps/console` 界面，`apps/desktop` 桌面应用，`packages/core` 网关 / 授权 / 接入，`patches/cliproxy` 来源补丁，`tests` 验证。
+账号、密钥、会话和配置都在本机的应用数据目录，不进入 Git。模型请求会发到你选中的那个来源。
 
 [MIT 许可](LICENSE) · [第三方复用](THIRD_PARTY.md) · [问题反馈](https://github.com/haruinia/TokenFlow/issues)

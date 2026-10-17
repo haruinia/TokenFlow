@@ -28,12 +28,16 @@ describe('local program token accounting',()=>{
  });
  it('identifies Qoder and WorkBuddy routing without treating every custom provider as token-flow',()=>{
   const q=new LocalUsageParser('qoder','q');const message={id:'q1',model:'plain-api-model',usage:{input_tokens:100,output_tokens:10}};q.accept({type:'assistant',timestamp,modelSource:'custom',customProviderId:'company',message});expect(q.rows()[0].channel).toBe('api');q.accept({type:'assistant',timestamp,modelSource:'custom',customProviderId:'token-flow',message:{...message,id:'q2'}});expect(q.rows()).toHaveLength(1);
+  const credits=new LocalUsageParser('qoder','credits');credits.accept({type:'assistant',timestamp,modelSource:'builtin',message:{id:'q3',model:'auto',usage:{input_tokens:0,output_tokens:0,credits:0.16,billable:true}}});credits.accept({type:'assistant',timestamp,modelSource:'builtin',message:{id:'q4',model:'auto',usage:{input_tokens:0,output_tokens:0,credits:0,billable:false}}});
+  expect(credits.rows()).toEqual([expect.objectContaining({requests:1,unmeasured:1,inputTokens:0,outputTokens:0,channel:'official'})]);
   const w=new LocalUsageParser('workbuddy','w');w.accept({type:'message',id:'w1',timestamp,message:{usage:{input_tokens:100,output_tokens:10}},providerData:{requestModelId:'custom-local:qoder/one',rawUsage:{prompt_tokens:100,completion_tokens:10}}});expect(w.rows()).toEqual([]);
   for(const stepSeq of [1,2])w.accept({type:'message',id:`w-${stepSeq}`,timestamp,message:{usage:{input_tokens:10,output_tokens:10}},providerData:{conversationRequestId:'same-turn',messageId:`step-${stepSeq}`,stepSeq,requestModelId:'builtin',rawUsage:{prompt_tokens:10,completion_tokens:10}}});expect(w.rows()).toHaveLength(2);
  });
  it('normalizes Pi and DeepSeek disjoint cache inputs, excludes reasoning from the total',()=>{
   const pi=new LocalUsageParser('pi','pi');pi.accept({type:'message',id:'pi1',timestamp,message:{provider:'openai-codex',model:'gpt-test',usage:{input:10,cacheRead:50,cacheWrite:5,output:20,reasoning:8}}});expect(pi.rows()[0]).toMatchObject({inputTokens:65,outputTokens:20,reasoningTokens:8,channel:'official'});
   const d=new LocalUsageParser('deepseek','dsh');d.accept({type:'model/selection',data:{provider:'company',model:'plain-model'}});d.accept({type:'assistant/message',seq:5,time:Date.parse(timestamp),data:{usage:{inputTokens:10,cacheReadTokens:50,outputTokens:20},stream:[{usage:{inputTokens:10,cacheReadTokens:50,outputTokens:20}}]}});expect(d.rows()[0]).toMatchObject({inputTokens:60,outputTokens:20,requests:1});
+  const compact=new LocalUsageParser('deepseek','compact');compact.accept({type:'compaction/summary',seq:7,time:Date.parse(timestamp),data:{compactionId:'c1',provider:'deepseek',model:'deepseek-chat',summary:{text:'PRIVATE'},usage:{inputTokens:25329,cacheReadTokens:8213,outputTokens:1378,totalTokens:34920}}});expect(compact.rows()[0]).toMatchObject({inputTokens:33542,cachedTokens:8213,outputTokens:1378,channel:'api',model:'deepseek-chat'});expect(JSON.stringify(compact.rows())).not.toContain('PRIVATE');
+  const routedCompact=new LocalUsageParser('deepseek','routed');routedCompact.accept({type:'compaction/summary',seq:8,time:Date.parse(timestamp),data:{compactionId:'c2',provider:'token-flow',model:'plain-model',usage:{inputTokens:10,outputTokens:1}}});expect(routedCompact.rows()).toEqual([]);
   const gateway=new LocalUsageParser('deepseek','gateway');gateway.accept({type:'request/header',data:{header:{config:{provider:'token-flow',model:'workbuddy/test'},tools:[{text:'PRIVATE'}]}}});gateway.accept({type:'assistant/message',seq:6,time:Date.parse(timestamp),data:{usage:{inputTokens:100,outputTokens:10}}});expect(gateway.rows()).toEqual([]);
  });
  it('uses recorded authentication, scopes endpoint evidence to each response, and removes matched gateway aliases',()=>{
@@ -50,6 +54,14 @@ describe('local program token accounting',()=>{
   const rows=mergeLocalUsageRows([...make('one'),...make('copy')]);expect(rows[0]).toMatchObject({requests:1,inputTokens:10,outputTokens:5,channel:'api'});
  });
 
+});
+
+it('separates Claude Desktop from Claude CLI and never charges its third-party mode to the Claude account',()=>{
+ const parse=(claudeDesktopGateway:boolean)=>{const p=new LocalUsageParser('claude','shared',{claudeDesktopGateway});
+  for(const [id,entrypoint]of [['cli','cli'],['desktop-official','claude-desktop'],['desktop-3p','claude-desktop-3p']])p.accept({type:'assistant',timestamp,entrypoint,accountId:'logged-in',requestedModel:'claude-sonnet-4-6[1m]',message:{id,model:'claude-opus-4-6-thinking',usage:{input_tokens:10,output_tokens:5}}});
+  return p.rows().map(r=>[r.target,r.provider,r.channel,!!r.nativeAccountId]);};
+ expect(parse(true)).toEqual([['claude','claude','unknown',true],['claude-desktop','claude','official',true]]);
+ expect(parse(false)).toEqual([['claude','claude','unknown',true],['claude-desktop','claude','official',true],['claude-desktop','claude','api',false]]);
 });
 
 it('uses the response thread for route exclusion and keeps sibling responses independent',()=>{

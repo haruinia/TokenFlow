@@ -6,7 +6,7 @@ import {Thinking,LoadingSkeleton} from './LoadingState';
 import {FlowDialog} from './FlowDialog';
 import {ColumnDivider} from './ColumnDivider';
 import {copyText} from './clipboard';
-import {localDay} from './usage-model';
+import {localDay,spentByPlatform} from './usage-model';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { LocalAgentSnapshot } from '../../../packages/core/src/cliproxy';
 import { QuotaDetails } from './QuotaDetails';
@@ -49,16 +49,20 @@ function LoginProgress({local,disabled,actions}:{local:LocalAgentSnapshot;disabl
  if(!login||login.status==='idle'||dismissed===login.id)return null;
  const dismiss=()=>{setDismissed(login.id);try{localStorage.setItem('token-flow.login.dismissed',login.id);}catch{}};
  const pending=pendingStates.includes(login.status);
- const label=local.providers.find(p=>p.id===login.provider)?.label??(login.provider==='workbuddy-overseas'?'WorkBuddy 国际版':login.provider);
+ const label=local.providers.find(p=>p.id===login.provider)?.label??(login.provider==='workbuddy-overseas'?'WorkBuddy 国际版':login.provider==='zcode-bigmodel'?'ZCode（智谱 BigModel）':login.provider==='claude-manual'?'Claude（授权码）':login.provider);
  return <FlowDialog open title={login.status==='completed'?`${label} 已连接`:`连接 ${label}`} className="tfLoginDialog" onClose={()=>{if(pending)void actions.login('cancel',{id:login.id});dismiss();}}><div className="tfLogin">
   <div className="tfLoginHead"><ProviderIcon provider={login.provider} size={32}/><div><strong>{login.status==='completed'?'账号与模型已保存':login.status==='starting'?'正在准备授权':login.status==='verifying'?'正在验证账号':pending?'请在浏览器完成授权':'授权未完成'}</strong>{pending&&<Thinking label={login.status==='verifying'?'正在验证账号':'正在等待授权'}/>}</div></div>
-  <p className="tfLoginMessage" role={pending?'status':login.status==='completed'?'status':'alert'}>{login.status==='waiting_for_browser'?'登录官方页面并确认授权，完成后会自动保存账号并刷新模型。':login.message}</p>
+  <p className="tfLoginMessage" role={pending?'status':login.status==='completed'?'status':'alert'}>{login.status==='waiting_for_browser'?login.flow==='code'?'登录官方页面并确认授权，然后把页面显示的授权码粘贴到下方。':'登录官方页面并确认授权，完成后会自动保存账号并刷新模型。':login.message}</p>
   {pending&&login.flow==='device'&&login.userCode&&<p className="tfCode">设备码 <b className="mono">{login.userCode}</b></p>}
   {pending&&<div className="tfRow tfLoginActions">
    <button className="primary" disabled={disabled||!login.url||login.status==='verifying'} onClick={()=>void actions.login('open',{id:login.id})}>打开授权页</button>
    <button className="textButton" disabled={disabled} onClick={()=>void actions.login('cancel',{id:login.id})}>取消</button>
   </div>}
   {pending&&login.url&&<details key={login.id} className="tfAuthorizationDetails"><summary>查看授权链接</summary><label className="tfAuthorizationURL"><span className="srOnly">授权链接</span><div className="inputAction"><input readOnly aria-label="授权链接" value={login.url} onFocus={event=>event.target.select()}/><button type="button" onClick={()=>void copyText(login.url??'').then(()=>{setCopiedURL(true);setCopyFailure(false);}).catch(()=>setCopyFailure(true))}>{copiedURL?'已复制':'复制'}</button></div></label>{copyFailure&&<p className="tfError" role="alert">复制失败，请选中链接手动复制。</p>}</details>}
+  {pending&&login.flow==='code'&&<form className="tfInline" onSubmit={event=>{event.preventDefault();const value=callback;setCallback('');void actions.login('callback',{id:login.id,redirectURL:value});}}>
+   <input required autoComplete="off" spellCheck={false} aria-label="授权码" placeholder="粘贴官方页面显示的授权码" value={callback} onChange={event=>setCallback(event.target.value)}/>
+   <button disabled={disabled||!callback.trim()||login.status==='verifying'}>提交</button>
+  </form>}
   {pending&&login.flow==='callback'&&<details><summary>浏览器无法打开回调地址？</summary>
    <form className="tfInline" onSubmit={event=>{event.preventDefault();const value=callback;setCallback('');void actions.login('callback',{id:login.id,redirectURL:value});}}>
     <input type="url" required autoComplete="off" spellCheck={false} aria-label="完整回调地址" placeholder="粘贴授权后地址栏里的完整 localhost 地址" value={callback} onChange={event=>setCallback(event.target.value)}/>
@@ -93,7 +97,7 @@ export function AccountsPage({local,usage,disabled,actions,notify,onContext}:{lo
  useEffect(()=>{onContext?.({provider:provider?.id,sourceId:account?.id});},[provider?.id,account?.id,onContext]);
  const chooseProvider=(id:string)=>{setTab(id);try{localStorage.setItem(tabKey,id);}catch{/* Only remembers the open platform. */}};
  // Follow a newly started authorization once; manual platform browsing stays available afterwards.
- useEffect(()=>{if(local.login&&pendingStates.includes(local.login.status)){const id=local.login.provider;chooseProvider(id==='workbuddy-overseas'?'workbuddy':id);if(id==='workbuddy'||id==='workbuddy-overseas')setClients(previous=>({...previous,workbuddy:id==='workbuddy-overseas'?'workbuddy-ai':'workbuddy'}));}},[local.login?.id]);
+ useEffect(()=>{if(local.login&&pendingStates.includes(local.login.status)){const id=local.login.provider;chooseProvider(id==='workbuddy-overseas'?'workbuddy':id==='zcode-bigmodel'?'zcode':id==='claude-manual'?'claude':id);if(id==='workbuddy'||id==='workbuddy-overseas')setClients(previous=>({...previous,workbuddy:id==='workbuddy-overseas'?'workbuddy-ai':'workbuddy'}));}},[local.login?.id]);
  const officialConfirm=useOfficialLoginConfirm();
  const switchLogin=async(provider:LoginProvider,id:string,label:string)=>{
   if((provider==='workbuddy'||provider==='workbuddy-ai'||provider==='qoder'||provider==='qoder-ide'||provider==='claude')&&!await officialConfirm.confirm(provider==='claude'?'Claude Code 终端':loginNames[provider]))return;
@@ -118,10 +122,12 @@ export function AccountsPage({local,usage,disabled,actions,notify,onContext}:{lo
   {!provider&&<p className="tfHint">正在读取授权平台…</p>}
   {provider&&<section id={`provider-panel-${provider.id}`} role="tabpanel" aria-labelledby={`provider-tab-${provider.id}`} className="tfProviderPanel">
    <header className="tfProviderHead">
-    <div className="tfProviderTitle"><UsageFold loaded={usage.loaded} error={usage.error} onRetry={usage.reload} title={`${provider.label} 用量`} rows={usage.allRows.filter(row=>row.day===localDay(new Date())).filter(r=>r.origin==='native'?(r.provider===provider.id||provider.id==='workbuddy'&&r.provider==='workbuddy-ai'):(provider.accounts.some(a=>a.id===r.sourceId)||r.model.startsWith(provider.id+'/')))} range="today"/><button className="textButton tfProviderRefresh" aria-label={`刷新 ${provider.label} 账号、模型和额度`} title="点击刷新此平台的账号、模型和额度" disabled={locked||local.state!=='running'} onClick={()=>void (async()=>{if(lock.current)return;lock.current=true;setRefreshing(provider.id);try{await actions.refresh(provider.id);await login?.refresh(true);}catch(error){notify({kind:'error',text:error instanceof Error?error.message:'刷新失败，请重试'});}finally{lock.current=false;setRefreshing('');}})()}><Icon name="refresh" size={14}/>刷新</button></div>
+    <div className="tfProviderTitle"><UsageFold loaded={usage.loaded} error={usage.error} onRetry={usage.reload} title={`${provider.label} 用量`} rows={usage.allRows.filter(row=>row.day===localDay(new Date())).filter(r=>spentByPlatform(r,provider))} range="today"/><button className="textButton tfProviderRefresh" aria-label={`刷新 ${provider.label} 账号、模型和额度`} title="点击刷新此平台的账号、模型和额度" disabled={locked||local.state!=='running'} onClick={()=>void (async()=>{if(lock.current)return;lock.current=true;setRefreshing(provider.id);try{await actions.refresh(provider.id);await login?.refresh(true);}catch(error){notify({kind:'error',text:error instanceof Error?error.message:'刷新失败，请重试'});}finally{lock.current=false;setRefreshing('');}})()}><Icon name="refresh" size={14}/>刷新</button></div>
     <div className="tfRow">
-     {importable.has(provider.id)&&<button disabled={locked} onClick={()=>void actions.importLocal(provider.id).then(()=>login?.refresh(true))}>{provider.id==='cursor'&&login?.nativeCurrent?'复用本机账号':'从本机导入'}</button>}
-     <button className="primary" aria-label={`添加 ${client?loginNames[client]:provider.label} 账号`} disabled={locked} onClick={()=>void actions.connect(client==='workbuddy-ai'?'workbuddy-overseas':provider.id)}><Icon name="plus" size={14}/>添加账号</button>
+     {importable.has(provider.id)&&<button disabled={locked} onClick={()=>void actions.importLocal(client==='workbuddy-ai'?'workbuddy-ai':provider.id).then(()=>login?.refresh(true))}>{provider.id==='cursor'&&login?.nativeCurrent?'复用本机账号':'从本机导入'}</button>}
+     <button className="primary" aria-label={`添加 ${client?loginNames[client]:provider.label} 账号`} disabled={locked} onClick={()=>void actions.connect(client==='workbuddy-ai'?'workbuddy-overseas':provider.id)}><Icon name="plus" size={14}/>{provider.id==='zcode'?'添加 Z.ai 账号':'添加账号'}</button>
+     {provider.id==='claude'&&<button title="不使用本机回调端口：在官方页面复制授权码后粘贴回来" disabled={locked} onClick={()=>void actions.connect('claude-manual')}>授权码登录</button>}
+     {provider.id==='zcode'&&<button aria-label="添加智谱 BigModel 账号" disabled={locked} onClick={()=>void actions.connect('zcode-bigmodel')}><Icon name="plus" size={14}/>添加 BigModel 账号</button>}
     </div>
    </header>
    {(()=>{const coverage=usage.coverage.find(item=>item.target===(client==='workbuddy-ai'?client:provider.id));return coverage&&coverage.status!=='ready'?<p className="tfHint">{coverage.status==='unsupported'?'此客户端直连用量尚未采集；上方用量仅包含已记录的 TokenFlow 请求。':coverage.status==='scanning'?'正在读取本机直连用量…':'未找到可读取的客户端直连记录；上方用量仅包含已采集的请求。'}</p>:null;})()}

@@ -90,6 +90,26 @@ it('validates manual callback origin, session and provider, without persisting c
   expect(manager.snapshot().accounts[0].provider).toBe('claude');expect(JSON.stringify(manager.snapshot())).not.toContain('callback-secret');
   await expect(manager.submitCallback(id,`http://localhost:54545/callback?state=${state}&code=callback-secret`)).rejects.toThrow();
 });
+it('signs in to Claude by pasting the code#state shown on the official page, without a loopback port',async () => {
+  const {manager,fixture}=await setup();const started=await manager.login('claude-manual');const login=started.login!;
+  expect(login.flow).toBe('code');expect(new URL(login.url!).searchParams.get('redirect_uri')).toBe('https://platform.claude.com/oauth/code/callback');
+  const state=new URL(login.url!).searchParams.get('state');
+  await expect(manager.submitCallback(login.id,'manual-secret#stale')).rejects.toThrow('旧会话');
+  await expect(manager.submitCallback(login.id,'manual-secret')).rejects.toThrow('完整授权码');
+  expect((await fixture()).callbackCount).toBe(0);
+  await manager.submitCallback(login.id,` manual-secret#${state} `);
+  await expect.poll(() => manager.snapshot().loginState).toBe('completed');
+  expect(manager.snapshot().accounts[0].provider).toBe('claude');expect(JSON.stringify(manager.snapshot())).not.toContain('manual-secret');
+  expect(manager.snapshot().providers.map(p=>p.id)).not.toContain('claude-manual');
+});
+it('accepts both official Claude authorization pages but only with the expected redirect',()=>{
+  const redirect='&redirect_uri='+encodeURIComponent('http://localhost:54545/callback');
+  expect(validateAuthorizationURL('https://claude.com/cai/oauth/authorize?state=s'+redirect,'claude').hostname).toBe('claude.com');
+  expect(validateAuthorizationURL('https://claude.ai/oauth/authorize?state=s'+redirect,'claude').hostname).toBe('claude.ai');
+  expect(()=>validateAuthorizationURL('https://claude.ai/oauth/authorize?state=s&redirect_uri=http%3A%2F%2Fevil.test%2Fcb','claude')).toThrow();
+  expect(()=>validateAuthorizationURL('https://claude.com/oauth/authorize?state=s'+redirect,'claude')).toThrow();
+  expect(()=>validateAuthorizationURL('https://claude.ai/oauth/authorize?state=s'+redirect,'claude-manual')).toThrow();
+});
 it('cancels upstream OAuth sessions, retries, times out, and never treats provider errors as successful login',async () => {
   const {manager,fixture}=await setup(600);
   const first=await manager.login('codex');await manager.cancelLogin(first.login!.id);expect(manager.snapshot().loginState).toBe('cancelled');expect((await fixture()).cancelCount).toBe(1);
@@ -220,6 +240,9 @@ it('connects ZCode through polling and Trae through its separate callback flow',
   expect(manager.snapshot().accounts.some(a => a.provider==='zcode')).toBe(true);
   expect(manager.snapshot().models.some(m => m.provider==='zcode')).toBe(true);
   expect(() => validateAuthorizationURL('https://chat.z.ai.evil.test/api/oauth/authorize','zcode')).toThrow();
+  expect(validateAuthorizationURL('https://bigmodel.cn/login?redirect_uri=https%3A%2F%2Fzcode.z.ai%2Fapi%2Fv1%2Foauth%2Fcli%2Fcallback%2Fbigmodel','zcode-bigmodel').hostname).toBe('bigmodel.cn');
+  expect(() => validateAuthorizationURL('https://bigmodel.cn/login?redirect_uri=https%3A%2F%2Fevil.test%2Fcb','zcode-bigmodel')).toThrow();
+  expect(() => validateAuthorizationURL('https://bigmodel.cn.evil.test/login','zcode-bigmodel')).toThrow();
 
   // Trae (validates nested state in redirect_url)
   const traeSnap=await manager.login('trae');

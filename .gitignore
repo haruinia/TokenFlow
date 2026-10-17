@@ -79,9 +79,13 @@ codex-upgrade.lock
 # Publish one product video; keep generated demo screenshots and variants local.
 doc/media/*
 !doc/media/quickstart.mp4
+!doc/media/deepseek-harness-models.png
+!doc/media/claude-desktop-models.png
 
 # Raw local validation exports; curated Markdown and existing tracked evidence are versioned.
 doc/archive/evidence/
+# Local-only audit notes (terms-of-service review and raw audit reports).
+doc/private/
 
 # Browser extensions (internal)
 extensions/

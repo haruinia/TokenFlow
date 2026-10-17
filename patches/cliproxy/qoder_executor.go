@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qoder"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
@@ -202,13 +203,18 @@ func (e *QoderExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*
 		return auth, nil
 	}
 
-	authSvc := qoder.NewQoderAuth(e.cfg)
+	machineID, _ := auth.Metadata["machine_id"].(string)
+	if strings.TrimSpace(machineID) == "" {
+		machineID = uuid.NewString()
+	}
+	authSvc := qoder.NewQoderAuth(e.cfg).WithMachineID(machineID)
 	td, err := authSvc.RefreshToken(ctx, refreshToken)
 	if err != nil {
 		log.Warnf("qoder executor: failed to refresh token: %v", err)
 		return nil, err
 	}
 
+	auth.Metadata["machine_id"] = strings.TrimSpace(machineID)
 	auth.Metadata["access_token"] = td.AccessToken
 	if td.RefreshToken != "" {
 		auth.Metadata["refresh_token"] = td.RefreshToken

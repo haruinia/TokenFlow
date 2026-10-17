@@ -93,5 +93,11 @@ export function durationText(ms: number | null): string {
   return `${Math.round(ms / 60_000)} 分钟`;
 }
 
+/** Account authorization usage: gateway calls served by the platform's accounts, and local requests proven to use its official login. */
+export function spentByPlatform(row:UsageRow,platform:{id:string;accounts:readonly {id:string}[]}){
+ if(row.origin==='native')return row.channel==='official'&&(row.provider===platform.id||platform.id==='workbuddy'&&row.provider==='workbuddy-ai');
+ return platform.accounts.some(account=>account.id===row.sourceId)||row.channel!=='api'&&row.model.startsWith(platform.id+'/');
+}
+
 /** Account or API source behind a ledger row; models served by the account catalog keep their provider prefix. */
 export const sourceKey = (row: UsageRow) => row.sourceId || (row.origin==='native'?`native:${row.provider??row.target}:${row.channel??'unknown'}:${row.nativeAccountId??''}:${row.nativeEmailHash??''}${row.nativeOrganizationId?`:${row.nativeOrganizationId}`:''}`:undefined) || (row.model.match(/^api-([a-f0-9]{24})\//)?.[1] ?? `provider:${row.model.split('/')[0]}`);

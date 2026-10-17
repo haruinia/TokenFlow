@@ -64,11 +64,13 @@ describe('quota layer', () => {
       ['Codex · 5 小时', 12, '已达上限'], ['Codex · 7 天', 55, '已达上限'], ['code-review · 主窗口', 5, undefined]]);
     expect(report.windows[1].resetsAt).toBe(new Date(1789000000 * 1000).toISOString());
 
-    const claude = responder({'https://api.anthropic.com/api/oauth/usage': json({five_hour: {utilization: 33, resets_at: '2026-09-09T08:00:00Z'}, seven_day_opus: {utilization: 61, resets_at: null}, limits: [{group: 'extra', kind: 'weekly', percent: 9, is_active: true}]}),
+    const claude = responder({'https://api.anthropic.com/api/oauth/usage': json({five_hour: {utilization: 33, resets_at: '2026-09-09T08:00:00Z'}, seven_day_opus: {utilization: 61, resets_at: null}, limits: [{group: 'extra', kind: 'weekly', percent: 9, is_active: true},
+      {group: 'weekly', kind: 'model', percent: 20, scope: {model: {display_name: 'Opus'}}}, {group: 'weekly', kind: 'model', percent: 30, scope: {model: {display_name: 'Sonnet'}}}]}),
       'https://api.anthropic.com/api/oauth/profile': json({account: {has_claude_max: true}})});
     const claudeReport = await quotaProviders.claude.fetch(claude.call, {provider: 'claude'});
     expect(claudeReport.plan).toBe('Max');
-    expect(claudeReport.windows.map(w => [w.id, w.usedPercent, w.resetsAt])).toEqual([['five_hour', 33, '2026-09-09T08:00:00.000Z'], ['seven_day_opus', 61, undefined], ['limit-0', 9, undefined]]);
+    expect(claudeReport.windows.map(w => [w.id, w.usedPercent, w.resetsAt])).toEqual([['five_hour', 33, '2026-09-09T08:00:00.000Z'], ['seven_day_opus', 61, undefined], ['limit-0', 9, undefined], ['limit-1', 20, undefined], ['limit-2', 30, undefined]]);
+    expect(claudeReport.windows.slice(3).map(w => w.label)).toEqual(['weekly · model · Opus', 'weekly · model · Sonnet']);
   });
   it('preserves both Antigravity quota groups by preferring the production summary over the partial daily summary', async () => {
     const thirdParty={displayName:'Claude and GPT models',buckets:[{bucketId:'3p-weekly',window:'weekly',remainingFraction:0.49},{bucketId:'3p-5h',window:'5h',remainingFraction:1}]};
@@ -157,7 +159,21 @@ describe('quota layer', () => {
     expect(zcodeReport.plan).toBe('Z.AI Coding Plan · PRO');
     expect(zcodeReport.windows[0]).toMatchObject({usedPercent: 25, used: 250, limit: 1000});
     expect(zcodeReport.windows[0].resetsAt).toBe(new Date(1790427600000).toISOString());
-
+  });
+  it('reads BigModel Coding Plan quota on bigmodel.cn and labels windows by length', async () => {
+    const urls: string[] = []; const auth: string[] = [];
+    const report = await quotaProviders.zcode.fetch(async request => {
+      urls.push(request.url); auth.push(request.header.Authorization);
+      return auth.length === 1 ? {statusCode: 401, header: {}, body: '{}'} : json({success: true, data: {level: 'lite', limits: [
+        {type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 10},
+        {type: 'TOKENS_LIMIT', unit: 6, number: 1, percentage: 40},
+        {type: 'TIME_LIMIT', unit: 5, number: 1, usage: 100, currentValue: 3},
+      ]}});
+    }, {provider: 'zcode', domain: 'bigmodel.cn'});
+    expect(urls).toEqual(Array(2).fill('https://bigmodel.cn/api/monitor/usage/quota/limit'));
+    expect(auth).toEqual(['$TOKEN$', 'Bearer $TOKEN$']);
+    expect(report.plan).toBe('GLM Coding Plan · lite');
+    expect(report.windows.map(w => [w.label, w.usedPercent, w.limit])).toEqual([['5 小时模型用量', 10, undefined], ['每周模型用量', 40, undefined], ['工具用量', 3, 100]]);
 
   });
   it('does not turn a ZCode authentication error into a ready account', async () => {
@@ -170,11 +186,14 @@ it('reads the current Qoder account and organization Credits response instead of
  const actual={userType:'pro',totalUsagePercentage:0.51,isQuotaExceeded:false,userQuota:{total:3000,used:1512,remaining:1488,percentage:0.51,unit:'Credits'},orgResourcePackage:{used:0,remaining:6000,percentage:0,unit:'Credits',cap:6000,available:true}};
  const report=await quotaProviders.qoder.fetch(async()=>json(actual),{provider:'qoder'});
  expect(report.windows.map(w=>[w.id,w.used,w.limit,w.usedPercent])).toEqual([['userQuota',1512,3000,50.4],['orgResourcePackage',0,6000,0]]);
+ const snake=await quotaProviders.qoder.fetch(async()=>json({user_quota:{total:100,used:25,remaining:75},add_on_quota:{total:50,used:5},shared_quota:{cap:200,used:20,available:true}}),{provider:'qoder'});
+ expect(snake.windows.map(w=>[w.id,w.used,w.limit])).toEqual([['userQuota',25,100],['addOnQuota',5,50],['orgResourcePackage',20,200]]);
 });
 it('distinguishes missing Kimi quota from zero allowance and recognizes ratio windows',async()=>{
  const missing=await quotaProviders.kimi.fetch(async()=>json({}),{provider:'kimi'});expect(missing.windows).toEqual([]);expect(missing.note).toContain('未返回');expect(missing.note).not.toContain('暂无用量');
- const report=await quotaProviders.kimi.fetch(async()=>json({usages:{limit5h:{usedRatio:0,resetAt:'2026-09-23T00:00:00Z'},monthCode:{usedRatio:1}}}),{provider:'kimi'});
- expect(report.windows.map(w=>w.usedPercent)).toEqual([0,100]);
+ const report=await quotaProviders.kimi.fetch(async()=>json({usages:{limit_5h:{used_ratio:0.25,reset_time:'2026-09-23T00:00:00Z'},limit_month_code:{used_ratio:1}},boosterWallet:null}),{provider:'kimi'});
+ expect(report.windows.map(w=>[w.id,w.usedPercent])).toEqual([['limit5h',25],['monthCode',100]]);expect(report.windows[0].resetsAt).toBe('2026-09-23T00:00:00.000Z');
+ const camel=await quotaProviders.kimi.fetch(async()=>json({usages:{limit7d:{usedRatio:0.5}}}),{provider:'kimi'});expect(camel.windows.map(w=>w.label)).toEqual(['7 天']);
  const zero=await quotaProviders.kimi.fetch(async()=>json({usage:{used:0,limit:0}}),{provider:'kimi'});expect(zero.windows[0].limit).toBe(0);expect(zero.windows[0].usedPercent).toBeNull();
 });
 

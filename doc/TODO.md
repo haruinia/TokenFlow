@@ -6,6 +6,7 @@
 
 | 编号 | 优先级 | 事项 | 当前状态与验收入口 |
 | --- | --- | --- | --- |
+| AUTH-001 | P1 | 账号授权各平台真实可用性 | Claude 全流程从未实测，Kimi 授权已过期，xAI／ZCode 只验证过目录；Kimi、Qoder、ZCode（含 BigModel）、Trae、WorkBuddy 海外导入、Claude 授权码登录等代码修复已完成待实测，Codex 切换核验与 Codex／Claude 刷新令牌共享待修；见 [核查与待实测清单](testing/account-authorization-readiness.md) |
 | LOGIN-001 | P1 | 自定义模型客户端的官方登录选中与网关配置独立 | WorkBuddy／WorkBuddyAI／Qoder 共存规则已修正，70 项回归及界面模拟通过；Windows 待实机，见 [验证记录](testing/official-login-coexist.md) |
 | MODEL-001 | P1 | WorkBuddy 导入后模型名称重复、附带内部 ID | 代码已修复，86 项回归及本机原生函数／CLI 验证通过；Windows 菜单待实测，见 [验证记录](testing/workbuddy-model-labels.md) |
 | USAGE-001 | P1 | Claude 用量的渠道、来源账号与真实客户端归属 | 源码夹具通过；真实渠道与包内历史失败待验收 |

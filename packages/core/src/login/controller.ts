@@ -4,7 +4,7 @@ import type { Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { loginProviders, loginProviderSchema } from './registry.js';
-import { listenForCallback, validateCallbackURL } from './callback-flow.js';
+import { listenForCallback, parseManualCode, validateCallbackURL } from './callback-flow.js';
 import type { InternalLogin, LoginHost, LoginProviderId, LoginSession } from './types.js';
 import {loginFailure,loginStageLabels} from './diagnostics.js';
 
@@ -52,7 +52,7 @@ export class LoginController {
     if (this.isPending()) throw new Error('已有授权正在进行，请完成或取消后重试。');
     const login: InternalLogin = {id: randomUUID(), provider: provider.id, flow: provider.flow, status: 'starting', message: '正在启动服务并生成官方授权链接。'};
     this.session = login;
-    this.host.log(`${provider.id} [${login.id.slice(0,8)}] 开始授权（${provider.flow==='callback'?'本机回调':'网页授权轮询'}）`);
+    this.host.log(`${provider.id} [${login.id.slice(0,8)}] 开始授权（${provider.flow==='callback'?'本机回调':provider.flow==='code'?'粘贴授权码':'网页授权轮询'}）`);
     try {
       await this.host.start();
       const raw = await this.host.request(provider.route);
@@ -67,7 +67,9 @@ export class LoginController {
         ? (started.userCode
             ? `请在官方页面登录，并确认设备码 ${started.userCode} 与此处一致。授权后 Local Agent 自动保存账号并刷新模型。`
             : '请在官方页面登录并确认授权。授权后 Local Agent 自动保存账号并刷新模型。')
-        : '请在官方页面登录并授权，完成后将自动读取账号和模型。';
+        : provider.flow === 'code'
+          ? '请在官方页面登录并授权，然后复制页面显示的授权码，粘贴到下方提交。'
+          : '请在官方页面登录并授权，完成后将自动读取账号和模型。';
       const servers = await listenForCallback(provider, url => this.submitCallback(login.id, url));
       if (this.session !== login || !this.isPending()) {for (const server of servers) server.close(); return this.snapshot();}
       this.callbackServers = servers;
@@ -136,10 +138,12 @@ export class LoginController {
     const login = this.current(id);
     const provider = loginProviders[login.provider];
     if (!login.state || login.callbackSubmitted) throw new Error('回调已经提交或会话尚未就绪');
-    const url = validateCallbackURL(provider, value, login.state);
+    let body: Record<string, string>;
+    if (provider.manualCode) body = {provider: provider.manualCode.upstream, ...parseManualCode(value, login.state)};
+    else {const url = validateCallbackURL(provider, value, login.state); body = {provider: provider.callback!.upstream, redirect_url: url.href};}
     login.callbackSubmitted = true;
     try {
-      await this.host.request('/oauth-callback', 'POST', {provider: provider.callback!.upstream, redirect_url: url.href});
+      await this.host.request('/oauth-callback', 'POST', body);
       login.status = 'verifying'; login.message = '回调已提交，正在等待凭据交换。';
       this.host.log(`${login.provider} [${login.id.slice(0,8)}] 浏览器回调已校验并交给网关；等待凭据交换与保存`);
     } catch (error) {login.callbackSubmitted = false; throw error;}

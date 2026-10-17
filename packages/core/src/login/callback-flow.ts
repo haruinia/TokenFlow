@@ -7,14 +7,17 @@ import type { LoginProvider, LoginProviderId } from './types.js';
 export type CallbackSpec = {
   id: LoginProviderId; label: string; hint: string; route: string; accountProvider: string; modelTypes: readonly string[];
   authorization: {host: string; path: string};
+  /** Other official authorization pages for the same client, e.g. a newer domain that redirects to the old one. */
+  alternateAuthorization?: ReadonlyArray<{host: string; path: string}>;
   callback: {port: number; path: string; upstream: string};
 };
 const startSchema = z.object({status: z.literal('ok'), url: z.string(), state: z.string().min(1)});
 
 export function callbackProvider(spec: CallbackSpec): LoginProvider {
+  const allowed = [spec.authorization, ...(spec.alternateAuthorization ?? [])];
   const validateAuthorizationURL = (raw: string) => {
     const url = new URL(raw);
-    if (url.protocol !== 'https:' || url.hostname !== spec.authorization.host || url.pathname !== spec.authorization.path ||
+    if (url.protocol !== 'https:' || !allowed.some(page => url.hostname === page.host && url.pathname === page.path) ||
         url.port || url.username || url.password || url.hash) throw new Error('上游返回了非预期的授权地址。');
     return url;
   };
@@ -63,6 +66,13 @@ export function validateCallbackURL(provider: LoginProvider, value: string, stat
   return url;
 }
 
+/** 校验粘贴的授权码：官方页面显示 `code#state`，state 必须属于本次会话。 */
+export function parseManualCode(value: string, state: string) {
+  const [code, pasted, ...rest] = value.trim().split('#');
+  if (!code || pasted !== state || rest.length || !/^[\w.~-]+$/.test(code)) throw new Error('请粘贴本次授权页面显示的完整授权码（含 # 后半段），不能使用旧会话的授权码。');
+  return {code, state};
+}
+
 /** 上游 web-UI 转发器绑定 0.0.0.0；这里改为只监听 loopback 的自有回调。 */
 export async function listenForCallback(provider: LoginProvider, submit: (redirectURL: string) => Promise<unknown>): Promise<Server[]> {
   const callback = provider.callback;
@@ -95,8 +105,14 @@ export async function listenForCallback(provider: LoginProvider, submit: (redire
       }
       servers.push(server); server.unref();
     }
-  } catch {
+  } catch (error) {
     for (const server of servers) server.close();
+    if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+      // The official redirect URIs are registered with a fixed port, so another port cannot be used instead.
+      const sharing = port === 1455 ? '（Codex 官方登录、终端里的 codex login 和 Trae 授权都使用这个端口）' : '';
+      const fallback = provider.id === 'claude' ? '也可以改用「授权码登录」，不需要本机端口。' : '';
+      throw new Error(`授权回调端口 ${port} 已被占用${sharing}。请先完成或关闭其他登录流程后重试。${fallback}`);
+    }
     throw new Error(`授权回调端口 ${port} 无法监听。请关闭其他登录流程后重试。`);
   }
   return servers;

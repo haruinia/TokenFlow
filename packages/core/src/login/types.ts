@@ -1,5 +1,6 @@
-export type LoginProviderId = 'codex' | 'claude' | 'antigravity' | 'kimi' | 'xai' | 'qoder' | 'workbuddy' | 'workbuddy-overseas' | 'zcode' | 'trae';
-export type LoginFlowKind = 'callback' | 'device';
+export type LoginProviderId = 'codex' | 'claude' | 'claude-manual' | 'antigravity' | 'kimi' | 'xai' | 'qoder' | 'workbuddy' | 'workbuddy-overseas' | 'zcode' | 'zcode-bigmodel' | 'trae';
+/** `code`：官方页面显示授权码，由用户粘贴回来，不占用本机端口。 */
+export type LoginFlowKind = 'callback' | 'device' | 'code';
 
 /** 上游 `*-auth-url` 接口经过校验后的启动结果。 */
 export type LoginStart = {state: string; url: string; userCode?: string; expiresInMs?: number};
@@ -22,6 +23,8 @@ export type LoginProvider = {
   parseStart(result: unknown): LoginStart;
   /** 仅回调流程：桌面端自有的 loopback 回调监听参数与提交给上游的 provider 名。 */
   readonly callback?: {port: number; path: string; upstream: string};
+  /** 仅授权码流程：粘贴的 `code#state` 提交给上游时使用的 provider 名。 */
+  readonly manualCode?: {upstream: string};
 };
 
 export type LoginSession = {

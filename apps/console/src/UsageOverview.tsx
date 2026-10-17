@@ -9,7 +9,14 @@ import {ModelUsage,SourceUsage,UsageBreakdown} from './UsagePanel';
 import {ProviderIcon} from './ProviderIcon';
 import {Icon} from './Icons';
 import {NativeUsageCoverage,usageClientNames} from './NativeUsageCoverage';
-const names:Record<string,string>={...usageClientNames,key:'API 代理'};
+const names:Record<string,string>={...usageClientNames,key:'API 代理',internal:'TokenFlow 内部',workspace:'工作台调试'};
+const methodSub=(key:string,rows:readonly UsageRow[])=>{
+ if(key==='key')return '导出的 Key';
+ if(key==='internal')return '维修检查与内部辅助调用';
+ if(key==='workspace')return '工作台直接调试';
+ const gateway=totalsOf(rows.filter(r=>r.origin!=='native')).totalTokens,native=totalsOf(rows.filter(r=>r.origin==='native')).totalTokens;
+ return `本地 Agent · 经 TokenFlow ${formatTokens(gateway)} · 本机直连 ${formatTokens(native)}`;
+};
 export function activityStats(rows:readonly UsageRow[],today=new Date()){
  const days=new Map<string,number>();for(const row of rows)if(row.day<=localDay(today))days.set(row.day,(days.get(row.day)??0)+row.inputTokens+row.outputTokens);
  let current=0,longest=0,run=0,previous='';for(const day of [...days.keys()].sort()){if(!days.get(day))continue;const date=new Date(`${day}T12:00:00`);date.setDate(date.getDate()-1);run=localDay(date)===previous?run+1:1;longest=Math.max(longest,run);previous=day;}
@@ -40,7 +47,7 @@ export function UsageOverview({usage,local,onContext}:{onContext?:(context:Maint
   {hover&&createPortal(<div id={tooltipId} role="tooltip" className="tfHeatmapTooltip" style={{left:hover.left,top:hover.top,transform:hover.below?'none':undefined}}><span>{mode==='week'?`${weekOf(hover.day).replace('-', '年').replace('-', '月')}日起的一周`:`${Number(hover.day.slice(5,7))}月${Number(hover.day.slice(8))}日${mode==='cumulative'?' · 累计':''}`}</span><strong>{formatTokens(hover.value)} 个 Token</strong></div>,document.body)}
   <div className="tfBreakTabs tfSwitchTabs" role="tablist" aria-label="用量分类">{[['method','使用方式'],['agent','来源'],['model','模型']].map(([id,label])=><button key={id} role="tab" id={`overview-tab-${id}`} aria-controls="overview-breakdown-panel" aria-selected={breakdown===id} onClick={()=>chooseBreakdown(id)}>{label}</button>)}</div>
   <div id="overview-breakdown-panel" role="tabpanel" aria-labelledby={`overview-tab-${breakdown}`}>
-   {breakdown==='method'&&<UsageBreakdown headerExtra={paths} title="使用方式" empty="暂无记录" items={groupUsage(rows,r=>r.target).map(g=>({key:g.key,label:names[g.key]??g.key,icon:g.key==='key'?<Icon name="key" size={22}/>:<ProviderIcon provider={g.key} size={22}/>,totals:g.totals}))}/>}
+   {breakdown==='method'&&<UsageBreakdown headerExtra={paths} title="使用方式" empty="暂无记录" items={groupUsage(rows,r=>r.target).map(g=>({key:g.key,label:names[g.key]??g.key,sub:methodSub(g.key,g.rows),icon:g.key==='key'?<Icon name="key" size={22}/>:<ProviderIcon provider={g.key} size={22}/>,totals:g.totals}))}/>}
    {breakdown==='agent'&&<SourceUsage headerExtra={paths} local={local} rows={rows} title="来源" empty="暂无用量" showQuota={false}/>}
    {breakdown==='model'&&<ModelUsage headerExtra={paths} local={local} rows={rows} title="模型"/>}
   </div>

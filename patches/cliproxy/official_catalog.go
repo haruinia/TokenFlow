@@ -177,7 +177,7 @@ func (s *Service) fetchOfficialAccountModels(ctx context.Context, a *coreauth.Au
 			headers["Origin"] = base
 		}
 		headers["Referer"] = headers["Origin"] + "/"
-		headers["User-Agent"] = "CLI/2.63.2 CodeBuddy/2.63.2"
+		headers["User-Agent"] = "CLI/2.161.0 CodeBuddy/2.161.0"
 		headers["X-Requested-With"] = "XMLHttpRequest"
 	case "qoder":
 		if base == "" {
@@ -234,9 +234,12 @@ func (s *Service) fetchOfficialAccountModels(ctx context.Context, a *coreauth.Au
 			return s.fetchZCodeConversationCatalog(ctx, a, fallback)
 		}
 		if base == "" {
-			if metadataText(a, "provider") == "zai" {
+			switch metadataText(a, "provider") {
+			case "zai":
 				base = "https://api.z.ai/api/coding/paas/v4"
-			} else {
+			case "bigmodel":
+				base = "https://open.bigmodel.cn/api/coding/paas/v4"
+			default:
 				base = "https://open.bigmodel.cn/api/paas/v4"
 			}
 		}

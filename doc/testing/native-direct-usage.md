@@ -13,13 +13,13 @@
 | Antigravity IDE | `~/.gemini/antigravity-ide/conversations/*.db`，以及旧目录下的同格式 SQLite；`user_version=1` | 数据库没有请求账号字段；只在调用开始时间落入同一账号的连续观察时间段时关联邮箱及项目；旧历史单列 |
 | WorkBuddy | 本机 projects JSONL | 明确的官方请求可关联同时观察到的 UID／企业；自定义模型与官方登录共存，不能仅因已登录就归官方 |
 | WorkBuddyAI | `.workbuddy-ai/projects`、`sessions` 中与 WorkBuddy 相同格式的 JSONL 入口已接入 | 国际版与国内版分别记录；本机仅发现旧版 local_storage 数据，无真实同格式调用样本，不能视为全版本已支持 |
-| Qoder | 本机 projects JSONL | 只有明确官方请求才能补登录身份；缺少认证／来源字段的历史请求仍是未知渠道，不能拿当前登录覆盖 |
-| Pi / DeepSeek Harness | 现有 sessions JSONL／压缩日志 | 保留记录中的提供方及请求账号；缺少身份的记录单列 |
-| Kimi Code | 本机没有可供验证的会话用量样本，目前没有采集器 | 尚未采集，不显示成真实零用量 |
-| ZCode | 本机发现 `cli/db/db.sqlite` 的 `model_usage` 表，但调用行为空；原生聚合另有上下文差量处理，尚未确认真实请求口径 | 尚未采集；需要真实请求样本确认字段、缓存、重试与官方／自定义来源 |
-| Trae | 本机未确认可核对的逐请求 Token 数据 | 尚未采集；需要核对客户端记录或官方明细接口 |
+| Qoder | 本机 projects JSONL；官方内置模型（`auto`、`gfmodel` 等）只回传 Credits，Token 全为 0，按“未返回 Token”的请求计数，不用 Credits 倒推 Token | 只有明确官方请求才能补登录身份；缺少认证／来源字段的历史请求仍是未知渠道，不能拿当前登录覆盖 |
+| Pi / DeepSeek Harness | 现有 sessions JSONL／压缩日志；Harness 计入 `assistant/message`、标题生成与 `compaction/summary` 上下文压缩调用 | 保留记录中的提供方及请求账号；缺少身份的记录单列 |
+| Kimi Code | 本机没有安装，也没有会话用量样本，目前没有采集器 | 尚未采集，不显示成真实零用量 |
+| ZCode | `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表，只读取计数列；按客户端源码，输入已含缓存读写，`computed_total_tokens`＝输入＋输出；`token-flow` 提供方与网关模型排除 | Coding Plan／账号类提供方记官方，`*-api`、`custom` 记 API，其他未知；本机表为空，尚无真实请求样本验收 |
+| Trae | 本机对话库加密，官方按请求次数计费，没有可读取的逐请求 Token | 不采集；不解密客户端数据 |
 | Cursor | 本机 `User/globalStorage/state.vscdb` 的 composer 元数据＋已授权账号官方逐事件账单；原生 3.25.6 实测通过，总览／账号来源／活动可见 | 使用该 SDK Key 的 GetMe 身份和精确会话交集，不借用当前 IDE 登录；网关 agent 持久排除，其他设备和未匹配账单不累计。Windows、其他版本／设备来源边界见后文 |
-| xAI Grok | 未确认具备本机逐请求 Token 的客户端记录 | 尚未采集；网页／远端用量不能冒称本机直连记录 |
+| xAI Grok | Grok Bot 本机只有登录与后台状态文件，未发现任何 Token 字段 | 尚未采集；网页／远端用量不能冒称本机直连记录 |
 
 总览新增“本机直连采集范围”，分别展示已接入、正在读取、未找到记录、暂时不可读和尚未采集。账号页也注明缺口；用量总计只表示已采集请求。登录快照归属会注明“按用量产生时的本机登录识别”，不冒充请求级账单证明。
 
@@ -284,7 +284,9 @@ Windows 仍需执行既有 U16／U17；上述安装界面验收仅覆盖本机 A
 | DeepSeek Harness | 安装版缓存有 208 次／24,619,722 Token；内部日志分项缓存公式回归通过 | 本轮未重放全部压缩原始日志，历史渠道为未知；不能把 DeepSeek API 的字段含义直接套到 Harness 内部字段 |
 | Pi | 本机 3 个文件、7 条 usage，当前解析没有独立直连计数；分项缓存及副本去重回归通过 | 缺可用于官方直连对账的真实样本，不能据此声称零消耗或全部通过 |
 | WorkBuddyAI | 同格式解析回归通过；本机 projects 无 JSONL 实际样本 | 旧版 local_storage 与真实国际版直连仍待适配／验收 |
-| Kimi／ZCode／Trae／Grok | 复查代码覆盖，仍未接入经验证的本机逐请求采集 | 继续 USAGE-004；网关能计数不代表这些客户端自身直连已覆盖 |
+| Kimi／ZCode／Trae／Grok | 2026-10-17 复查：ZCode 已按 `model_usage` 接入；Kimi 未安装、无样本；Trae 对话库加密且无 Token；Grok 无 Token 字段 | ZCode 待真实请求验收；其余继续 USAGE-004，网关能计数不代表这些客户端自身直连已覆盖 |
+
+2026-10-17 公式复核（只读本机计数）：DeepSeek Harness 1,151 条 usage 全部满足 `totalTokens`＝输入＋缓存读＋缓存写＋输出；Claude 2,191 条带 `iterations` 的记录都只有一轮，顶层 usage 即完整计数。Harness 的 28 次上下文压缩此前未计入，本机这 28 次的提供方都是 `token-flow`，已由网关账本计数，因此本机直连总量不变；直连压缩此后会单独计入。Qoder 323 次中 311 次为只回传 Credits 的官方请求，此后计为请求数，Token 不变。
 
 ### 网关混合字段重复加缓存：已修复
 

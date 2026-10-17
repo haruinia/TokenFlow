@@ -339,7 +339,7 @@ export class CLIProxyManager {
         const identityKey=credentialIdentity(provider,identity,file);if(identityKey)identities.set(id,identityKey);
         credentials.set(id,{raw:identity,modified:file.modtime});
         const expired=typeof identity.access_token==='string'&&!!identity.access_token&&credentialPreference(identity)[0]===0;
-        if (file.auth_index !== undefined) quotaTargets.set(id, {authIndex: String(file.auth_index), account: {provider, email: file.email, domain:provider==='trae'&&typeof identity.host==='string'?identity.host:typeof identity.domain==='string'?identity.domain:undefined,
+        if (file.auth_index !== undefined) quotaTargets.set(id, {authIndex: String(file.auth_index), account: {provider, email: file.email, domain:provider==='trae'&&typeof identity.host==='string'?identity.host:provider==='zcode'&&identity.provider==='bigmodel'?'bigmodel.cn':typeof identity.domain==='string'?identity.domain:undefined,
           projectId: file.project_id, accountType: file.account_type, chatgptAccountId: file.id_token?.chatgpt_account_id, planType: file.id_token?.plan_type}});
         return {
           id, provider, label: accountLabels[id]??accountLabel(provider,file,{...identity,uid:identity.uid??credentialSubject(identity)}),
@@ -667,12 +667,13 @@ export class CLIProxyManager {
   }
   // 登录层入口：所有 Provider 共用同一个会话控制器。
   async login(provider: LoginProviderId | 'cursor') {this.cursorLoginSelected=provider==='cursor';if(provider==='cursor'){if(this.login_.isPending())throw new Error('请先完成当前授权');await this.cursor.beginLogin();}else{if(['starting','waiting_for_browser'].includes(this.cursor.snapshot().login?.status??''))throw new Error('请先完成 Cursor 授权');await this.login_.login(provider);}return this.snapshot();}
-  async importLocal(provider: 'trae' | 'workbuddy' | 'zcode' | 'cursor', onlyNew=false) {
+  async importLocal(provider: 'trae' | 'workbuddy' | 'workbuddy-ai' | 'zcode' | 'cursor', onlyNew=false) {
     if(provider==='cursor'){await this.cursor.importLocal();return this.snapshot();}
     if (this.state !== 'running') await this.start();
     // Startup must never replace a pool credential refreshed independently of the native app.
     if(onlyNew&&this.accounts.some(account=>account.provider===provider))return this.snapshot();
-    await this.request(`/${provider}-import-local`, 'POST', {});
+    // WorkBuddyAI (international) saves into the WorkBuddy account list with the overseas service domain.
+    await this.request(provider==='workbuddy-ai'?'/workbuddy-import-local?region=overseas':`/${provider}-import-local`, 'POST', {});
     this.log(`已完成 ${provider} 本机凭据导入`);
     await this.refreshAccounts();
     return this.snapshot();

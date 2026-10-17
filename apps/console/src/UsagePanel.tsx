@@ -60,7 +60,7 @@ export function UsageSummary({ title = 'Token 用量', rows, range, onRange, loa
       {tokenParts(totals).map(part => <div key={part.key}><dt><i style={{background:part.color}}/>{part.label}</dt><dd>{formatTokens(part.value)}</dd></div>)}
     </dl>
     <dl className="tfUsageMetrics">
-      <div><dt>请求</dt><dd>{formatTokens(totals.requests)}{totals.failed > 0 && <small className="bad"> · {formatTokens(totals.failed)} 失败</small>}</dd></div>
+      <div><dt>请求</dt><dd>{formatTokens(totals.requests)}{totals.failed > 0 && <small className="bad"> · {formatTokens(totals.failed)} 失败</small>}{totals.unmeasured > 0 && <small title="客户端只返回积分或次数，没有返回 Token"> · {formatTokens(totals.unmeasured)} 次未返回 Token</small>}</dd></div>
       <div><dt>平均耗时</dt><dd>{durationText(totals.avgMs)}</dd></div>
       <div><dt>工具调用／返回</dt><dd>{totals.toolsMeasured?`${formatTokens(totals.toolCalls)} / ${formatTokens(totals.toolResults)}`:'未记录'}</dd></div><div><dt>生成速率（流式）</dt><dd>{totals.tokensPerSecond===null?'—':`${totals.tokensPerSecond.toFixed(1)} Token/s`}</dd></div>
     </dl>
@@ -120,7 +120,7 @@ export function UsageBreakdown({ title, items, empty, limit = 8, headerExtra }: 
          </g>
         </svg>
         <dl className="tfBreakParts">{tokenParts(item.totals).filter(p=>p.key!=='write'||p.value>0).map(part=><div key={part.key}><dt>{part.label}</dt><dd>{formatTokens(part.value)}</dd></div>)}</dl>
-        <div className="tfBreakFacts"><span>缓存命中 <b>{percentText(item.totals.hitRate)}</b></span><span>{formatTokens(item.totals.requests)} 次请求</span>{item.totals.failed>0&&<span className="failed">{formatTokens(item.totals.failed)} 次失败</span>}</div>
+        <div className="tfBreakFacts"><span>缓存命中 <b>{percentText(item.totals.hitRate)}</b></span><span>{formatTokens(item.totals.requests)} 次请求</span>{item.totals.failed>0&&<span className="failed">{formatTokens(item.totals.failed)} 次失败</span>}{item.totals.unmeasured>0&&<span title="客户端只返回积分或次数，没有返回 Token">{formatTokens(item.totals.unmeasured)} 次未返回 Token</span>}</div>
         {item.extra}
       </li>)}
     </ul>

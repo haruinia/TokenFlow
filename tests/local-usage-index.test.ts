@@ -54,7 +54,7 @@ it('rebuilds v12 Codex cache so an unchanged parent log uses request-level child
   for(const e of Object.values(saved.files) as Array<{target:string;rows:any[]}>){if(e.target==='codex')for(const r of e.rows){r.nativeThreadId=nativeIdentity('thread','parent');delete r.nativeAccountId;delete r.nativeAccountEvidence;}}
   await writeFile(path,JSON.stringify(saved));index=new LocalUsageIndex(root,paths);index.snapshot();
   await vi.waitFor(()=>{const s=index.snapshot();expect(s.scanning).toBe(false);expect(s.rows[0]).toMatchObject({nativeAccountId:nativeIdentity('codex','payer'),nativeAccountEvidence:'otel',requests:1,inputTokens:100,outputTokens:20});},{timeout:5000,interval:25});
-  expect(JSON.parse(await readFile(path,'utf8')).version).toBe(13);
+  expect(JSON.parse(await readFile(path,'utf8')).version).toBe(15);
   await index.close();await writeFile(join(root,'usage-account-evidence.json'),JSON.stringify({version:1,records:[]}));
   const log=join(directory,'parent.jsonl');await writeFile(log,(await readFile(log,'utf8'))+'\n'+JSON.stringify({type:'token_usage_record',timestamp,payload:{response_id:'new-unconfirmed-response',thread_id:'child',usage:{input_tokens:10,output_tokens:2}}}));
   index=new LocalUsageIndex(root,paths);index.snapshot();

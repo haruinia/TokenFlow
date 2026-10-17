@@ -1,25 +1,27 @@
 // Provider 注册表与模型路由反查。
 import { z } from 'zod';
 import { codex } from './codex.js';
-import { claude } from './claude.js';
+import { claude, claudeManual } from './claude.js';
 import { antigravity } from './antigravity.js';
 import { kimi } from './kimi.js';
 import { xai } from './xai.js';
 import { qoder } from './qoder.js';
 import { workbuddy, workbuddyOverseas } from './workbuddy.js';
-import { zcode } from './zcode.js';
+import { zcode, zcodeBigModel } from './zcode.js';
 import { trae } from './trae.js';
 import type { LoginProvider, LoginProviderId } from './types.js';
 
 export const loginProviders: Readonly<Record<LoginProviderId, LoginProvider>> = {
-  codex, claude, antigravity, kimi, xai, qoder, workbuddy, 'workbuddy-overseas':workbuddyOverseas, zcode, trae,
+  codex, claude, 'claude-manual':claudeManual, antigravity, kimi, xai, qoder, workbuddy, 'workbuddy-overseas':workbuddyOverseas, zcode, 'zcode-bigmodel':zcodeBigModel, trae,
 };
 export const loginProviderIds = Object.keys(loginProviders) as [LoginProviderId, ...LoginProviderId[]];
 export const loginProviderSchema = z.enum(loginProviderIds);
 export const isLoginProvider = (value: string): value is LoginProviderId => value in loginProviders;
+/** Second sign-in entries that save into another platform's account list. */
+const secondaryLogins=new Set<LoginProviderId>(['claude-manual','workbuddy-overseas','zcode-bigmodel']);
 
 /** 给 UI 的 Provider 目录（不含任何敏感信息）。 */
-export const loginProviderCatalog = () => loginProviderIds.filter(id=>id!=='workbuddy-overseas').map(id => {
+export const loginProviderCatalog = () => loginProviderIds.filter(id=>!secondaryLogins.has(id)).map(id => {
   const {label, hint, flow} = loginProviders[id];
   return {id, label, hint, flow};
 });

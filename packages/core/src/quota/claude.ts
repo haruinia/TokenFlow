@@ -25,7 +25,9 @@ export const claudeQuota: QuotaProvider = {
     const limits = payload.limits;
     if (Array.isArray(limits)) limits.forEach((item, index) => {
       const entry = record(item); if (!entry || entry.is_active === false) return;
-      const label = [str(entry.group), str(entry.kind)].filter(Boolean).join(' · ') || `限额 ${index + 1}`;
+      // Per-model weekly limits share group/kind; only the scoped model tells them apart.
+      const model = str(record(record(entry.scope)?.model)?.display_name);
+      const label = [str(entry.group), str(entry.kind), model].filter(Boolean).join(' · ') || `限额 ${index + 1}`;
       if (windows.some(w => w.label === label)) return;
       windows.push({id: `limit-${index}`, label, usedPercent: clampPercent(entry.percent), resetsAt: isoFromAny(entry.resets_at)});
     });

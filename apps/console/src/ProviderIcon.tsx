@@ -6,7 +6,7 @@ const icons:Record<string,string>={
 
 /** Provider marks bundled locally so navigation also works offline. */
 export function ProviderIcon({provider,size=22}:{provider:string;size?:number}){
- const file=icons[provider==='workbuddy-ai'?'workbuddy':provider==='qoder-ide'?'qoder':provider];
+ const file=icons[provider==='workbuddy-ai'||provider==='workbuddy-overseas'?'workbuddy':provider==='qoder-ide'?'qoder':provider==='claude-desktop'||provider==='claude-manual'?'claude':provider==='zcode-bigmodel'?'zcode':provider];
  if(provider==='codex')return <span className="tfProviderIcon tfMonochromeMark" data-provider={provider} aria-hidden="true" style={{width:size,height:size,maskImage:`url(/provider-icons/${file})`,WebkitMaskImage:`url(/provider-icons/${file})`}}/>;
  return file?<img className="tfProviderIcon" src={`/provider-icons/${file}`} width={size} height={size} alt=""/>:provider==='api'?<Icon name="plug" size={size}/>:<span className="tfMark" aria-hidden="true">{provider[0]?.toUpperCase()}</span>;
 }

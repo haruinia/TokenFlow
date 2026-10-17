@@ -14,6 +14,7 @@ import type { QuotaProvider } from './types.js';
 export const quotaProviders: Readonly<Record<LoginProviderId, QuotaProvider>> = {
   codex: codexQuota,
   claude: claudeQuota,
+  'claude-manual': claudeQuota,
   antigravity: antigravityQuota,
   kimi: kimiQuota,
   xai: xaiQuota,
@@ -21,6 +22,7 @@ export const quotaProviders: Readonly<Record<LoginProviderId, QuotaProvider>> = 
   'workbuddy-overseas':workbuddyQuota,
   qoder: qoderQuota,
   zcode: zcodeQuota,
+  'zcode-bigmodel': zcodeQuota,
   trae: traeQuota,
 };
 export { QuotaHTTPError } from './shared.js';

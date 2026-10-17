@@ -13,12 +13,15 @@
 
 例如 Claude Code 通过 TokenFlow 使用反重力的 Claude 模型，正确归属是：目标 Claude Code、来源反重力账号、来源渠道官方账号、采集位置网关。它不应计入 Claude 官方账号直连用量。
 
+界面按同一口径汇总：“使用方式”按 `target` 分为各本地 Agent（Claude CLI 与 Claude Desktop 分开）、API 代理（导出的 Key）和 TokenFlow 内部调用；“来源”按账号授权或 API 接口；账号授权页的今日用量只包含该平台账号服务的网关请求，以及本机日志中已确认走官方登录的请求，渠道未确认或 API Key 直连不计入。
+
 ## 当前实现范围
 
 | 路径 | 当前依据 | 状态 |
 | --- | --- | --- |
 | Claude Code → TokenFlow → 反重力／其他来源 | 受管连接 Key 与来源绑定，上游 usage | 已有实现；本轮增加反重力双账号、Gemini／Claude、流式／非流式和重启测试 |
 | 独立 Key → TokenFlow → 反重力 | 独立 Key 的 `sourceId` 与模型权限 | 来源可确定；目标记为 `key`，不能仅因授权 `agents=['claude']` 就认定客户端身份 |
+| Claude Desktop → TokenFlow → 反重力／其他来源 | 网关记为 `target=claude-desktop`，来源按所选账号；本机 JSONL 的 `entrypoint=claude-desktop-3p` 在其当前配置指向本网关时不再重复累计 | 2026-10-17 起生效；第三方模式不计入 Claude 账号，指向其他网关时记为 API 渠道。旧索引按 v14 重建，不迁移历史账本 |
 | Claude Code 本机官方直连 | 本机 JSONL、请求证据或有效登录观察时间段 | 夹具回归通过；复杂真实环境及包内历史失败仍待验收 |
 | Claude Code 本机 API／第三方直连 | 日志中的认证证据，证据不足时未知 | 不能拿当前 TokenFlow 来源、当前登录或模型名倒填历史归属 |
 | 反重力客户端自身的官方直连 | 2026-10-17 已接入原生 SQLite v1 的生成 Token 记录 | 生产 Worker 已在本机数据验证；旧 `.pb`、其他版本和无身份历史有边界，见 [直连采集](native-direct-usage.md) |
