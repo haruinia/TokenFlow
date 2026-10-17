@@ -598,6 +598,22 @@ a:hover{text-decoration:underline}
 .tfAccountsPage>.tfProviderTabs>button{box-sizing:border-box;flex:1 0 76px;min-width:76px;min-height:68px;flex-direction:column;justify-content:center;padding:8px 4px;gap:6px;white-space:nowrap}
 .tfAccountsPage .tfNativeLogin+.tfAccountManage{border:0;padding-left:0}
 .tfAgentsPage>.tfPanel{margin-top:0;padding-top:12px}
+.tfToolboxBar{display:flex;align-items:center;gap:16px;flex-shrink:0;min-height:32px}
+.tfToolboxBar>span{font-size:12px;color:var(--muted);flex-shrink:0}
+.tfToolboxBar .tfSwitchTabs{gap:16px}
+.tfCleanupPage>.tfToolboxBar{margin-bottom:8px}
+.tfContinuePanel{display:grid;gap:var(--page-gap);align-content:start;min-width:0}
+.tfContinueLead{margin:0;max-width:42em;color:var(--muted);font-size:13px;line-height:1.7}
+.tfContinueAgents{flex-wrap:nowrap;gap:4px;overflow-x:auto;scrollbar-width:thin;padding-bottom:2px}
+.tfContinueAgents>button{box-sizing:border-box;flex:1 0 96px;min-width:96px;min-height:68px;flex-direction:column;justify-content:center;padding:8px 6px;gap:6px;white-space:normal;text-align:center;line-height:1.3;font-size:11px}
+.tfContinueAgents>button[aria-checked=true]{background:var(--surface);color:var(--text);font-weight:600}
+:root[data-theme=dark] .tfContinueAgents>button[aria-checked=true]{background:#2a2b2e;color:var(--text)}
+.tfContinueList{max-height:min(460px,52dvh);overflow:auto}
+.tfContinueList .tfLineMain{width:100%;text-align:left}
+.tfContinueActions{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.tfContinueActions label{display:flex;align-items:center;gap:10px;color:var(--text);font-size:13px}
+.tfContinueActions select{min-width:180px}
+.tfContinueNote{margin:0;max-width:42em;line-height:1.7}
 .tfAgentsPage .tfAgentTitle{flex-wrap:wrap;gap:8px 12px}
 .tfAgentsPage .tfAgentTitle>.tfSwitchTabs{gap:12px;margin-left:8px}
 .tfAgentsPage .tfAgentTitle>.tfSwitchTabs>button{font-size:11px;min-height:28px;padding-block:4px}
