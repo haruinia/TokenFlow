@@ -4,6 +4,8 @@ import {OfficialAccountIdentity,UnpooledNativeAccount} from './OfficialAccountId
 import {NativeLoginStatus} from './NativeLoginStatus';
 import {QoderIdePanel} from './QoderIdePanel';
 import {AgentUsageDetails} from './AgentUsageDetails';
+import {ClaudeDesktopPanel} from './ClaudeDesktopPanel';
+import {useClaudeDesktopStatus} from './claude-desktop-status';
 import {useOfficialLoginConfirm} from './OfficialLoginConfirm';
 import {Thinking,LoadingSkeleton,LoadError} from './LoadingState';
 import {ColumnDivider} from './ColumnDivider';
@@ -61,6 +63,8 @@ function problemOf(target:AgentTarget,calls:GatewayCall[],available:ReturnType<t
 export function AgentsPage({local,calls,usage,notify,onRepair,onAgent,localError,reloadLocal}:{local:LocalAgentSnapshot;calls:GatewayCall[];usage:UsageData;notify:Notify;onRepair:(chain:MaintenanceChain,intent?:'codex-history')=>void;onAgent:(id:string)=>void;localError:string;reloadLocal:()=>Promise<void>}){
  const [workbuddyClient,setWorkbuddyClient]=useState<'workbuddy'|'workbuddy-ai'>(()=>{try{return (localStorage.getItem('token-flow.workbuddy.client')??localStorage.getItem(tabKey))==='workbuddy-ai'?'workbuddy-ai':'workbuddy';}catch{return 'workbuddy';}});
  const [qoderClient,setQoderClient]=useState<'qoder'|'qoder-ide'>(()=>{try{return localStorage.getItem('token-flow.qoder.client')==='qoder-ide'?'qoder-ide':'qoder';}catch{return 'qoder';}});
+ const [claudeClient,setClaudeClient]=useState<'terminal'|'desktop'>(()=>{try{return localStorage.getItem('token-flow.claude.client')==='desktop'?'desktop':'terminal';}catch{return 'terminal';}});
+ const desktop=useClaudeDesktopStatus(claudeClient==='desktop');
  const [loadError,setLoadError]=useState('');
  const [targets,setTargets]=useState<AgentTarget[]>();
  const [updates,setUpdates]=useState<Record<string,AgentUpdate>>({});
@@ -76,26 +80,27 @@ export function AgentsPage({local,calls,usage,notify,onRepair,onAgent,localError
  useEffect(()=>{onAgent(target?.id==='workbuddy'?workbuddyClient:target?.id==='qoder'?qoderClient:target?.id??tab);},[target?.id,tab,workbuddyClient,qoderClient,onAgent]);
 
  const refreshOfficialAccounts=async(provider:string)=>{const pool=provider==='workbuddy-ai'?'workbuddy':provider;try{await requestJSON(`/api/local-agent/providers/${pool}/refresh`,post({force:true}),300000);}finally{await Promise.all([reloadLocal(),logins[provider]?.refresh(true)]);}};
- const clientSwitch=target?.id==='qoder'?<SwitchTabs className="tfClientPair" label="Qoder 客户端" value={qoderClient} options={[["qoder","Qoder"],["qoder-ide","Qoder IDE"]]} onChange={next=>{setQoderClient(next);try{localStorage.setItem('token-flow.qoder.client',next);}catch{}}}/>:target?.id==='workbuddy'?<SwitchTabs className="tfClientPair" label="WorkBuddy 客户端" value={workbuddyClient} options={[['workbuddy','WorkBuddy'],['workbuddy-ai','WorkBuddyAI']]} onChange={next=>{setWorkbuddyClient(next);try{localStorage.setItem('token-flow.workbuddy.client',next);}catch{}}}/>:undefined;
+ const clientSwitch=target?.id==='qoder'?<SwitchTabs className="tfClientPair" label="Qoder 客户端" value={qoderClient} options={[["qoder","Qoder"],["qoder-ide","Qoder IDE"]]} onChange={next=>{setQoderClient(next);try{localStorage.setItem('token-flow.qoder.client',next);}catch{}}}/>:target?.id==='workbuddy'?<SwitchTabs className="tfClientPair" label="WorkBuddy 客户端" value={workbuddyClient} options={[['workbuddy','WorkBuddy'],['workbuddy-ai','WorkBuddyAI']]} onChange={next=>{setWorkbuddyClient(next);try{localStorage.setItem('token-flow.workbuddy.client',next);}catch{}}}/>:target?.id==='claude'?<SwitchTabs className="tfClientPair" label="Claude 客户端" value={claudeClient} options={[['terminal','Claude CLI'],['desktop','Claude Desktop']]} onChange={next=>{setClaudeClient(next);try{localStorage.setItem('token-flow.claude.client',next);}catch{}}}/>:undefined;
  return <div className="tfPage tfAgentsPage">
   <ScrollRail className="tfTiles" role="tablist" aria-label="本地 Agent">
    {targets?.filter(item=>item.id!=='workbuddy-ai').map(item=>{
     const source=item.id==='workbuddy'&&workbuddyClient==='workbuddy-ai'?targets.find(entry=>entry.id==='workbuddy-ai')??item:item;
     const client=item.id==='workbuddy'?workbuddyClient:item.id==='qoder'?qoderClient:item.id;
-    const connection=client!=='qoder-ide'&&source.connection&&isSourceSelectionAvailable(available,source.connection)?source.connection:undefined;
-    const native=logins[client]?.nativeLabel;
-    const problem=client!=='qoder-ide'&&!!problemOf(source,calls,available,local);
-    const active=!!(connection||native);
+    const desktopView=item.id==='claude'&&claudeClient==='desktop';
+    const connection=client!=='qoder-ide'&&!desktopView&&source.connection&&isSourceSelectionAvailable(available,source.connection)?source.connection:undefined;
+    const native=desktopView?undefined:logins[client]?.nativeLabel;
+    const problem=desktopView?!!desktop.error:client!=='qoder-ide'&&!!problemOf(source,calls,available,local);
+    const active=desktopView?!!desktop.status?.connected:!!(connection||native);
     return <button key={item.id} role="tab" aria-selected={target?.id===item.id} tabIndex={target?.id===item.id?0:-1} className="tfTile" onClick={()=>choose(item.id)}>
      <ProviderIcon provider={item.id} size={30}/>
-     <span className="tfTileText"><strong>{client==='workbuddy-ai'?'WorkBuddyAI':client==='qoder-ide'?'Qoder IDE':item.name}</strong><small>{connection?modelLabel(local,connection.model):native?`本机 · ${native}`:client==='qoder-ide'?'本机用量':source.connection?'模型不可用':'未接入'}</small></span>
-     <i className={`dot ${problem?'bad':active?'ok':''}`} aria-label={problem?'有问题':active?'使用中':'未接入'}/>
+     <span className="tfTileText"><strong>{client==='workbuddy-ai'?'WorkBuddyAI':client==='qoder-ide'?'Qoder IDE':item.name}</strong><small>{desktopView?'Claude Desktop':`${item.id==='claude'?'Claude CLI · ':''}${connection?modelLabel(local,connection.model):native?`本机 · ${native}`:client==='qoder-ide'?'本机用量':source.connection?'模型不可用':'未接入'}`}</small></span>
+     <i className={`dot ${problem?'bad':active?'ok':''}`} aria-label={problem?'有问题':active?'使用中':desktopView&&!desktop.status?'正在读取':'未接入'}/>
     </button>;
    })}
   </ScrollRail>
   {(loadError||localError)&&<LoadError message="暂时无法读取本机 Agent，请检查连接后重试。" retry={()=>Promise.allSettled([reloadLocal(),refresh()])}/>}
   {!targets&&!loadError&&!localError&&<LoadingSkeleton label="正在读取本机 Agent" variant="cards"/>}
-  {(()=>{const panel=target?.id==='workbuddy'&&workbuddyClient==='workbuddy-ai'?targets?.find(item=>item.id==='workbuddy-ai')??target:target;return target?.id==='qoder'&&qoderClient==='qoder-ide'?<QoderIdePanel clientSwitch={clientSwitch} local={local} usage={usage}/>:panel&&<AgentPanel onRefreshAccounts={()=>refreshOfficialAccounts(panel.id)} clientSwitch={clientSwitch} key={panel.id} target={panel} update={updates[panel.id]} login={logins[panel.id]} local={local} usage={usage} problem={problemOf(panel,calls,available,local)} notify={notify} onRepair={onRepair} onChanged={refresh} onProgramChanged={refreshUpdates}/>;})()}
+  {(()=>{const panel=target?.id==='workbuddy'&&workbuddyClient==='workbuddy-ai'?targets?.find(item=>item.id==='workbuddy-ai')??target:target;return target?.id==='qoder'&&qoderClient==='qoder-ide'?<QoderIdePanel clientSwitch={clientSwitch} local={local} usage={usage}/>:target?.id==='claude'&&claudeClient==='desktop'?<ClaudeDesktopPanel desktop={desktop} clientSwitch={clientSwitch} local={local} usage={usage} notify={notify} key="claude-desktop"/>:panel&&<AgentPanel onRefreshAccounts={()=>refreshOfficialAccounts(panel.id)} clientSwitch={clientSwitch} key={panel.id} target={panel} update={updates[panel.id]} login={logins[panel.id]} local={local} usage={usage} problem={problemOf(panel,calls,available,local)} notify={notify} onRepair={onRepair} onChanged={refresh} onProgramChanged={refreshUpdates}/>;})()}
  </div>;
 }
 
