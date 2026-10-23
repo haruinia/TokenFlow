@@ -48,7 +48,7 @@ vi.mock('../apps/desktop/src/startup-window.js',()=>({createStartupWindow:async(
 vi.mock('../packages/core/src/network-proxy.js',()=>({createNetworkProxy:async()=>({url:'http://127.0.0.1:1',installFetch:()=>{},snapshot:()=>({}),close:async()=>{}})}));
 vi.mock('../packages/core/src/service.js',()=>({createDesktopService:service}));
 vi.mock('../apps/desktop/src/file-cleanup.js',()=>({desktopCleanupFiles:()=>({})}));
-vi.mock('../apps/desktop/src/qoder-crypto.js',()=>({qoderCrypto:clientRead,qoderIdeCrypto:clientRead,runQoderCrypto:vi.fn()}));
+vi.mock('../apps/desktop/src/qoder-crypto.js',()=>({qoderCrypto:clientRead,qoderIdeCrypto:clientRead,runQoderCrypto:vi.fn(),closeQoderCrypto:vi.fn()}));
 vi.mock('../packages/core/src/claude-accounts.js',()=>({claudeKeychain:()=>({read:clientRead,write:clientRead})}));
 vi.mock('../packages/core/src/agent-connections.js',()=>({agentPaths:()=>({claude:join(fixture.root,'claude/settings.json'),codex:join(fixture.root,'codex/config.toml')})}));
 const recorder=vi.hoisted(()=>({options:[] as {allowOfficial:boolean}[]}));

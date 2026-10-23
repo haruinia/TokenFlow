@@ -20,9 +20,16 @@ export function ThinkingFeedback({busy=false}:{busy?:boolean}){
  const container=useRef<HTMLDivElement>(null);const active=!!label||busy;
  useLayoutEffect(()=>{
   const node=container.current;if(!node)return;
-  // Re-enter the top layer when the request changes, so dialog feedback stays visible.
-  if(node.matches(':popover-open'))node.hidePopover();
-  if(active)node.showPopover();
+  const raise=()=>{
+   if(node.matches(':popover-open'))node.hidePopover();
+   if(active)node.showPopover();
+  };
+  raise();
+  // A newly opened native dialog enters above an existing popover even when
+  // the loading label stays the same. Raise the shared layer after that change.
+  const dialogs=new MutationObserver(changes=>{if(changes.some(change=>change.target instanceof HTMLDialogElement))raise();});
+  dialogs.observe(document.body,{subtree:true,attributes:true,attributeFilter:['open']});
+  return()=>dialogs.disconnect();
  },[active,label]);
  return createPortal(<div ref={container} popover="manual" className="tfThinkingFeedback" data-fallback={!label}>
   <span className="tfThinking" role="status"><span className="tfThinkingDots" aria-hidden="true"><i/><i/><i/></span><span>Thinking<span className="srOnly"> · {label??'正在处理操作'}</span></span></span>

@@ -54,6 +54,7 @@ export class CodexReconciliationMonitor{
 }
 export async function qoderCrypto(){state.clientReads++;return null;}
 export const qoderIdeCrypto=qoderCrypto;
+export async function closeQoderCrypto(){state.events.push('crypto-closed');}
 export function runQoderCrypto(){throw Error('Unexpected crypto helper');}
 export function claudeKeychain(){return {read:qoderCrypto,write:qoderCrypto};}
 export function recordModelLookup(apiKey){state.modelKeys.push(digest(apiKey));}
@@ -114,7 +115,7 @@ if(phase==='remembered-reset'){
  assert.equal(loaded.accounts.length,2,'resetting the next launch must not unload current accounts');
 }
 assert.ok(state.events.includes('recorder-started'));
-app.quit();await wait(()=>state.quit);assert.ok(state.events.includes('recorder-stopped'));assert.ok(state.events.indexOf('recorder-stopped')<state.events.indexOf('service-closed'));assert.ok(state.events.indexOf('service-closed')<state.events.indexOf('network-closed'));assert.ok(state.events.indexOf('network-closed')<state.events.indexOf('quit'));
+app.quit();await wait(()=>state.quit);assert.ok(state.events.includes('recorder-stopped'));assert.ok(state.events.indexOf('recorder-stopped')<state.events.indexOf('service-closed'));assert.ok(state.events.indexOf('service-closed')<state.events.indexOf('crypto-closed'));assert.ok(state.events.indexOf('crypto-closed')<state.events.indexOf('network-closed'));assert.ok(state.events.indexOf('network-closed')<state.events.indexOf('quit'));
 assert.deepEqual(await encryptedFiles(),original,'startup/reset/shutdown must preserve every encrypted file');
 await writeFile(process.env.TF_CYCLE_REPORT,JSON.stringify({phase,pid:process.pid,confirmations:state.confirmations,accounts:loaded.accounts.length,sourceHasKey:loaded.sourceHasKey,storageCalls:state.storage.length,quit:state.quit}));
 }
