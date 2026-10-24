@@ -7,7 +7,7 @@ vi.mock('../apps/desktop/src/qoder-crypto-profile.js',()=>({qoderCryptoProfile:(
 vi.mock('node:fs',()=>({rmSync:vi.fn()}));
 vi.mock('node:child_process',()=>({spawn:vi.fn(()=>{
  const child=new EventEmitter() as any;child.stdout=new PassThrough();child.stdin=new PassThrough();
- child.kill=vi.fn(()=>{child.emit('close',1);});state.children.push(child);
+ child.kill=vi.fn(()=>{child.emit('close',1);});child.unref=vi.fn();state.children.push(child);
  let input='';child.stdin.on('data',(chunk:Buffer)=>{
   input+=chunk.toString();let newline;
   while((newline=input.indexOf('\n'))>=0){const line=input.slice(0,newline);input=input.slice(newline+1);if(!line)continue;const request=JSON.parse(line);if(state.respond)queueMicrotask(()=>child.stdout.write(`TOKENFLOW_CRYPTO:${JSON.stringify({id:request.id,value:`decoded:${request.value}`})}\n`));}
@@ -41,4 +41,39 @@ it('rejects all pending reads on helper failure without hanging the request',asy
  const {qoderCryptoFor}=await import('../apps/desktop/src/qoder-crypto.js');state.respond=false;
  const read=qoderCryptoFor('qoder'),pending=Promise.all([read('decrypt','one'),read('decrypt','two')]);
  const rejected=expect(pending).rejects.toThrow('Qoder');state.children[0].emit('close',1);await rejected;
+});
+
+it('finishes shutdown when a helper ignores SIGTERM instead of waiting forever for close',async()=>{
+ const {qoderCryptoFor,closeQoderCrypto}=await import('../apps/desktop/src/qoder-crypto.js');
+ const read=qoderCryptoFor('qoder');await read('decrypt','fixture');
+ const child=state.children[0];child.kill.mockImplementation((signal?:string)=>{if(signal==='SIGKILL')child.emit('close',null,'SIGKILL');return true;});
+ vi.useFakeTimers();
+ try{
+  let finished=false;const closed=closeQoderCrypto().then(()=>{finished=true;});
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(finished,'shutdown must have a deadline even when SIGTERM is ignored').toBe(true);
+  expect(child.kill).toHaveBeenCalledWith('SIGTERM');expect(child.kill).toHaveBeenCalledWith('SIGKILL');await closed;
+ }finally{vi.useRealTimers();}
+});
+
+it('bounds shutdown when process close never arrives and detaches only that helper pipes',async()=>{
+ const {qoderCryptoFor,closeQoderCrypto}=await import('../apps/desktop/src/qoder-crypto.js');
+ const read=qoderCryptoFor('qoder');await read('decrypt','fixture');const child=state.children[0];child.kill.mockReturnValue(true);
+ vi.useFakeTimers();
+ try{
+  let finished=false;const closing=closeQoderCrypto().then(()=>{finished=true;});await vi.advanceTimersByTimeAsync(5000);
+  expect(finished).toBe(true);expect(child.unref).toHaveBeenCalledOnce();expect(child.stdin.destroyed).toBe(true);expect(child.stdout.destroyed).toBe(true);await closing;
+  await read('decrypt','retry');expect(state.children).toHaveLength(2);await vi.advanceTimersByTimeAsync(5000);expect(state.children[1].kill).not.toHaveBeenCalled();
+  child.emit('close',1);expect(await read('decrypt','after-old-close')).toBe('decoded:after-old-close');expect(state.children).toHaveLength(2);
+ }finally{vi.useRealTimers();}
+});
+it('releases timed-out helpers before an explicit retry can open a new session',async()=>{
+ const {qoderCryptoFor,closeQoderCrypto}=await import('../apps/desktop/src/qoder-crypto.js');vi.useFakeTimers();state.respond=false;
+ try{
+  const read=qoderCryptoFor('qoder'),pending=read('decrypt','fixture');const rejected=expect(pending).rejects.toThrow('Qoder');
+  const child=state.children[0];child.kill.mockImplementation((signal?:string)=>{if(signal==='SIGKILL')child.emit('close',null,'SIGKILL');return true;});
+  await vi.advanceTimersByTimeAsync(60000);await rejected;state.respond=true;
+  const retry=read('decrypt','retry');expect(state.children).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(5000);expect(await retry).toBe('decoded:retry');expect(state.children).toHaveLength(2);await closeQoderCrypto();
+ }finally{vi.useRealTimers();}
 });

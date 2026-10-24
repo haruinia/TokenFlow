@@ -41,7 +41,9 @@
 
 - `/Applications/TokenFlow.app` 已安装 `.57`，旧 `.55` 与中间 `.56` 应用保存在各版本 release 目录；没有删除资料或用户凭据。用于诊断的 loopback inspector 已关闭，最终启动未开启调试端口。
 
-## 尚需系统交互的验证
+## .57 交付时尚需系统交互的验证
+
+后续用户已完成授权，实际计数、Grok A/B 和生产修复结果已补记在 [2026-10-24 授权后复验](credential-grok-follow-up-2026-10-24.md)。以下保留当时状态。
 
 本机安装启动遇到 macOS 钥匙串受保护读取，主进程采样位于 SecItemCopyMatching／SecKeychainItemCopyContent，等待系统授权；已请用户在系统窗口完成验证，不读取或保存系统密码，也不改钥匙串权限。
 

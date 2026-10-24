@@ -59,3 +59,17 @@ const comparison = await probeCursorLocalModel(memoryOnlySecrets, {
 ## Cursor system-proxy follow-up
 
 A separately authorized read-only retry used the configured system proxy at 127.0.0.1:7897 via createNetworkProxy/installFetch and temporary SDK proxy environment variables. Route metadata confirmed both api2.cursor.sh and api.cursor.com used system_proxy. The official SDK model catalog returned HTTP 401 / unauthenticated for the existing native OAuth access token; probes remained empty. No Cursor inference, key creation, credential refresh or production configuration mutation occurred. The earlier unclassified direct-network failure alone did not establish this credential result. Production Grok parameter selection still awaits the installed application SDK-key comparison.
+
+## Cursor .57 实机证据与生产兼容修复
+
+主任务随后在已安装 .57 的应用进程内，用现存 SDK key 做同账号有界对照。安全结果为 `.tmp/installed-57-cursor-probe.json`：新鲜目录列出 256k/500k；默认 `context=500k, reasoning_effort=high, fast=true` 在 11758ms 后 `model_not_found`；只把 context 改为目录广告的 256k，保持 high/fast 后在 10439ms 完成。4 个并发 Secrets read 只发生 1 次 decrypt，warnings 为空。这补齐了此前原生 OAuth 目录测试无法提供的同账号 SDK 证据；本子任务没有读取真实 key 或追加推理请求。
+
+生产改动只在 `cursor.ts` 与 `cursor-model-compatibility.ts`。仅 Grok 4.7 当前选择 500k、而该账号目录的 context 参数和完整变体组合均明确允许 256k 时，可尝试一次备用组合；其他参数、模型 ID 和可见目录保持原值。首轮必须是明确 model-not-found，且没有 text/thinking/tool delta、custom tool callback、非空 run.result 或生成 token 计数。认证、地区、网络、其他参数错误、取消均不触发此重试。失败 agent 必须成功 dispose/close，才创建第二个 agent；清理失败、中途取消/更换 grant、延迟到达的生成内容均阻止重放。
+
+只有本次 fallback 成功才缓存选择；缓存限定当前 CursorAccount 实例、当前 grant、完整目录和原参数组合。命中不延长 5 分钟绝对期限；其他账号、grant、effort、目录变更不共享选择。缓存选择失败立即删除，下次请求可重查官方默认。没有磁盘持久化或对全部模型降档。
+
+.57 探针未记录 Agent.create/send/wait 的失败阶段，不能从 JSON 事后恢复该时间点。当前 SDK 1.0.31 本地 `dist/esm/index.js` 的 LocalAgent.sendImpl 会获取 executor、调用 run，并在发送生成消息之前通过 run interaction accumulator 的 onDelta；启动错误可能从 send 抛出，run.done 的异步错误会由 wait 返回序列化 error RunResult。Agent.create 在提供 prompt 前做初始化与目录验证。生产适配的三个入口均经过同一无输出/无工具安全门；对应 mock 回归覆盖 create/send/wait。主任务可在真实 smoke 包装这三个 SDK 边界，只记录阶段/参数元数据，不保存密钥或输出。
+
+红绿回归：未修复前，create/send/wait 的恢复、失败备用不缓存、账号参数缓存隔离 fixture 均失败（得到 400，未尝试备用）；修复后完整 `tests/cursor.test.ts` 为 78 项通过（原有 52 + 新增 26），覆盖文本/thinking/工具/callback 禁止重放、dispose/close 失败、清理中取消、确切目录组合、一次重试上限、缓存失败淘汰、账号/grant/effort/目录隔离及持续命中下绝对过期。Typecheck 通过。此前目录探针另有 5 个 mock 测试，安全错误处理有 35 个测试。此修复未改 UI、sidecar 或打包；生产路径真实 smoke 与 .58 打包由主任务执行，本段不宣称已完成。
+
+主任务后续已完成生产入口真实复验：首次请求从 wait 阶段失败恢复到 256k、第二次直接命中成功选择，均 HTTP 200；.58 两架构打包检查和本机安装通过。完整记录见 [2026-10-24 授权后复验](credential-grok-follow-up-2026-10-24.md)。

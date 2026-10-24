@@ -1,6 +1,6 @@
 # TODO
 
-项目当前待办的统一入口。更新于 2026-10-23；源码回归、包内检查与平台实机验收分别记录。文档导航见 [目录](README.md)。
+项目当前待办的统一入口。更新于 2026-10-24；源码回归、包内检查与平台实机验收分别记录。文档导航见 [目录](README.md)。
 
 ## 当前待办
 
@@ -25,9 +25,9 @@
 | AGENT-001 | P1 | 仅安装 Claude Code VS Code 扩展也可应用 | 已分开配置应用与独立 CLI 安装能力；无 CLI 的共享配置应用及保留 Desktop 入口已通过夹具与 built UI。VS Code 实际聊天、远端／自定义目录仍待验收；见 [验证记录](testing/client-configuration-repair-2026-10-23.md) |
 | AGENT-002 | P2 | 按渠道直接安装和更新本地 Agent | 已接通固定 npm recipe、原全局 prefix 更新、渠道识别与现有操作弹窗；本地项目依赖不冒充全局安装，非 npm 桌面仍跳官网。安装测试为 mock，真实安装／更新及 Windows 待验收；见 [验证记录](testing/client-configuration-repair-2026-10-23.md) |
 | IMPORT-001 | P2 | 从 CC Switch 等导入供应商及模型 | 已支持本机 CC Switch SQLite、.db／.sql、legacy 与 generic JSON 的选择预览、协议映射、去重和安全存储批次导入；9 项测试及隔离 UI 通过，不执行导入 SQL、不自动切换客户端；见 [客户端验证](testing/client-configuration-repair-2026-10-23.md) |
-| MODEL-002 | P1 | Cursor Grok 4.7 model-not-found | 有界 A/B 探测工具与 mock 已完成；原生 OAuth 读取 SDK 目录经系统代理返回 401，未推理，不能代替当前 SDK key。仍等待安装进程内当前 SDK key 的参数 A/B，不隐藏模型或改生产参数；见 [验证记录](testing/model-protocol-repair-2026-10-23.md) |
+| MODEL-002 | 已修复 | Cursor Grok 4.7 model-not-found | 同账号 SDK key 实测确认默认 500k 失败、目录 256k 成功；生产入口已通过一次受限兼容重试和后续缓存命中，26 项新增回归通过；见 [授权后复验](testing/credential-grok-follow-up-2026-10-24.md) |
 | MODEL-003 | P1 | Antigravity Claude 长对话/工具 400 | 已修 Claude 入口工具名双向映射、相关缓存 usage 及安全错误路径；名称／原生签名工具往返真实对照通过，usage 用合成 fixture 验证。原用户 payload 未留存，Desktop 当前请求未采样，不将坏签名认定为原故障；见 [验证记录](testing/model-protocol-repair-2026-10-23.md) |
-| AUTH-002 | P1 | 凭证读取复用的包内和系统授权验收 | 4149f08 已包含于 .57 安装包，7 项回归与包内检查通过；实际启动等待 macOS 钥匙串授权，系统提示次数未验收，不承诺只提示一次；见 [交付验证](testing/client-gateway-delivery-2026-10-23.md) |
+| AUTH-002 | P1 | 凭证读取复用的包内和系统授权验收 | 用户反馈本次启动 2 次提示；包内四个并发读取只解密一次，Qoder／IDE 各四次读取复用会话、未新增 helper。Claude 当前未登录，受保护读取合并仍仅有回归证据；退出等待边界已修，见 [授权后复验](testing/credential-grok-follow-up-2026-10-24.md) |
 | UI-002 | P2 | 使用组前置、已保存更名供应商 | 已调整现有组顺序和标题，保留子入口及 Claude Desktop；本轮 built UI 的 7 张深浅色／小窗口截图通过，无新增产品 CSS；见 [验证记录](testing/client-configuration-repair-2026-10-23.md) |
 | UI-001 | P2 | 右下通知、统一居中 Thinking 与应用模型固定窗口 | 代码、15 项回归、前端构建和界面模拟通过；见 [验证记录](testing/ui-feedback.md) 与 [界面设计](design.md)，真实客户端与跨平台待验收 |
 | ARCH-001 | P2 | 按领域逐步拆分服务装配与路由 | [架构说明](architecture.md)已整理，运行模块尚未重构 |
@@ -36,9 +36,9 @@
 
 - [Codex 历史投影、压缩与续聊](testing/codex-continuation-repair-2026-10-23.md)：源码修复与隔离真实 Codex 的分页、分支、重启、共存认证分流及 tfctx 回到官方请求通过；旧版本两类祖先索引损伤恢复通过，用户原历史仍待验收。
 - [客户端配置、安装与 UI](testing/client-configuration-repair-2026-10-23.md)：重复 TOML 可备份重建和恢复、Claude 扩展应用、npm 渠道、供应商导入与导航已实施；供应商导入 9 项测试、built UI 7 张截图通过。真实安装／更新、授权和 Windows 保持待测。
-- [模型协议修复](testing/model-protocol-repair-2026-10-23.md)：Antigravity Claude 工具名修复有真实对照，缓存 usage 与安全错误路径有隔离回归；原用户失败根因及当前 SDK key 的 Grok A/B 仍未定案。
+- [模型协议修复](testing/model-protocol-repair-2026-10-23.md)：Antigravity Claude 工具名修复有真实对照，缓存 usage 与安全错误路径有隔离回归；原用户 Antigravity 失败 payload 未留存；当前 SDK key 的 Grok A/B 与生产兼容路径已经实测通过。
 
-最终全仓 154 文件／1,489 项测试、typecheck、构建及 .57 M／Intel 包内运行检查通过；.57 已替换本机应用。实际启动仍等待 macOS 钥匙串授权，AUTH-002 系统提示次数与 Grok 当前 SDK key 对照未完成。见 [交付验证](testing/client-gateway-delivery-2026-10-23.md)。
+此前 .57 交付的全仓、构建与 M／Intel 包内检查通过。2026-10-24 授权后补齐 Grok 与凭据读取实测；新增修复后全仓 154 文件／1,518 项通过，构建通过，.58 交付结果见 [授权后复验](testing/credential-grok-follow-up-2026-10-24.md)。
 
 ## 产品设计待确认
 

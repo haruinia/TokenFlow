@@ -406,3 +406,77 @@ it('uses the configured native database for the import endpoint as well as detec
  const response=await service.app.inject({url:'/api/local-agent/import-local/cursor',method:'POST',headers:{host:'127.0.0.1:9527',authorization:'Bearer admin'},payload:{}});
  expect(response.statusCode,response.body).toBe(200);expect(sdk.localSession).toHaveBeenCalledWith(path);expect(response.json().accounts.some((a:{models?:string[]})=>a.models?.includes('cursor/fixture-model'))).toBe(true);
 });
+
+const grokCatalog=()=>({id:'grok-4.7',displayName:'Grok 4.7',parameters:[{id:'context',values:[{value:'256k'},{value:'500k'}]},{id:'reasoning_effort',values:[{value:'high'},{value:'low'}]},{id:'fast',values:[{value:'true'}]}],variants:['500k','256k'].flatMap(context=>['high','low'].map(effort=>({displayName:context+effort,isDefault:context==='500k'&&effort==='high',params:[{id:'context',value:context},{id:'reasoning_effort',value:effort},{id:'fast',value:'true'}]})))});
+async function grokProvider(accounts=[{apiKey:'grok-fixture',email:'one@example.test'}]){const {root,secrets}=await setup();await secrets.set('cursor-account',JSON.stringify({version:1,accounts}));sdk.models.mockResolvedValue([grokCatalog()]);const provider=new CursorProvider(root,secrets);cleanup.push(()=>provider.close());await provider.load();return provider;}
+const grokRequest={model:'cursor/grok-4.7',input:'Reply OK'};
+const missingModel={code:'model_not_found',message:'PRIVATE model not found'};
+function grokRun(result:unknown){return {cancel:sdk.cancel,wait:async()=>result};}
+it.each(['create','send','wait'])('recovers a silent Grok 4.7 model rejection at %s once, preserving every other advertised parameter',async stage=>{
+ const provider=await grokProvider();let attempts=0,closed=0;
+ sdk.create.mockImplementation(async(options)=>{const context=options.model.params.find((p:{id:string})=>p.id==='context').value;attempts++;if(attempts===2)expect(closed).toBe(stage==='create'?0:1);if(context==='500k'&&stage==='create')throw missingModel;return {close:()=>{closed++;},send:async()=>{if(context==='500k'&&stage==='send')throw missingModel;return grokRun(context==='500k'?{status:'error',error:missingModel}:{status:'finished',result:'OK',usage:tokenUsage});}};});
+ const response=await provider.response('responses',grokRequest,new AbortController().signal);expect(response.status,await response.clone().text()).toBe(200);expect(sdk.create).toHaveBeenCalledTimes(2);
+ expect(sdk.create.mock.calls.map(([options])=>options.model)).toEqual(['500k','256k'].map(context=>({id:'grok-4.7',params:[{id:'context',value:context},{id:'reasoning_effort',value:'high'},{id:'fast',value:'true'}]})));
+ expect(provider.snapshot().models.some(model=>model.id==='cursor/grok-4.7')).toBe(true);
+ expect((await provider.response('responses',grokRequest,new AbortController().signal)).status).toBe(200);expect(sdk.create).toHaveBeenCalledTimes(3);expect(sdk.create.mock.lastCall![0].model.params[0].value).toBe('256k');
+});
+it.each(['text-delta','thinking-delta','tool-call-started','partial-tool-call','tool-call-delta','shell-output-delta'])('never replays a rejected run after SDK %s activity',async type=>{
+ const provider=await grokProvider();sdk.create.mockImplementation(async()=>({close:sdk.close,send:async(_input:unknown,options:{onDelta:(value:unknown)=>void})=>{options?.onDelta({update:{type,text:'produced',tokens:1}});return grokRun({status:'error',error:missingModel});}}));
+ expect((await provider.response('responses',grokRequest,new AbortController().signal)).status).toBe(400);expect(sdk.create).toHaveBeenCalledOnce();
+});
+it.each([
+ {status:'error',error:{code:'invalid_argument'}},
+ {status:'error',error:{code:'unavailable'}},
+ {status:'error',error:{code:'unauthenticated'}},
+ {status:'error',error:{message:'Model not available This model provider is not supported in your region.'}},
+ {status:'error',error:missingModel,result:'partial answer'},
+ {status:'error',error:missingModel,usage:tokenUsage},
+ {status:'cancelled',error:missingModel},
+])('does not retry non-model rejection, partial output, billed generation or cancellation: %j',async result=>{
+ const provider=await grokProvider();sdk.create.mockResolvedValue({close:sdk.close,send:async()=>grokRun(result)});await provider.response('responses',grokRequest,new AbortController().signal);expect(sdk.create).toHaveBeenCalledOnce();
+});
+it('requires an exact advertised alternate combination and never hides or downgrades other models',async()=>{
+ const provider=await grokProvider();const model=grokCatalog();model.variants=model.variants.filter(v=>v.params[0].value==='500k');sdk.models.mockResolvedValue([model,{id:'grok-4.6',displayName:'Grok 4.6',parameters:model.parameters,variants:grokCatalog().variants}]);await provider.refresh();
+ sdk.create.mockResolvedValue({close:sdk.close,send:async()=>grokRun({status:'error',error:missingModel})});for(const id of['grok-4.7','grok-4.6'])await provider.response('responses',{...grokRequest,model:'cursor/'+id},new AbortController().signal);expect(sdk.create).toHaveBeenCalledTimes(2);expect(provider.snapshot().models).toHaveLength(2);
+});
+it('does not cache a failed alternate or retry it repeatedly within one request',async()=>{
+ const provider=await grokProvider();sdk.create.mockResolvedValue({close:sdk.close,send:async()=>grokRun({status:'error',error:missingModel})});for(let i=0;i<2;i++)expect((await provider.response('responses',grokRequest,new AbortController().signal)).status).toBe(400);expect(sdk.create).toHaveBeenCalledTimes(4);expect(sdk.create.mock.calls.map(([o])=>o.model.params[0].value)).toEqual(['500k','256k','500k','256k']);
+});
+it('isolates successful compatibility choices by account, effort and catalog, and expires them',async()=>{
+ const provider=await grokProvider([{apiKey:'one-key',email:'one@example.test'},{apiKey:'two-key',email:'two@example.test'}]);sdk.create.mockImplementation(async(options)=>({close:sdk.close,send:async()=>grokRun(options.model.params[0].value==='500k'?{status:'error',error:missingModel}:{status:'finished',result:'OK'})}));
+ const [one,two]=provider.snapshot().accounts;await provider.response('responses',grokRequest,new AbortController().signal,one.id);await provider.response('responses',grokRequest,new AbortController().signal,two.id);expect(sdk.create).toHaveBeenCalledTimes(4);
+ await provider.response('responses',{...grokRequest,reasoning:{effort:'low'}},new AbortController().signal,one.id);expect(sdk.create).toHaveBeenCalledTimes(6);expect(sdk.create.mock.lastCall![0].model.params[1].value).toBe('low');
+ const altered=grokCatalog();altered.parameters.push({id:'catalog_revision',values:[{value:'2'}]});sdk.models.mockResolvedValue([altered]);await provider.refresh();await provider.response('responses',grokRequest,new AbortController().signal,one.id);expect(sdk.create).toHaveBeenCalledTimes(8);
+ const date=Date.now();vi.spyOn(Date,'now').mockReturnValue(date+5*60000+1);await provider.response('responses',grokRequest,new AbortController().signal,one.id);expect(sdk.create).toHaveBeenCalledTimes(10);
+});
+
+it('does not replay after even a rejected custom-tool callback',async()=>{
+ const provider=await grokProvider();sdk.create.mockImplementation(async(options)=>({close:sdk.close,send:async()=>{await options.local.customTools.client_0.execute({path:options.local.cwd},{}).catch(()=>{});return grokRun({status:'error',error:missingModel});}}));
+ const response=await provider.response('responses',{...grokRequest,tools:[{type:'function',name:'read',parameters:{type:'object'}}]},new AbortController().signal);expect(response.status).toBe(400);expect(sdk.create).toHaveBeenCalledOnce();
+});
+it('does not start the alternate when the client disconnects during rejected-agent disposal',async()=>{
+ const provider=await grokProvider(),controller=new AbortController();sdk.create.mockResolvedValue({close:()=>controller.abort(),send:async()=>grokRun({status:'error',error:missingModel})});
+ expect((await provider.response('responses',grokRequest,controller.signal)).status).toBe(499);expect(sdk.create).toHaveBeenCalledOnce();
+});
+it('evicts a cached context that fails and probes the official default on the next request',async()=>{
+ const provider=await grokProvider();let compatible=true;sdk.create.mockImplementation(async(options)=>({close:sdk.close,send:async()=>grokRun(options.model.params[0].value==='256k'&&compatible?{status:'finished',result:'OK'}:{status:'error',error:missingModel})}));
+ expect((await provider.response('responses',grokRequest,new AbortController().signal)).status).toBe(200);compatible=false;
+ expect((await provider.response('responses',grokRequest,new AbortController().signal)).status).toBe(400);expect(sdk.create).toHaveBeenCalledTimes(3);
+ await provider.response('responses',grokRequest,new AbortController().signal);expect(sdk.create.mock.calls.slice(3).map(([o])=>o.model.params[0].value)).toEqual(['500k','256k']);
+});
+it('expires successful compatibility after five minutes even under continuous cache hits',async()=>{
+ const provider=await grokProvider();sdk.create.mockImplementation(async(options)=>({close:sdk.close,send:async()=>grokRun(options.model.params[0].value==='256k'?{status:'finished',result:'OK'}:{status:'error',error:missingModel})}));
+ const initial=Date.now(),clock=vi.spyOn(Date,'now').mockReturnValue(initial);await provider.response('responses',grokRequest,new AbortController().signal);
+ clock.mockReturnValue(initial+4*60000);await provider.response('responses',grokRequest,new AbortController().signal);expect(sdk.create).toHaveBeenCalledTimes(3);
+ clock.mockReturnValue(initial+5*60000+1);await provider.response('responses',grokRequest,new AbortController().signal);expect(sdk.create.mock.calls.slice(3).map(([o])=>o.model.params[0].value)).toEqual(['500k','256k']);
+});
+
+it.each(['close','dispose'])('never replays after rejected-agent %s fails',async stage=>{
+ const provider=await grokProvider();sdk.create.mockResolvedValue({close:stage==='close'?async()=>{throw Error('cleanup failed');}:sdk.close,...(stage==='dispose'?{[Symbol.asyncDispose]:async()=>{throw Error('dispose failed');}}:{}),send:async()=>grokRun({status:'error',error:missingModel})});
+ const response=await provider.response('responses',grokRequest,new AbortController().signal);expect(response.status).toBe(400);expect(sdk.create).toHaveBeenCalledOnce();
+});
+it('does not reuse a successful variant after the account grant changes',async()=>{
+ const provider=await grokProvider();sdk.create.mockImplementation(async(options)=>({close:sdk.close,send:async()=>grokRun(options.model.params[0].value==='256k'?{status:'finished',result:'OK'}:{status:'error',error:missingModel})}));
+ await provider.response('responses',grokRequest,new AbortController().signal);expect(sdk.create).toHaveBeenCalledTimes(2);const account=provider.snapshot().accounts[0];await provider.setEnabled(false,account.id);await provider.setEnabled(true,account.id);
+ await provider.response('responses',grokRequest,new AbortController().signal);expect(sdk.create.mock.calls.slice(2).map(([o])=>o.model.params[0].value)).toEqual(['500k','256k']);
+});
