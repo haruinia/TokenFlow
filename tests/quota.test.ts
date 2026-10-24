@@ -80,16 +80,28 @@ describe('quota layer', () => {
     expect(claudeReport.windows.map(w => [w.id, w.usedPercent, w.resetsAt])).toEqual([['five_hour', 33, '2026-09-09T08:00:00.000Z'], ['seven_day_opus', 61, undefined], ['limit-0', 9, undefined], ['limit-1', 20, undefined], ['limit-2', 30, undefined]]);
     expect(claudeReport.windows.slice(3).map(w => w.label)).toEqual(['weekly · model · Opus', 'weekly · model · Sonnet']);
   });
-  it('preserves both Antigravity quota groups by preferring the production summary over the partial daily summary', async () => {
+  it('retrieves both Antigravity quota groups with the upstream Hub identity on daily', async () => {
     const thirdParty={displayName:'Claude and GPT models',buckets:[{bucketId:'3p-weekly',window:'weekly',remainingFraction:0.49},{bucketId:'3p-5h',window:'5h',remainingFraction:1}]};
     const gemini={displayName:'Gemini Models',buckets:[{bucketId:'gemini-weekly',window:'weekly',remainingFraction:1},{bucketId:'gemini-5h',window:'5h',remainingFraction:1}]};
     const {call,calls}=responder({
-      'https://daily-cloudcode-pa.googleapis.com':json({groups:[thirdParty]}),
-      'https://cloudcode-pa.googleapis.com':json({groups:[gemini,thirdParty]}),
+      'https://daily-cloudcode-pa.googleapis.com':request=>json({groups:request.header['User-Agent']==='antigravity/hub/2.23.0 darwin/arm64'?[gemini,thirdParty]:[thirdParty]}),
     });
     const report=await quotaProviders.antigravity.fetch(call,{provider:'antigravity',projectId:'proj'});
     expect(report.windows.map(w=>[w.id,w.usedPercent])).toEqual([['gemini-weekly',0],['gemini-5h',0],['3p-weekly',51],['3p-5h',0]]);
-    expect(calls).toHaveLength(1);expect(calls[0].url).toBe('https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary');
+    expect(calls.length).toBeGreaterThan(1);expect(calls[0].url).toBe('https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary');
+    expect(calls[0].header['User-Agent']).toBe('antigravity/hub/2.23.0 darwin/arm64');
+  });
+  it('supplements partial summary with model quota, including unknown future models and zero remaining',async()=>{
+    const summary={groups:[{displayName:'Claude and GPT models',buckets:[{bucketId:'weekly',remainingFraction:.42}]}]};
+    const {call}=responder({'https://cloudcode-pa.googleapis.com':request=>json(request.url.endsWith('retrieveUserQuotaSummary')?summary:{models:{'gemini-new':{displayName:'Gemini New',quotaInfo:{remainingFraction:.75,resetTime:'2026-10-25T00:00:00Z'}},'future-model':{quotaInfo:{remainingFraction:0}},hidden:{isInternal:true,quotaInfo:{remainingFraction:1}},missing:{displayName:'No quota'}}})});
+    const report=await quotaProviders.antigravity.fetch(call,{provider:'antigravity',projectId:'proj'});
+    expect(report.windows.map(w=>[w.id,Math.round(w.usedPercent??0)])).toEqual([['weekly',58],['model:gemini-new',25],['model:future-model',100]]);
+    expect(report.windows[1].resetsAt).toBe('2026-10-25T00:00:00.000Z');
+  });
+  it('retains summary when model quota fails and reports partial coverage',async()=>{
+    const {call}=responder({'https://cloudcode-pa.googleapis.com':request=>request.url.endsWith('retrieveUserQuotaSummary')?json({groups:[{buckets:[{bucketId:'weekly',remainingFraction:.5}]}]}):json({},503)});
+    const report=await quotaProviders.antigravity.fetch(call,{provider:'antigravity',projectId:'proj'});
+    expect(report.windows).toHaveLength(1);expect(report.note).toContain('模型额度未获取');
   });
   it('walks Antigravity endpoints on 403/404, converts remaining fraction to used percent and requires project id', async () => {
     const {call, calls} = responder({
@@ -97,7 +109,7 @@ describe('quota layer', () => {
       'https://daily-cloudcode-pa.googleapis.com': json({groups: [{displayName: 'Gemini', buckets: [{bucketId: 'daily', displayName: '每日', window: 'DAILY', remainingFraction: 0.25, resetTime: '2026-09-10T00:00:00Z'}]}]}),
     });
     const report = await quotaProviders.antigravity.fetch(call, {provider: 'antigravity', projectId: 'proj'});
-    expect(calls).toHaveLength(2); expect(calls[0].data).toBe('{"project":"proj"}');
+    expect(calls.length).toBeGreaterThan(2); expect(calls[0].data).toBe('{"project":"proj"}');
     expect(report.windows).toEqual([{id: 'daily', label: 'Gemini · 每日', usedPercent: 75, resetsAt: '2026-09-10T00:00:00.000Z'}]);
     await expect(quotaProviders.antigravity.fetch(call, {provider: 'antigravity'})).rejects.toThrow('project_id');
   });

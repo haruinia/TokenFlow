@@ -1,19 +1,20 @@
 import {createContext,useContext,useLayoutEffect,useRef,useState,useSyncExternalStore,type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
-/** All callers share one centered indicator, including requests inside native dialogs. */
+/** Dialog feedback stays beside its progress; page operations share one indicator. */
 const ThinkingVisible=createContext(true);
+const ThinkingInline=createContext(false);
 const requests=new Map<symbol,string>();
 const listeners=new Set<()=>void>();
 let currentLabel:string|undefined;
 const publish=()=>{currentLabel=[...requests.values()].at(-1);for(const listener of listeners)listener();};
 const subscribe=(listener:()=>void)=>{listeners.add(listener);return()=>{listeners.delete(listener);};};
 export function ThinkingScope({active,children}:{active:boolean;children:ReactNode}){
- return <ThinkingVisible value={active}>{children}</ThinkingVisible>;
+ return <ThinkingVisible value={active}><ThinkingInline value={true}>{children}</ThinkingInline></ThinkingVisible>;
 }
 export function Thinking({label='正在获取信息'}:{label?:string}){
- const visible=useContext(ThinkingVisible);const id=useRef(Symbol());
- useLayoutEffect(()=>{if(!visible)return;requests.set(id.current,label);publish();return()=>{requests.delete(id.current);publish();};},[visible,label]);
- return null;
+ const visible=useContext(ThinkingVisible),inline=useContext(ThinkingInline);const id=useRef(Symbol());
+ useLayoutEffect(()=>{if(!visible||inline)return;requests.set(id.current,label);publish();return()=>{requests.delete(id.current);publish();};},[visible,inline,label]);
+ return visible&&inline?<span className="tfThinking" role="status" aria-label={label}><span className="tfThinkingDots" aria-hidden="true"><i/><i/><i/></span><span>处理中</span></span>:null;
 }
 export function ThinkingFeedback({busy=false}:{busy?:boolean}){
  const label=useSyncExternalStore(subscribe,()=>currentLabel,()=>undefined);
@@ -32,7 +33,7 @@ export function ThinkingFeedback({busy=false}:{busy?:boolean}){
   return()=>dialogs.disconnect();
  },[active,label]);
  return createPortal(<div ref={container} popover="manual" className="tfThinkingFeedback" data-fallback={!label}>
-  <span className="tfThinking" role="status"><span className="tfThinkingDots" aria-hidden="true"><i/><i/><i/></span><span>Thinking<span className="srOnly"> · {label??'正在处理操作'}</span></span></span>
+  <span className="tfThinking" role="status"><span className="tfThinkingDots" aria-hidden="true"><i/><i/><i/></span><span>{label??'正在处理操作'}</span></span>
  </div>,document.body);
 }
 export function LoadingSkeleton({label='正在加载',variant='panel'}:{label?:string;variant?:'panel'|'overview'|'cards'}){

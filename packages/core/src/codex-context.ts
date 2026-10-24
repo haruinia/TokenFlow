@@ -5,7 +5,7 @@ import {constants} from 'node:fs';
 import {GatewayContext,GatewayContextError,type ContextScope} from './gateway-context.js';
 import {safePath} from './agent-connections.js';
 import {CodexHistoryBackups,type HistorySnapshot} from './codex-history-backups.js';
-import {repairCodexProjectionLineages,type CodexProjectionRepair} from './codex-projection-repair.js';
+import {repairCodexProjectionLineages,pendingProjectionArchives,type CodexProjectionRepair} from './codex-projection-repair.js';
 import {replayCodexHistory} from './codex-rollout-history.js';
 
 type Item=Record<string,any>;
@@ -314,7 +314,8 @@ export class CodexContext {
     }
    }finally{db.close();}
   }
-  if(!candidates.length&&!invalidated.size&&!nativeRepairs.size)return {migrated:0};
+  const pendingArchives=await pendingProjectionArchives(home);
+  if(!candidates.length&&!invalidated.size&&!nativeRepairs.size&&!pendingArchives.length)return {migrated:0};
   if((await processes()).length)throw Object.assign(new Error((candidates.length?`有 ${candidates.length} 个会话需要兼容处理。`:'会话历史索引需要兼容处理。')+'请先退出 Codex，再切换官方登录；原配置和会话尚未修改。'),{statusCode:409});
   const changedDuringBackup=()=>Object.assign(new Error('迁移期间会话发生变化，已停止；原始备份已保留。'),{statusCode:409});
   const batch=join(this.backups,randomUUID());await mkdir(batch,{recursive:true,mode:0o700});
@@ -350,7 +351,7 @@ export class CodexContext {
    const temp=candidate.path+'.token-flow-'+randomUUID();
    try{await copyFile(candidate.staged,temp,constants.COPYFILE_EXCL);await chmod(temp,0o600);if(!await unchanged(temp,candidate.afterHash))throw changedDuringBackup();if((await processes()).length||!await unchanged(candidate.path,candidate.beforeHash))throw Object.assign(new Error('Codex 重新启动或会话发生变化，迁移已停止，备份保留。'),{statusCode:409});await rename(temp,candidate.path);}finally{await rm(temp,{force:true});}
   }
-  if(nativeRepairs.size)await repairCodexProjectionLineages(home,[...nativeRepairs.values()],processes);
+  if(nativeRepairs.size||pendingArchives.length)await repairCodexProjectionLineages(home,[...nativeRepairs.values()],processes);
   return {migrated:candidates.length};
  }
 }

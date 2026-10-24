@@ -10,12 +10,12 @@ const fail=(message:string)=>new RunnerCoreError(message,{statusCode:409,code:'c
 /** Keep only bounded protocol metadata. RPC messages can contain private paths,
  * thread identifiers or history and must never become public error text. */
 export class CodexRuntimeRPCError extends RunnerCoreError {
- readonly rpcMethod:string;readonly rpcCode?:number;readonly rpcReason:'turn_not_found'|'unknown';
+ readonly rpcMethod:string;readonly rpcCode?:number;readonly rpcReason:'turn_not_found'|'thread_archived'|'unknown';
  constructor(method:string,error:unknown){
   const value=error as {code?:unknown;message?:unknown}|null;
   const known=new Set(['initialize','model/list','thread/resume','thread/fork','thread/archive','thread/unarchive','thread/unsubscribe','thread/turns/list']);
   const rpcMethod=known.has(method)?method:'unknown',rpcCode=typeof value?.code==='number'&&Number.isSafeInteger(value.code)?value.code:undefined;
-  const rpcReason=rpcCode===-32600&&typeof value?.message==='string'&&/^turn not found\b/i.test(value.message)?'turn_not_found':'unknown';
+  const rpcReason=rpcCode===-32600&&typeof value?.message==='string'&&/^turn not found\b/i.test(value.message)?'turn_not_found':rpcCode===-32600&&typeof value?.message==='string'&&/^session [a-f0-9-]+ is archived\./i.test(value.message)?'thread_archived':'unknown';
   super(rpcMethod==='thread/fork'?'Codex 历史索引修复未完成，迁移已停止，备份保留。':'Codex 会话服务请求未完成，迁移已停止，备份保留。',{statusCode:409,code:'codex_migration_failed',hint:`RPC ${rpcMethod}${rpcCode===undefined?'':` · ${rpcCode}`} · ${rpcReason}`});
   this.rpcMethod=rpcMethod;this.rpcCode=rpcCode;this.rpcReason=rpcReason;
  }

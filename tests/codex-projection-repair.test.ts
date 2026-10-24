@@ -41,3 +41,23 @@ it.each(['unknown-error','no-visible-turn','cursor-loop','new-process','retry-fa
  });
  try{await expect(repairCodexProjectionLineages(home,[repair],async()=>mode==='new-process'&&listed?[999]:[],async()=>({pid:123,close,rpc}))).rejects.toBeInstanceOf(Error);if(mode==='unknown-error')expect(listed).toBe(false);expect(forks).toBeLessThanOrEqual(2);expect(close).toHaveBeenCalledOnce();}finally{db.close();}
 });
+
+it.each(['success','fork-failed'])('preserves archived state after %s and journals restoration before unarchive',async mode=>{
+ const {home,db,repair}=await fixture(),close=vi.fn(async()=>{});let forks=0;
+ const rpc=vi.fn(async(method:string)=>{
+  if(method==='thread/fork'){
+   if(++forks===1)throw new CodexRuntimeRPCError(method,{code:-32600,message:'session 11111111-1111-1111-1111-111111111111 is archived. Run codex unarchive'});
+   if(mode==='fork-failed')throw Error('synthetic fork failed');
+   db.prepare('insert into thread_history_projection_state values (?,?,?)').run('immutable-ancestor',180,3);return {thread:{id:'ephemeral',ephemeral:true}};
+  }
+  if(method==='thread/unarchive')expect(JSON.parse(await readFile(join(home,'tokenflow-projection-archives.json'),'utf8'))).toEqual(['logical']);return {};
+ });
+ try{const result=repairCodexProjectionLineages(home,[repair],async()=>[],async()=>({pid:123,close,rpc}));if(mode==='fork-failed')await expect(result).rejects.toThrow('synthetic fork failed');else await result;
+ expect(rpc.mock.calls.map(([method])=>method)).toEqual(mode==='success'?['thread/fork','thread/unarchive','thread/fork','thread/unsubscribe','thread/archive']:['thread/fork','thread/unarchive','thread/fork','thread/archive']);await expect(readFile(join(home,'tokenflow-projection-archives.json'))).rejects.toMatchObject({code:'ENOENT'});expect(close).toHaveBeenCalledOnce();}finally{db.close();}
+});
+it('retains failed archive restoration for a later invocation even when no repair remains',async()=>{
+ const {home,db,repair}=await fixture();let forks=0;const close=vi.fn(async()=>{});
+ const rpc=async(method:string)=>{if(method==='thread/fork'){if(++forks===1)throw new CodexRuntimeRPCError(method,{code:-32600,message:'session abc is archived.'});return {thread:{id:'ephemeral',ephemeral:true}};}if(method==='thread/archive')throw Error('archive temporarily failed');return {};};
+ try{await expect(repairCodexProjectionLineages(home,[repair],async()=>[],async()=>({pid:123,close,rpc}))).rejects.toThrow('archive temporarily failed');expect(JSON.parse(await readFile(join(home,'tokenflow-projection-archives.json'),'utf8'))).toEqual(['logical']);
+ const recovered=vi.fn(async()=>({}));await repairCodexProjectionLineages(home,[],async()=>[],async()=>({pid:123,close,rpc:recovered}));expect(recovered.mock.calls).toEqual([['thread/archive',{threadId:'logical'}]]);await expect(readFile(join(home,'tokenflow-projection-archives.json'))).rejects.toMatchObject({code:'ENOENT'});}finally{db.close();}
+});
