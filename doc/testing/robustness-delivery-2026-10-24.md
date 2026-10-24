@@ -37,7 +37,7 @@
 
 凭据合并放在通用读取模块；SSE 终结放在共享 reader pump；压缩摘要的认证、覆盖范围与消息等价规则由请求和持久化恢复共用；已完成摘要可跨来源复用，在途调用则必须按真实传输来源隔离。目录容量沿原 registry → 管理接口 → Core 传递，未知仍为未知。以上均有先失败、修复后通过的用例，不通过降低全部模型窗口或伪造完成掩盖错误。
 
-详细证据分别见本轮[凭据复查](credential-read-robustness-2026-10-24.md)、[Codex 复查](codex-robustness-review-2026-10-24.md)与[协议复查](protocol-robustness-review-2026-10-24.md)，以及[前次配置交付](client-configuration-repair-2026-10-23.md)和[前次协议实测](model-protocol-repair-2026-10-23.md)。客户端真实长对话体验、原 Desktop 请求和新安装系统提示计数仍须与模拟测试区分。
+详细证据分别见本轮[凭据复查](credential-read-robustness-2026-10-24.md)、[Codex 复查](codex-robustness-review-2026-10-24.md)与[协议复查](protocol-robustness-review-2026-10-24.md)，以及[前次配置交付](client-configuration-repair-2026-10-23.md)和[前次协议实测](model-protocol-repair-2026-10-23.md)。客户端真实长对话体验、原 Desktop 请求和系统提示次数仍须与模拟测试区分；本次安装的实际次数已补记如下。
 
 复查另保留两个既有边界：Claude 被动读取依赖系统条目 metadata，完全相同 metadata 下外部替换内容须 fresh 校验；`security -i` 写超时仍依赖子进程 close，尚未证明无 close 的异常路径可恢复。这些没有被本次读取缓存修复掩盖，也不记为已解决。没有为理论上所有 OS 故障增加自动重写授权的机制。
 
@@ -50,9 +50,14 @@
 - 最终空闲运行 `npm test`：**162 文件、1,570 项通过**，255.85 秒。前一轮并发打包/检查时，一个 API 来源目录用例等待 10 秒超时；该文件单独 54 项、该场景连续复查和最后全量均通过。现有日志不足以确定超时根因，没有放宽超时或修改生产重试策略。更早一轮在代理仍补 SSE 用例时读到了旧源码，结果没有作为最终验收。
 - `/Applications/TokenFlow.app` 已正常替换为 `.59`，已安装 app.asar 与 M bundle 一致。旧 `.58` 保留在 `release/v10.15.26.58/installed-before-59.app`。没有删除用户资料或凭据，也没有终止 Codex。
 - 两个 ZIP 全文件 CRC 通过，包内 app.asar 和 sidecar 与已验收 bundle 一致；自动生成的别名 ZIP 已替换为相同签名导出包。临时 inspector 9231 未打开。
-- 安装后主进程采样包含 `SecItemCopyMatching` / `SecKeychainItemCopyContent`，工作台尚未监听，正等待用户完成系统授权。已请求用户本机验证并记录项目、次数和按钮选择。**此时不记为安装后认证读取验收完成，不声称新版本为零次、一次或两次提示。**
+- 安装时主进程采样包含 `SecItemCopyMatching` / `SecKeychainItemCopyContent`，等待用户系统授权；随后用户确认本次仍为 **6 次，均选择“允许”**。授权后工作台已打开。不能据应用层重复读取回归通过，声称本机系统提示次数已经减少。
+- 后续安装版检查：工作台 `127.0.0.1:9527` 返回 HTTP 200，`cliproxyapi` 正常监听 `127.0.0.1:8317`；安装版本仍为 `.59`，app.asar SHA-256 为 `66e62833ac4a125a990dba88b734d0327d6ca08240be42d8bae5ef251d8eb384`。期间曾观察到网关端口占用提示和应用退出，后续已恢复运行；没有足够证据归因，不记为已定位或修复启动故障。
+- 本机供应商导入预览已实际显示可导入 API 条目及不支持条目的原因，未代用户提交其正在选择的导入。只读核对当前 Codex 配置：TOML 合法、ChatGPT 登录存在、provider 仍为 `openai`，尚未启用共存；没有修改该配置、登录文件或正在运行的对话。共存功能的实现和隔离验证通过，不等于已经替用户切换本机设置。启用入口是“使用 → Codex → 同时保留官方模型”，选择网关模型后应用。
+- 用户要求先完成其他原任务，因此暂停跨启动凭据缓存扩展；只读设计发现保留在凭据复查报告的“后续设计，未实施”段，没有新增持久凭据副本。
 
 | 导出包 | SHA-256 |
 | --- | --- |
 | TokenFlow-10.15.26.59-mac-M.zip | `cce7369c0b12a1eebcbe5b47561b180db713f3947ad550bad847e9780afcbc68` |
 | TokenFlow-10.15.26.59-mac-Intel.zip | `71546eaa19f76821cc6265c821d5762b004bd6596777b24aa49c3e60638f567e` |
+
+最新 `.61` 已修复并安装的后续结果、未确认边界及暂停导出要求见 [Codex / WorkBuddy 后续复查](codex-workbuddy-follow-up-2026-10-24.md)。

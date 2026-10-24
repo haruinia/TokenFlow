@@ -70,3 +70,15 @@ npx vitest run tests/credential-access-audit.test.ts tests/credential-access-ser
 - Claude 被动变更检测依赖 metadata。完全相同 metadata 下的外部密码替换无法由普通 cached 观察识别；mutation fresh 不受此限制。主动 retry 成功缓存仍复用，不将每次刷新变为新的 protected read。
 - 既有 Claude `security -i` 写超时路径只发送终止信号、依赖 close 事件结算。该写入边界本轮未建立故障验证，也未扩大修改。新增队列已验证明确失败退出后可以恢复，不能据此声称无 close 的写超时已解决。
 - 跨启动复用可另行设计为“精确来源密文 digest + 已验证身份 + 既有可用导入 grant 引用”。需要统一自动发现策略、加密保存证据、来源变化/条目缺失/显式操作时失效；本轮没有实现或保存此类缓存。
+
+### 跨启动后续设计，未实施
+
+用户实测 .59 选择“允许”后仍出现 6 次系统提示，工作台正常打开。该次没有逐窗记录项目名，不能推断每个项目各两次。这证明当前进程内读取复用没有降低该次初始系统提示次数，不能据 mock 调用下降声称系统提示已经减少。
+
+后续只读审查确认：service 构造时先 `await observeNativeLogins()`，此时 `proxy.start()` 尚未执行、snapshot 的 accounts 仍为空；启动之后的自动 discovery 才加载已导入授权。因此仅在 import 中跳过重复读取不能避免启动观察已触发两个 Qoder helper。若以后实施，必须让同一 coordinator 管理被动 usage/status/自动导入，并等待保存授权的 inventory 就绪后统一决定复用；等待期间不能伪造 signed-in/signed-out 状态。
+
+可复用证据至少应绑定版本、客户端/规范化来源路径、精确原始认证密文 digest、上次真实读取并验证的身份、精确导入 grant 引用与凭据 revision。只有来源完全未变且该 grant 当前存在、身份相符、启用且可用时，才可跳过后续启动的 Qoder 被动解密。来源、账号、grant 或可用性变化都必须失效；explicit import/refresh/mutation 仍真实读取。证据可以由 TokenFlow 现有加密存储保护，但不能保存 Qoder 明文 document、主密钥，或单独相信已登录标记。
+
+现有 `snapshot.nativeClients` 表示 Qoder 两种产品的兼容性，并非来源证明，不能拿来绑定 evidence；`desktopNativeAccounts.switchable` 要求完整刷新字段与有效期，比部分推理可用 grant 的条件更严格，也不能直接代替 grant inventory 的可用性判断。需要独立的 server-only 验证接口，不能从展示标签或任意同 UID 账号猜测精确授权。
+
+用户随后要求优先完成其他既有任务，本轮到此停止：仅完成上述只读设计判断，未新增或运行跨启动 fixture，未实施生产代码、持久证据或自动发现策略变更。

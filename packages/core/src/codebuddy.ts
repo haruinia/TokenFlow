@@ -2,7 +2,7 @@ import {mkdtemp,mkdir,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {z} from 'zod';
-import {runOfficialSDK,type SDKInput,type SDKResult,type SDKFailureReason} from '@token-flow/codebuddy-runtime';
+import {runOfficialSDK,type SDKInput,type SDKResult,type SDKFailureReason,type SDKToolIssue} from '@token-flow/codebuddy-runtime';
 import {upstreamError} from './upstream-errors.js';
 import {workbuddyStream} from './codebuddy-stream.js';
 import {parseCursorInput,cursorResponse} from './cursor-protocol.js';
@@ -138,6 +138,7 @@ export class WorkBuddySDKProvider {
   let directory:string|undefined;
   let stage:'credential'|'setup'|'sdk'|'output'='credential';
   let sdkFailureCode:string|undefined;
+  let sdkToolIssue:SDKToolIssue|undefined;
   try{
    const credential=workbuddySDKCredential(await this.credential(sourceId,input.model));
    if(controller.signal.aborted)throw new Error('Cancelled');
@@ -146,7 +147,7 @@ export class WorkBuddySDKProvider {
    const cwd=join(directory,'workspace'),configDir=join(directory,'config');await mkdir(cwd);await mkdir(configDir,{mode:0o700});
    const model=input.model.slice('workbuddy/'.length).toLowerCase();
    stage='sdk';
-   const result=await this.run({...credential,model,onText,prompt:input.prompt,systemPrompt:input.systemPrompt,images:input.images,tools:input.tools,parallelToolCalls:input.parallel_tool_calls,signal:controller.signal,cwd,configDir,onDiagnostic:event=>{if(event.event==='failure'&&event.reason)sdkFailureCode=sdkFailureCodes[event.reason];}});
+   const result=await this.run({...credential,model,onText,prompt:input.prompt,systemPrompt:input.systemPrompt,images:input.images,tools:input.tools,parallelToolCalls:input.parallel_tool_calls,signal:controller.signal,cwd,configDir,onDiagnostic:event=>{if(event.event==='failure'&&event.reason){sdkFailureCode=sdkFailureCodes[event.reason];sdkToolIssue=event.reason==='tool_protocol'?event.toolIssue:undefined;}}});
    if(controller.signal.aborted)throw new Error('Cancelled');
    if(result.failed&&result.errorCode==='source_policy_blocked')return Response.json({error:{type:'invalid_request_error',code:'a2a_source_policy_blocked',message:'WorkBuddy SDK upstream rejected the invocation channel (11128).'}},{status:400});
    if(result.failed&&result.errorCode==='authentication_error')return Response.json({error:{code:'workbuddy_authentication_failed',type:'authentication_error',message:'WorkBuddy 登录已失效，请重新授权所选账号。'}},{status:401});
@@ -166,7 +167,7 @@ export class WorkBuddySDKProvider {
    const messages={credential:'无法读取所选 WorkBuddy 账号，请检查该账号的授权状态。',setup:'WorkBuddy 本地请求准备失败，请检查本机目录权限和可用空间。',sdk:'WorkBuddy 官方 SDK 调用未完成，可能发生在 SDK 启动或上游请求阶段。',output:'WorkBuddy 返回的模型或工具调用不符合本次请求，未替换模型或执行额外工具。'};
    // Stable stages distinguish local setup from SDK/output failures without
    // exposing tokens, filesystem paths, or arbitrary upstream exception text.
-   if(!controller.signal.aborted&&stage==='sdk'&&sdkFailureCode)return Response.json({error:upstreamError(502,JSON.stringify({error:{code:sdkFailureCode}}))},{status:sdkFailureCode==='workbuddy_timeout'?504:502});
+   if(!controller.signal.aborted&&stage==='sdk'&&sdkFailureCode)return Response.json({error:upstreamError(502,JSON.stringify({error:{code:sdkFailureCode,toolIssue:sdkToolIssue}}))},{status:sdkFailureCode==='workbuddy_timeout'?504:502});
    return Response.json({error:{type:controller.signal.aborted?'request_cancelled':'workbuddy_sdk_error',code:controller.signal.aborted?'request_cancelled':`workbuddy_${stage}_failed`,message:controller.signal.aborted?'请求已取消。':messages[stage]}},{status:controller.signal.aborted?499:502});
   }
   finally{signal.removeEventListener('abort',abort);this.active.delete(controller);try{if(directory)await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100});}finally{this.pending.delete(pending);finish();}}

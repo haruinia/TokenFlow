@@ -7,6 +7,20 @@ import {RunnerCoreError} from './errors.js';
 import {windowsStoreApp} from './agent-installation.js';
 const fail=(message:string)=>new RunnerCoreError(message,{statusCode:409,code:'codex_migration_failed'});
 
+/** Keep only bounded protocol metadata. RPC messages can contain private paths,
+ * thread identifiers or history and must never become public error text. */
+export class CodexRuntimeRPCError extends RunnerCoreError {
+ readonly rpcMethod:string;readonly rpcCode?:number;readonly rpcReason:'turn_not_found'|'unknown';
+ constructor(method:string,error:unknown){
+  const value=error as {code?:unknown;message?:unknown}|null;
+  const known=new Set(['initialize','model/list','thread/resume','thread/fork','thread/archive','thread/unarchive','thread/unsubscribe','thread/turns/list']);
+  const rpcMethod=known.has(method)?method:'unknown',rpcCode=typeof value?.code==='number'&&Number.isSafeInteger(value.code)?value.code:undefined;
+  const rpcReason=rpcCode===-32600&&typeof value?.message==='string'&&/^turn not found\b/i.test(value.message)?'turn_not_found':'unknown';
+  super(rpcMethod==='thread/fork'?'Codex 历史索引修复未完成，迁移已停止，备份保留。':'Codex 会话服务请求未完成，迁移已停止，备份保留。',{statusCode:409,code:'codex_migration_failed',hint:`RPC ${rpcMethod}${rpcCode===undefined?'':` · ${rpcCode}`} · ${rpcReason}`});
+  this.rpcMethod=rpcMethod;this.rpcCode=rpcCode;this.rpcReason=rpcReason;
+ }
+}
+
 /** Uses the installed runtime's supported resume API, never starts a turn or tool. */
 export async function migrationBinary(binary?:string){
  const win=process.platform==='win32';
@@ -38,13 +52,13 @@ export async function runtimeLaunch(executable:string,platform=process.platform,
 export async function codexRuntimeClient(home:string,binary?:string){
  const launch=await runtimeLaunch(await migrationBinary(binary));
  const child:ChildProcessWithoutNullStreams=spawn(launch.file,[...launch.args,'app-server','--listen','stdio://'],{cwd:home,env:{...process.env,...launch.env,CODEX_HOME:home},stdio:['pipe','pipe','pipe'],windowsHide:true});
- let buffer='',next=0,closed=false;const pending=new Map<number,{resolve:(v:any)=>void;reject:(e:Error)=>void}>();
+ let buffer='',next=0,closed=false;const pending=new Map<number,{method:string;resolve:(v:any)=>void;reject:(e:Error)=>void}>();
  const rejectAll=()=>{for(const request of pending.values())request.reject(fail('Codex 会话服务已停止，备份保留，可再次点击启动继续迁移。'));pending.clear();};
  child.on('error',rejectAll);child.on('exit',()=>{closed=true;rejectAll();});child.stderr.resume();child.stdout.setEncoding('utf8');
  child.stdout.on('data',chunk=>{
   buffer+=String(chunk);if(buffer.length>128*1024*1024){rejectAll();child.kill();return;}
   let end;while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);let message;try{message=JSON.parse(line);}catch{continue;}
-   if(typeof message.id==='number'&&pending.has(message.id)){const request=pending.get(message.id)!;pending.delete(message.id);message.error?request.reject(fail('Codex 无法恢复这段旧对话，迁移已停止，备份保留。')):request.resolve(message.result);}
+   if(typeof message.id==='number'&&pending.has(message.id)){const request=pending.get(message.id)!;pending.delete(message.id);message.error?request.reject(new CodexRuntimeRPCError(request.method,message.error)):request.resolve(message.result);}
    // Approval/tool requests cannot execute anything during migration.
    else if(message.method&&message.id!==undefined)child.stdin.write(JSON.stringify({id:message.id,error:{code:-32601,message:'Migration does not execute tools or approvals'}})+'\n');
   }
@@ -52,7 +66,7 @@ export async function codexRuntimeClient(home:string,binary?:string){
  const rpc=(method:string,params:unknown):Promise<any>=>new Promise((resolve,reject)=>{
   if(closed)return reject(fail('Codex 会话服务未启动。'));
   const id=++next,timer=setTimeout(()=>{pending.delete(id);reject(fail('旧对话迁移超时，备份已保留，请重试。'));},60000);
-  pending.set(id,{resolve:value=>{clearTimeout(timer);resolve(value);},reject:error=>{clearTimeout(timer);reject(error);}});
+  pending.set(id,{method,resolve:value=>{clearTimeout(timer);resolve(value);},reject:error=>{clearTimeout(timer);reject(error);}});
   child.stdin.write(JSON.stringify({id,method,params})+'\n');
  });
  const close=async()=>{if(closed)return;await new Promise<void>(resolve=>{const timer=setTimeout(()=>{child.kill('SIGKILL');},5000);child.once('exit',()=>{clearTimeout(timer);resolve();});child.kill();});};

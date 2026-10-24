@@ -1,4 +1,4 @@
-import {useLayoutEffect,useRef,useState,useId} from 'react';
+import {useLayoutEffect,useRef,useState,useId,type ReactNode} from 'react';
 import type {LocalAgentSnapshot} from '../../../packages/core/src/cliproxy';
 import {modelGroups,type Choice} from './flow-model';
 import {qualifiedModelLabel as modelLabel} from './model-label';
@@ -11,7 +11,7 @@ import {Icon} from './Icons';
 import {sourceSelectionState,sourceSelectionNotice} from './source-options';
 
 const same=(a:Choice,b:Choice)=>a.sourceId===b.sourceId&&a.model===b.model;
-export function AgentModelPicker({open,title,local,current,selected,onConfirm,onClose,embedded=false,busy=false,onSelectionChange,compact=false}:{compact?:boolean;embedded?:boolean;busy?:boolean;onSelectionChange?:(choices:Choice[])=>void;open:boolean;title:string;local:LocalAgentSnapshot;current?:Choice;selected:Choice[];onConfirm:(choices:Choice[])=>void;onClose:()=>void}){
+export function AgentModelPicker({open,title,local,current,selected,onConfirm,onClose,embedded=false,busy=false,onSelectionChange,compact=false,applicationOptions}:{applicationOptions?:ReactNode;compact?:boolean;embedded?:boolean;busy?:boolean;onSelectionChange?:(choices:Choice[])=>void;open:boolean;title:string;local:LocalAgentSnapshot;current?:Choice;selected:Choice[];onConfirm:(choices:Choice[])=>void;onClose:()=>void}){
  const catalogId=useId();
  const [query,setQuery]=useState(''),[draft,setDraft]=useState<Choice[]>([]),[source,setSource]=useState(''),[provider,setProvider]=useState('');
  const [order,,ranks,moveModel]=useModelOrder();const displayOrder=order==='manual'?'manual':'name';
@@ -89,6 +89,7 @@ export function AgentModelPicker({open,title,local,current,selected,onConfirm,on
     </>:<div className="tfAgentPickerEmpty"><Icon name={compact&&!q?'plus':'search'} size={24}/><strong>{compact&&!q&&groups.length?'选择来源查看模型':q?'没有匹配的模型':'还没有可用模型'}</strong>{(!compact||q||!groups.length)&&<p>{q?'试试其他模型名或账号':'在账号授权或 API 接口添加来源'}</p>}</div>}
    </section>}
   </div>
+  {applicationOptions&&<div className="tfAgentPicked">{applicationOptions}</div>}
   {!embedded&&<footer><span aria-live="polite">已选择 {draft.length} 个模型{unavailableCount>0&&<button type="button" className="textButton tfRemoveUnavailable" onClick={removeUnavailable}>移除不可用模型（{unavailableCount}）</button>}</span><button type="button" onClick={onClose}>取消</button><button type="button" className="primary" disabled={busy||!draft.length} onClick={()=>{onConfirm(draft);onClose();}}>应用所选模型</button></footer>}
  </>;
  if(embedded)return open?<section className={`tfAgentPicker tfInlineAgentPicker ${compact?'tfCompactPicker':''}`} aria-label={title} inert={busy} aria-busy={busy}>{content}</section>:null;

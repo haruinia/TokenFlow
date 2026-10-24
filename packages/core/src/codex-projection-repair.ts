@@ -1,7 +1,7 @@
 import {join} from 'node:path';
 import {readdir} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
-import {codexRuntimeClient} from './codex-runtime.js';
+import {codexRuntimeClient,CodexRuntimeRPCError} from './codex-runtime.js';
 import {GatewayContextError} from './gateway-context.js';
 import {safePath} from './agent-connections.js';
 export type CodexProjectionRepair={threadId:string;lastTurnId:string;ancestors:{id:string;ordinal:number;offset:number;boundaries:number[]}[]};
@@ -16,7 +16,26 @@ export async function repairCodexProjectionLineages(home:string,repairs:CodexPro
  try{
   for(const repair of repairs){
    if((await processes()).some(pid=>pid!==runtime.pid))throw fail();
-   const fork=await runtime.rpc('thread/fork',{threadId:repair.threadId,lastTurnId:repair.lastTurnId,ephemeral:true,excludeTurns:true,approvalPolicy:'never',sandbox:'read-only'});
+   const idle=async()=>{if((await processes()).some(pid=>pid!==runtime.pid))throw fail();};
+   const forkAt=(lastTurnId:string)=>runtime.rpc('thread/fork',{threadId:repair.threadId,lastTurnId,ephemeral:true,excludeTurns:true,approvalPolicy:'never',sandbox:'read-only'});
+   let fork;
+   try{fork=await forkAt(repair.lastTurnId);}catch(error){
+    // A persisted turn_context may belong to an aborted draft and have no
+    // visible turn. ThroughTurn has already materialized the ancestors before
+    // checking this boundary. Ask Codex for a real terminal turn from this same
+    // lineage, then retry once; never guess another ID or skip this thread.
+    if(!(error instanceof CodexRuntimeRPCError)||error.rpcMethod!=='thread/fork'||error.rpcReason!=='turn_not_found')throw error;
+    let cursor:string|undefined,boundary:string|undefined;const seen=new Set<string>();
+    for(let page=0;page<8&&!boundary;page++){
+     await idle();const result=await runtime.rpc('thread/turns/list',{threadId:repair.threadId,limit:100,sortDirection:'desc',...(cursor?{cursor}:{})});
+     if(!Array.isArray(result.data))throw fail();
+     boundary=result.data.find((turn:{id?:unknown;status?:unknown})=>typeof turn.id==='string'&&turn.id.length>0&&turn.id.length<=200&&turn.id!==repair.lastTurnId&&['completed','failed','interrupted'].includes(String(turn.status)))?.id;
+     if(boundary)break;
+     if(!result.nextCursor)break;
+     if(typeof result.nextCursor!=='string'||seen.has(result.nextCursor))throw fail();seen.add(result.nextCursor);cursor=result.nextCursor;
+    }
+    if(!boundary)throw fail();await idle();fork=await forkAt(boundary);
+   }
    if(typeof fork.thread?.id!=='string'||fork.thread.id===repair.threadId||fork.thread.ephemeral!==true)throw fail();
    await runtime.rpc('thread/unsubscribe',{threadId:fork.thread.id});
   }

@@ -255,6 +255,7 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
  const switchAccount=async(id:string,label:string)=>{const chosen=login?.accounts.find(account=>account.id===id);if(chosen&&officialLoginHeld(target.id,chosen.local,chosen.current))return;if(desktopOfficial||target.id==='claude'){if(!await officialConfirm.confirm(target.id==='claude'?'Claude Code 终端':target.name))return;return run(async()=>{const note=await login!.switchTo(id);setRestartPending(false);return `${target.name} 已保存账号 ${label}。${note}`;});}return changeCodex(async restartCodex=>{const note=await login!.switchTo(id,restartCodex);configurationSaved(restartCodex);return `${target.name} 已切换到账号 ${label}。${restartCodex?'Codex 已自动重新打开。':`${desktopRestart?'重启':'下次启动'}后生效。`}${note}`;},false,false);};
  const repair=()=>onRepair({target:target.id,...(connection?{sourceId:connection.sourceId,model:connection.model,connectionId:connection.id}:{})});
  const toggleDetail=(id:string)=>{if(open!==id)rememberDetail();setOpen(open===id?'':id);};
+ const coexistOption=target.id==='codex'?<label className="toggle" title={codexCoexistStatus?.reason}><input type="checkbox" checked={codexCoexist??false} disabled={busy||!codexCoexistStatus||(!codexCoexistStatus.available&&!codexCoexist)} onChange={event=>{coexistChanged.current=true;setCodexCoexist(event.target.checked);saveDraft(models,true);}}/><span>同时使用 ChatGPT 官方账号和网关模型</span></label>:undefined;
 
  const manageProgram=(action=programAction)=>run(async()=>{
   setProgramError('');
@@ -372,7 +373,7 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
   {login&&hasNativeLogin(login)&&models.length>0&&<ColumnDivider storageKey="token-flow.layout.agent-split" label="调整账号与网关模型宽度"/>}
   {models.length>0&&<section className="tfAgentSection tfGatewaySection" aria-label="网关模型">
    <header className="tfAgentSectionHead"><div className="tfGatewayTitle"><h3>网关模型</h3><button className="iconButton" aria-label={models.length?'管理所选模型':'选择模型'} title={models.length?'管理所选模型':'选择模型'} disabled={busy||!running||!!target.error||(!available.length&&!models.length)} onClick={()=>setPicking(true)}><Icon name="plus" size={16}/></button>{draftDirty&&<small className="tfPendingModels">待应用</small>}</div><label className="toggle"><input type="checkbox" role="switch" aria-label="启用网关模型" checked={gatewayPending??(!!connection&&target.configurationState==='configured'&&!draftDirty)} disabled={busy||!running||(!connection&&!models.length)} onChange={event=>{const enabled=event.target.checked;if(!enabled)saveDraft(models);setGatewayPending(enabled);void Promise.resolve(enabled?applySelected(shownModels):target.id==='codex'?openRestore():restore(false)).finally(()=>setGatewayPending(undefined));}}/><span>启动</span></label></header>
-   {target.id==='codex'&&<label className="toggle" title={codexCoexistStatus?.reason}><input type="checkbox" checked={codexCoexist??false} disabled={busy||!codexCoexistStatus||(!codexCoexistStatus.available&&!codexCoexist)} onChange={event=>{coexistChanged.current=true;setCodexCoexist(event.target.checked);saveDraft(models,true);}}/><span>同时保留官方模型</span></label>}
+   {coexistOption}
    {target.id==='claude'&&<p className="tfHint">自定义模型菜单需要 Claude Code 2.1.242 或更新版本；旧版可用 /model 模型ID 切换。接入多个模型时选择默认模型和快速模型。子代理跟随当前会话；审批和快速请求使用快速模型。IDE 与终端共享此登录配置。</p>}
   <ul className="tfLines" aria-label={`${target.name} 网关模型`}>
    {shownModels.map(choice=>{
@@ -404,6 +405,6 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
   </section>}
   </div>
   <AgentUsageDetails target={target.id} local={local} usage={usage}/>
-  <AgentModelPicker open={picking} title={`${target.name} 使用的模型`} local={local} current={current} selected={models} onConfirm={choices=>{saveDraft(choices);void applySelected(choices);}} onClose={()=>setPicking(false)}/>
+  <AgentModelPicker open={picking} title={`${target.name} 使用的模型`} local={local} current={current} selected={models} applicationOptions={coexistOption} onConfirm={choices=>{saveDraft(choices);void applySelected(choices);}} onClose={()=>setPicking(false)}/>
  </section>;
 }

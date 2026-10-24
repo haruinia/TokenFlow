@@ -2,7 +2,18 @@ import {it,expect} from 'vitest';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {runtimeLaunch} from '../packages/core/src/codex-runtime';
+import {runtimeLaunch,codexRuntimeClient} from '../packages/core/src/codex-runtime';
+
+it.runIf(process.platform!=='win32')('classifies RPC failures by method/code without exposing raw paths or history',async()=>{
+ const home=await mkdtemp(join(tmpdir(),'codex-rpc-failure-'));
+ const binary=join(home,'fixture-runtime');
+ await writeFile(binary,`#!/usr/bin/env node
+const readline=require('node:readline');readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(!m.id)return;process.stdout.write(JSON.stringify({id:m.id,...(m.method==='initialize'?{result:{}}:{error:{code:-32600,message:'turn not found: PRIVATE_THREAD /private/user/history PRIVATE_PROMPT'}})})+'\\n');});`,{mode:0o700});
+ let client:Awaited<ReturnType<typeof codexRuntimeClient>>|undefined;
+ try{client=await codexRuntimeClient(home,binary);await expect(client.rpc('thread/fork',{})).rejects.toMatchObject({code:'codex_migration_failed',rpcMethod:'thread/fork',rpcCode:-32600,rpcReason:'turn_not_found',hint:expect.stringContaining('thread/fork')});
+ try{await client.rpc('thread/resume',{});}catch(error){expect(String(error)+JSON.stringify(error)).not.toMatch(/PRIVATE_|private\/user/);}
+ }finally{await client?.close();await rm(home,{recursive:true,force:true});}
+});
 
 it('starts the native npm Codex executable on Windows instead of leaving a Node wrapper process',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'codex-shim-'));

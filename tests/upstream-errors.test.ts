@@ -48,6 +48,14 @@ it.each(['workbuddy_text_mismatch','workbuddy_model_mismatch','workbuddy_missing
  const safe=upstreamError(502,JSON.stringify({error:{code,message:'PRIVATE_PROMPT Bearer private-token'}}));
  expect(safe.code).toBe(code);expect(safe.message).not.toMatch(/PRIVATE_PROMPT|private-token/);
 });
+it.each(['unknown_name','unfinished_block','invalid_json','invalid_args','truncated_turn','parallel_limit','orphan_delta'])('retains the fixed %s tool subtype through repeated error normalization',toolIssue=>{
+ const first=upstreamError(502,JSON.stringify({error:{code:'workbuddy_tool_protocol',toolIssue,message:'PRIVATE_TOOL_ARGUMENT'}}));
+ expect(first).toMatchObject({code:'workbuddy_tool_protocol',toolIssue});expect(first.message).toContain(toolIssue);expect(first.message).not.toContain('PRIVATE');
+ const second=upstreamError(502,JSON.stringify({error:{code:first.code,message:first.message}}));expect(second).toMatchObject({code:first.code,toolIssue,message:first.message});
+});
+it('discards arbitrary WorkBuddy tool issue strings',()=>{
+ const safe=upstreamError(502,JSON.stringify({error:{code:'workbuddy_tool_protocol',toolIssue:'PRIVATE_TOOL_ARGUMENT',message:'PRIVATE_TOOL_ARGUMENT'}}));expect(safe).not.toHaveProperty('toolIssue');expect(safe.message).not.toContain('PRIVATE');
+});
 
 it.each([
  ['tools.0.custom.name',"String should match pattern PRIVATE"],

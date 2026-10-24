@@ -3,6 +3,7 @@ import {mkdtemp,mkdir,writeFile,rm,realpath} from 'node:fs/promises';
 import {join,resolve} from 'node:path';import {tmpdir} from 'node:os';import {createServer} from 'node:net';
 import {createDesktopService} from '../packages/core/src/service.js';
 import {WorkBuddySDKProvider} from '../packages/core/src/codebuddy.js';
+import type {SDKToolIssue} from '../packages/codebuddy-runtime/index.js';
 
 it('keeps both regional account pins and meters each SDK completion exactly once across all protocols',async()=>{
  const root=await mkdtemp(join(await realpath(tmpdir()),'sdk-routing-'));
@@ -44,8 +45,9 @@ it('retains a safe SDK failure reason in gateway responses and traces',async()=>
  await mkdir(join(root,'cliproxy/auth'),{recursive:true});
  await writeFile(join(root,'cliproxy/fixture-accounts.json'),JSON.stringify([{name:'chosen.json',provider:'workbuddy',status:'active',models:['deepseek-v4.1-flash']}]));
  await writeFile(join(root,'cliproxy/auth/chosen.json'),JSON.stringify({type:'workbuddy',access_token:'PRIVATE_TOKEN'}));
+ let toolIssue:SDKToolIssue|undefined;
  const service=await createDesktopService({root,proxyPort:port,binary:resolve('tests/fixtures/fake-cliproxy.mjs'),token:'admin',localKey:'sidecar',secrets:{get:async()=>'',set:async()=>{}},workbuddySDKFactory:proxy=>new WorkBuddySDKProvider(root,(id,model)=>proxy.workbuddyCredential(id,model),async input=>{
-  input.onDiagnostic?.({event:'failure',elapsedMs:1,reason:'missing_result',origin:'result'});
+  input.onDiagnostic?.({event:'failure',elapsedMs:1,reason:toolIssue?'tool_protocol':'missing_result',toolIssue,origin:'result'});
   return {model:input.model,text:'',calls:[],failed:true};
  })});
  const admin={host:'127.0.0.1:9527',authorization:'Bearer admin'};
@@ -60,5 +62,12 @@ it('retains a safe SDK failure reason in gateway responses and traces',async()=>
   const records=(await service.app.inject({url:'/api/gateway/traces?days=0',headers:admin})).json().records;
   expect(records).toHaveLength(2);for(const row of records)expect(row.error.code).toBe('workbuddy_missing_result');
   expect(JSON.stringify(records)).not.toMatch(/PRIVATE_TOKEN|PRIVATE_PROMPT/);
+  const issues=['unknown_name','unfinished_block','invalid_json','invalid_args','truncated_turn','parallel_limit','orphan_delta','input_limit'] as const;
+  for(const issue of issues){toolIssue=issue;for(const path of ['messages','responses'])for(const stream of [false,true]){
+   const response=await service.app.inject({method:'POST',url:`/v1/${path}`,headers:{...admin,authorization:`Bearer ${created.json().apiKey}`},payload:{model:'workbuddy/deepseek-v4.1-flash',stream,...(path==='messages'?{messages:[{role:'user',content:'PRIVATE_PROMPT'}]}:{input:'PRIVATE_PROMPT'})}});
+   expect(response.body).toContain('workbuddy_tool_protocol');expect(response.body).toContain(issue);expect(response.body).not.toMatch(/PRIVATE_TOKEN|PRIVATE_PROMPT/);
+  }}
+  const toolRecords=(await service.app.inject({url:'/api/gateway/traces?days=0',headers:admin})).json().records.filter((row:any)=>row.error?.code==='workbuddy_tool_protocol');
+  expect(toolRecords).toHaveLength(32);for(const issue of issues)expect(toolRecords.filter((row:any)=>row.error.message.includes(issue))).toHaveLength(4);expect(JSON.stringify(toolRecords)).not.toMatch(/PRIVATE_TOKEN|PRIVATE_PROMPT/);
  }finally{await service.app.close();await rm(root,{recursive:true,force:true});}
 });

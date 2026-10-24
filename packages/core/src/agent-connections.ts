@@ -488,7 +488,10 @@ export class AgentConnections {
     }
     return records;
   }
-  private async save(record:Record){const path=join(this.dir(),`${record.id}.json`);const temp=`${path}.tmp`;await writeFile(temp,JSON.stringify(record),{mode:0o600});await rename(temp,path);}
+  private async save(record:Record,expected?:string|null){
+    const path=join(this.dir(),`${record.id}.json`),temp=`${path}.${randomUUID()}.tmp`;
+    try{await writeFile(temp,JSON.stringify(record),{mode:0o600,flag:'wx'});if(expected!==undefined&&await readConfig(path)!==expected)throw conflict('接入备份已被其他操作修改，已保留。');await rename(temp,path);}finally{await rm(temp,{force:true});}
+  }
   private run<T>(target:Target,operation:()=>Promise<T>):Promise<T>{
     const task=this.tail.then(async()=>{
       if(target==='deepseek')await this.records();
@@ -596,6 +599,41 @@ export class AgentConnections {
       const record:Record={...(input.officialCatalog?{codexCoexist:true,officialModelSlugs:input.officialCatalog.models.map(model=>model.slug)}:{}),...(recovered.recovery?{recovery:recovered.recovery}:{}),id:randomUUID(),target:input.target,createdAt:new Date().toISOString(),before:original,after,beforeHash:hash(original),afterHash:hash(after),state:'prepared',keyId:input.keyId,sourceId:input.sourceId,model:input.model,...(input.fastModel?{fastModel:input.fastModel}:{}),...(modelAliases&&Object.keys(modelAliases).length?{modelAliases}:{}),...(input.target==='deepseek'?{deepseekScope:this.deepseekProfilePath?'profile' as const:'home' as const}:{}),...(input.selections?{selections:input.selections}:{}),...(active?{supersedes:active.id}:{}),...((active||recovered.recovery)?{previousConfig:before,previousHash:hash(before)}:{})};
       await this.save(record);await this.replace(input.target,input.revision,after,input.allowRunning);record.state='applied';await this.save(record);await this.retirePrevious(record);return publicRecord(record);
     });
+  }
+  /** Prepare an identity-only catalog update. The caller holds the shared Codex config lock
+   * throughout preparation, auth/config replacement, apply and rollback. No key is replaced. */
+  async prepareCodexIdentityCatalog(id:string,current:string|null,official:OfficialCodexCatalog,recovery?:{before:string|null;after:string}){
+    const record=(await this.records()).find(r=>r.id===id&&r.target==='codex'&&r.state==='applied'&&r.codexCoexist);
+    const interrupted=record&&recovery&&(current===recovery.before||current===recovery.after)&&(appliedConfig(record,recovery.before)||appliedConfig(record,recovery.after));
+    if(!record||!appliedConfig(record,current)&&!interrupted)throw conflict('Codex 共存配置已变化，请刷新或重新应用后再切换账号。');
+    const doc=parse(current??''),profile=codexProfile(doc),effective={...doc,...profile};
+    const oldCatalogPath=effective.model_catalog_json;
+    if(typeof oldCatalogPath!=='string')throw conflict('Codex 共存模型目录缺失，请重新应用后再切换账号。');
+    const path=resolve(dirname(this.paths.codex),oldCatalogPath);await safePath(path);
+    const cached=JSON.parse(await readFile(path,'utf8'));
+    const gatewaySlugs=(record.selections??[record]).map(item=>item.model);
+    if(!Array.isArray(cached.models))throw conflict('Codex 共存模型目录无法读取，请重新应用后再切换账号。');
+    const gatewayModels=gatewaySlugs.map(slug=>cached.models.find((model:{slug:string})=>model.slug===slug));
+    if(gatewayModels.some(model=>!model))throw conflict('Codex 网关模型目录不完整，请重新应用后再切换账号。');
+    const catalog=mergeCodexCatalog({...cached,models:gatewayModels},official),catalogPath=this.catalogPath(JSON.stringify(catalog));
+    const allowed=new Set([...official.models.map(model=>model.slug),...gatewaySlugs]);
+    const update=(config:{[key:string]:any})=>{config.model_catalog_json=catalogPath;if(!allowed.has(config.model))config.model=record.model;};
+    update(doc);if(profile)update(profile);
+    // Keep the ownership baseline: copying current user settings into `after` would
+    // make a later gateway restore mistake those settings for fields we created.
+    const expected=parse(record.after),expectedProfile=codexProfile(expected);update(expected);if(expectedProfile)update(expectedProfile);
+    const config=stringify(doc),expectedConfig=stringify(expected),next={...record,after:expectedConfig,afterHash:hash(expectedConfig),officialModelSlugs:official.models.map(model=>model.slug)};
+    const recordPath=join(this.dir(),`${id}.json`),before=await readConfig(recordPath),after=JSON.stringify(next);
+    if(before===null||!isDeepStrictEqual(recordSchema.parse(JSON.parse(before)),record))throw conflict('接入备份已变化，请刷新后再切换账号。');
+    const rollback=async()=>{if(await readConfig(recordPath)===after){const temp=`${recordPath}.${randomUUID()}.tmp`;try{await writeFile(temp,before!,{mode:0o600,flag:'wx'});if(await readConfig(recordPath)!==after)throw conflict('接入备份已被其他操作修改，已保留。');await rename(temp,recordPath);}finally{await rm(temp,{force:true});}}};
+    // Persist immutable metadata before any config can point to it. A crash may leave an
+    // unreferenced catalog, but never a config referring to a missing catalog.
+    await safePath(catalogPath);const catalogText=JSON.stringify(catalog),temp=`${catalogPath}.${randomUUID()}.tmp`;
+    try{await writeFile(temp,catalogText,{mode:0o600,flag:'wx'});await rename(temp,catalogPath);}finally{await rm(temp,{force:true});}
+    return {config,record:publicRecord(next),rollback,apply:async()=>{
+      if(await readConfig(this.paths.codex)!==config||await readConfig(recordPath)!==before||await readConfig(catalogPath)!==catalogText)throw conflict('Codex 配置、目录或接入备份已变化，已停止切换账号。');
+      try{await this.save(next,before);}catch(error){await rollback();throw error;}
+    }};
   }
   private async retirePrevious(record:Record){
     if(!record.supersedes)return;const previous=(await this.records()).find(r=>r.id===record.supersedes);

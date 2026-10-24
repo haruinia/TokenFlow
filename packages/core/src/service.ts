@@ -1,4 +1,4 @@
-import {codexCoexistStatus,loadOfficialCodexCatalog,officialCodexHeaders,officialCodexURL,type OfficialCodexCatalog,type CodexOfficialFetch} from './codex-coexist.js';
+import {codexCoexistStatus,loadOfficialCodexCatalog,loadOfficialCodexCatalogForAuth,officialCodexHeaders,officialCodexURL,type OfficialCodexCatalog,type CodexOfficialFetch} from './codex-coexist.js';
 import {gatewayDecoding} from './gateway-decoding.js';
 import {compactionModelWindow} from './initial-compaction.js';
 import {codexWebSearch} from './codex-web-search.js';
@@ -32,7 +32,7 @@ import { AntigravityAccountStore, antigravityDatabasePath } from './antigravity-
 import { upstreamRequest, finishUpstream, inferenceFetch } from './upstream-request.js';
 import { GatewayContext, GatewayContextError, type CompactionReport } from './gateway-context.js';
 import {CodexContext,codexContextScope,portableCodexItem} from './codex-context.js';
-import { CodexAccounts } from './codex-accounts.js';
+import { CodexAccounts, type CodexIdentityRouting } from './codex-accounts.js';
 import { AgentInstallationManager,detectAgent } from './agent-installation.js';
 import {LocalUsageIndex} from './local-usage-index.js';
 import {CursorNativeUsage} from './cursor-native-usage.js';
@@ -581,6 +581,13 @@ export async function createDesktopService(options:ServiceOptions) {
     },configure:input=>proposeRepair(input,origin,true),diagnose:(input,signal)=>localMaintenance.diagnostic(input,signal),upgrade:()=>{if(chain&&chain.target!=='codex')throw new Error('当前链路不是 Codex，请由用户选择 Codex 后检查升级。');return localMaintenance.prepareUpgrade();},propose:()=>proposeRepair(chain,origin),refresh:async()=>{await proxy.refreshAccounts();return inspect();},repair:async()=>proposeRepair(chain,origin),restore:async id=>proposeRestore(id,chain)},false,chain,context);
   };
 
+  const codexIdentityRouting=(connectionId:string):CodexIdentityRouting=>async(auth,config,recovery)=>{
+    let authorization:unknown;try{authorization=JSON.parse(auth??'{}');}catch{/* The catalog loader reports a missing usable login. */}
+    const official=await loadOfficialCodexCatalogForAuth(connections.paths.codex,authorization,options.codexOfficialFetch);
+    const update=await connections.prepareCodexIdentityCatalog(connectionId,config,official,recovery);
+    const previous=fixedRoutes.get(update.record.keyId);
+    return {...update,apply:async()=>{await update.apply();fixedRoutes.set(update.record.keyId,{target:'codex',sourceId:update.record.sourceId,model:update.record.model,fastModel:update.record.fastModel,selections:update.record.selections,modelAliases:update.record.modelAliases,codexCoexist:true,officialModelSlugs:update.record.officialModelSlugs});},rollback:async()=>{try{await update.rollback();}finally{if(previous)fixedRoutes.set(update.record.keyId,previous);else fixedRoutes.delete(update.record.keyId);}}};
+  };
   const codexAccountStatus=async()=>{const connection=(await connections.status()).find(t=>t.id==='codex')?.connection;return {...await codexAccounts.status(),accounts:await proxy.codexNativeAccounts(),gatewayConnected:!!connection,codexCoexist:!!connection?.codexCoexist};};
   app.get('/api/codex-accounts',codexAccountStatus);
   const nativeSwitchInput=z.object({revision:z.string().regex(/^[a-f0-9]{64}$/),allowRunning:z.boolean().default(false),restartCodex:z.boolean().default(false),restoreHistory:z.boolean().default(true)});
@@ -592,6 +599,7 @@ export async function createDesktopService(options:ServiceOptions) {
     await codexAccounts.checkSwitch(input,credential);
     return codexChange(input.restartCodex,async()=>{
     const target=(await connections.status()).find(t=>t.id==='codex')!;
+    if(target.connection?.codexCoexist){const switched=await codexAccounts.switch(input,credential,codexIdentityRouting(target.connection.id));await enableAttribution();return {...await codexAccountStatus(),message:switched.message};}
     if(target.connection)await restoreConnection(target.connection.id,{revision:target.revision,allowRunning:input.allowRunning},input.model.slice('codex/'.length),input.restoreHistory);
     else await restoreCodexHistory(input.restoreHistory,input.model.slice('codex/'.length));
     const switched=await codexAccounts.switch({...input,revision:target.connection?(await codexAccounts.status()).revision:input.revision},credential);
@@ -605,6 +613,7 @@ export async function createDesktopService(options:ServiceOptions) {
     if(!status.backup)throw Object.assign(new Error('没有可还原的账号切换备份。'),{statusCode:409});
     return codexChange(input.restartCodex,async()=>{
     const target=(await connections.status()).find(t=>t.id==='codex')!;
+    if(target.connection?.codexCoexist){await codexAccounts.restore(input,codexIdentityRouting(target.connection.id));await enableAttribution();return codexAccountStatus();}
     const officialModel=()=>codexAccounts.restoreModel();
     if(target.connection)await restoreConnection(target.connection.id,{revision:target.revision,allowRunning:input.allowRunning},officialModel,input.restoreHistory);
     else await restoreCodexHistory(input.restoreHistory,officialModel);

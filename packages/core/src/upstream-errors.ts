@@ -54,7 +54,18 @@ const known:Record<string,{message:string;type:string;wireMessage?:string}>={
  upstream_context_length:{type:'invalid_request_error',message:'上游拒绝了超出模型上下文窗口的输入。请减少本轮附件或工具定义，或选择支持更长上下文的模型。'},
  upstream_rate_limited:{type:'rate_limit_error',message:'上游返回限流或容量不足，请稍后重试或选择其他模型。'},
 };
-type ErrorDetail={code?:string;type?:string;param?:unknown;message?:string;fields?:unknown};
+const workbuddyToolIssueMessages={
+ unknown_name:'WorkBuddy SDK 返回未声明的工具名，工具调用未接受（unknown_name）。',
+ unfinished_block:'WorkBuddy SDK 的工具块未完整结束，工具调用未接受（unfinished_block）。',
+ invalid_json:'WorkBuddy SDK 的工具参数不是完整 JSON，工具调用未接受（invalid_json）。',
+ invalid_args:'WorkBuddy SDK 的工具参数不符合声明结构，工具调用未接受（invalid_args）。',
+ truncated_turn:'WorkBuddy SDK 的工具响应被截断或未正常结束，工具调用未接受（truncated_turn）。',
+ parallel_limit:'WorkBuddy SDK 返回多个工具调用，超出本次单工具要求（parallel_limit）。',
+ orphan_delta:'WorkBuddy SDK 返回没有对应工具块的参数片段，工具调用未接受（orphan_delta）。',
+ input_limit:'WorkBuddy SDK 的工具参数超过大小限制，工具调用未接受（input_limit）。',
+};
+type ToolIssue=keyof typeof workbuddyToolIssueMessages;
+type ErrorDetail={code?:string;type?:string;param?:unknown;message?:string;fields?:unknown;toolIssue?:unknown};
 const record=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 // Some Responses bridges wrap an already structured provider error inside
 // `message`. Read that envelope before classification so its category survives.
@@ -68,9 +79,17 @@ function errorEnvelope(body:string):{error?:ErrorDetail}{
   return ['code','type','message','param','fields'].some(key=>key in detail)?{error:detail as ErrorDetail}:{};
  }catch{return {};}
 }
-export function upstreamError(status:number,body:string):{code?:string;type:string;message:string;param?:string}{
+export function upstreamError(status:number,body:string):{code?:string;type:string;message:string;param?:string;toolIssue?:ToolIssue}{
  const parsed=errorEnvelope(body);
  const code=typeof parsed?.error?.code==='string'?parsed.error.code:undefined;const message=typeof parsed?.error?.message==='string'?parsed.error.message:'';
+ if(code==='workbuddy_tool_protocol'){
+  // The fixed message preserves this subtype in existing traces even when an
+  // intermediary keeps only error.code/message. Never inspect arbitrary names,
+  // arguments, or provider text to invent a tool subtype.
+  const issue=parsed.error?.toolIssue;
+  const toolIssue=typeof issue==='string'&&Object.hasOwn(workbuddyToolIssueMessages,issue)?issue as ToolIssue:(Object.keys(workbuddyToolIssueMessages) as ToolIssue[]).find(key=>message===workbuddyToolIssueMessages[key]);
+  return {code,...known.workbuddy_tool_protocol!,...(toolIssue?{toolIssue,message:workbuddyToolIssueMessages[toolIssue]}:{})};
+ }
  if(code==='workbuddy_invalid_request'||code==='cursor_invalid_request'){
   const fields=Array.isArray(parsed?.error?.fields)?parsed.error.fields.filter((field:unknown)=>typeof field==='string'&&/^(?:tools|input|messages|reasoning|model|stream|instructions|system|tool_choice|parallel_tool_calls|max_tokens|max_output_tokens|max_completion_tokens|reasoning_effort)(?:\.(?:[0-9]+|name|type|content|parameters|summary|effort))*$/.test(field)).slice(0,5):[];
   const detail=fields.length?`（字段：${fields.join('、')}）`:'';

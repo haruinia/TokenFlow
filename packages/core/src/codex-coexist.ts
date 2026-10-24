@@ -14,7 +14,12 @@ export async function codexCoexistStatus(configPath:string){try{await auth(confi
 
 /** Fetch the account's complete official metadata without persisting or returning its credentials. */
 export async function loadOfficialCodexCatalog(configPath:string,fetcher:CodexOfficialFetch=inferenceFetch):Promise<OfficialCodexCatalog>{
- const tokens=await auth(configPath);let version='0.134.0';
+ return loadOfficialCodexCatalogForAuth(configPath,{tokens:await auth(configPath)},fetcher);
+}
+/** Identity changes discover permissions using the candidate login before replacing any active files. */
+export async function loadOfficialCodexCatalogForAuth(configPath:string,authorization:unknown,fetcher:CodexOfficialFetch=inferenceFetch):Promise<OfficialCodexCatalog>{
+ const parsed=authSchema.safeParse(authorization);if(!parsed.success)throw unavailable('原登录没有可用的 ChatGPT 授权，无法保留官方模型共存；请先停用共存或重新登录。');
+ const tokens=parsed.data.tokens;let version='0.134.0';
  try{const cached=JSON.parse(await readFile(join(dirname(configPath),'models_cache.json'),'utf8'));if(typeof cached.client_version==='string'&&/^[\w.+-]{1,80}$/.test(cached.client_version))version=cached.client_version;}catch{/* Version is a discovery hint, never an auth or model fallback. */}
  try{
   const response=await fetcher(`https://chatgpt.com/backend-api/codex/models?client_version=${encodeURIComponent(version)}`,{headers:{authorization:`Bearer ${tokens.access_token}`,'chatgpt-account-id':tokens.account_id,'user-agent':`codex_cli_rs/${version}`},signal:AbortSignal.timeout(15000),redirect:'error'});

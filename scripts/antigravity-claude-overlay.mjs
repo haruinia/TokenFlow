@@ -13,6 +13,7 @@ export function antigravityClaudeOverlay(replacements,patchDir,test=false){
  replace('antigravity_claude_request.go',[
   ['util.SanitizedFunctionNameMap(rawJSON)','antigravityFunctionNameMap(modelName, rawJSON)'],
   ['util.MapSanitizedFunctionName(functionNameMap,','mapAntigravityFunctionName(modelName, functionNameMap,',4],
+  ['translatorcommon.MergeAdjacentGeminiContents(contentItems)','antigravityMergeClaudeContents(modelName, contentItems)'],
  ]);
  replace('antigravity_claude_response.go',[
   ['util.DisambiguatedToolNameMap(originalRequestRawJSON)','antigravityToolNameMap(gjson.GetBytes(requestRawJSON, "model").String(), originalRequestRawJSON)',2],
@@ -28,6 +29,7 @@ export function antigravityClaudeOverlay(replacements,patchDir,test=false){
  ]);
  replacements[resolve(directory,'token_flow_tool_names.go')]=resolve('patches/cliproxy/antigravity_claude_tool_names.go');
  replacements[resolve(directory,'token_flow_usage.go')]=resolve('patches/cliproxy/antigravity_claude_usage.go');
+ replacements[resolve(directory,'token_flow_contents.go')]=resolve('patches/cliproxy/antigravity_claude_contents.go');
  if(test){
   replacements[resolve(directory,'token_flow_tool_names_test.go')]=resolve('tests/sidecar/antigravity_claude_tool_names_test.go');
   replacements[resolve(directory,'token_flow_usage_test.go')]=resolve('tests/sidecar/antigravity_claude_usage_test.go');

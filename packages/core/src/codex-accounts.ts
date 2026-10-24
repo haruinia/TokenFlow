@@ -39,8 +39,11 @@ const loginCheckMessage:Record<CodexLoginCheck,string>={
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const token=z.string().min(1).max(20000);
 const credential=z.object({access_token:token,refresh_token:token,id_token:token,account_id:z.string().min(1),last_refresh:z.string().optional()});
-const journalSchema=z.object({before:z.object({auth:z.string().nullable(),config:z.string().nullable()}),after:z.object({auth:z.string(),config:z.string()}),accountId:z.string(),createdAt:z.string(),state:z.enum(['prepared','applied','restored'])});
+const journalSchema=z.object({restoring:z.object({config:z.string()}).optional(),identityOnly:z.boolean().optional(),checkpoint:z.object({auth:z.string().nullable(),config:z.string().nullable()}).optional(),before:z.object({auth:z.string().nullable(),config:z.string().nullable()}),after:z.object({auth:z.string(),config:z.string()}),accountId:z.string(),createdAt:z.string(),state:z.enum(['prepared','applied','restored'])});
 type Journal=z.infer<typeof journalSchema>;
+/** Prepared under the shared config lock; each participant must roll back only its own bytes. */
+export type CodexIdentityRecovery={before:string|null;after:string};
+export type CodexIdentityRouting=(auth:string|null,config:string|null,recovery?:CodexIdentityRecovery)=>Promise<{config:string;apply:()=>Promise<void>;rollback:()=>Promise<void>}>;
 function identity(auth:string|null){try{const value=JSON.parse(auth??'{}');return typeof value.tokens?.account_id==='string'?value.tokens.account_id:null;}catch{return null;}}
 function tokenEmail(token:unknown){try{const claims=JSON.parse(Buffer.from(String(token).split('.')[1],'base64url').toString());return typeof claims.email==='string'?claims.email:null;}catch{return null;}}
 function email(auth:string|null){try{return tokenEmail(JSON.parse(auth??'{}').tokens.id_token);}catch{return null;}}
@@ -82,7 +85,7 @@ export class CodexAccounts {
     return this.managedCache.store;
   }
   private async files(){return {auth:await readConfig(this.authPath),config:await readConfig(this.configPath)};}
-  private async journal():Promise<Journal|null>{const raw=await readConfig(this.backupPath);if(raw===null)return null;try{return journalSchema.parse(JSON.parse(raw));}catch{throw conflict('账号切换备份无法读取，请保留备份并检查。');}}
+  private async journal(raw?:string|null):Promise<Journal|null>{if(raw===undefined)raw=await readConfig(this.backupPath);if(raw===null)return null;try{return journalSchema.parse(JSON.parse(raw));}catch{throw conflict('账号切换备份无法读取，请保留备份并检查。');}}
   private async write(path:string,value:string|null,expected?:string|null){
     await safePath(path);
     if(value===null){if(expected!==undefined&&await readConfig(path)!==expected)throw conflict('本机登录或配置已变化，已停止恢复。');await rm(path,{force:true});return;}
@@ -90,7 +93,7 @@ export class CodexAccounts {
     const temp=`${path}.${randomUUID()}.tmp`;
     try{await writeFile(temp,value,{mode:0o600,flag:'wx'});if(expected!==undefined&&await readConfig(path)!==expected)throw conflict('本机登录或配置已变化，已停止恢复。');await rename(temp,path);}finally{await rm(temp,{force:true});}
   }
-  private save(value:Journal){return this.write(this.backupPath,JSON.stringify(value));}
+  private save(value:Journal,expected?:string|null){return this.write(this.backupPath,JSON.stringify(value),expected);}
   async usageLogin():Promise<NativeUsageLogin|null>{
     const files=await this.files(),base=parse(files.config??'');
     const profile=typeof base.profile==='string'?(base.profiles as Record<string,Record<string,unknown>>|undefined)?.[base.profile]:undefined;
@@ -140,32 +143,40 @@ export class CodexAccounts {
     if(config.model_providers&&typeof config.model_providers==='object'&&'openai' in config.model_providers)throw conflict('OpenAI 提供商有自定义覆盖，请先检查接口配置，未写入登录凭据。');
     return c.data;
   }
-  async switch(input:{revision:string;allowRunning:boolean;model:string},raw:unknown){
+  async switch(input:{revision:string;allowRunning:boolean;model:string},raw:unknown,routing?:CodexIdentityRouting){
     return this.locked(async()=>{
       let c=await this.checkSwitch(input,raw);
-      const before=await this.files();let previous=await this.journal();
+      const before=await this.files(),journalBefore=await readConfig(this.backupPath);let previous=await this.journal(journalBefore);
       if(previous?.state==='prepared')throw conflict('上次切换尚未完成，请先还原原登录。');
       // Login or config changed outside token-flow since the last switch: the current state becomes the new original.
-      if(previous?.state==='applied'&&(!nativeRouting(parse(before.config??''))||!sameLogin(before.auth,previous.accountId,email(previous.after.auth))))previous=null;
+      if(previous?.state==='applied'&&(!routing&&!nativeRouting(parse(before.config??''))||!sameLogin(before.auth,previous.accountId,email(previous.after.auth))))previous=null;
       // Prefer the running client's refreshed tokens when selecting the same native account.
       if(sameLogin(before.auth,c.account_id,tokenEmail(c.id_token))){const native=credential.safeParse(JSON.parse(before.auth!).tokens);if(native.success)c={...native.data,last_refresh:JSON.parse(before.auth!).last_refresh??undefined};}
       const config=parse(before.config??'');
       config.model=input.model.slice('codex/'.length);config.model_provider='openai';config.cli_auth_credentials_store='file';delete config.profile;delete config.openai_base_url;
       const after={auth:JSON.stringify({auth_mode:'chatgpt',OPENAI_API_KEY:null,tokens:{access_token:c.access_token,refresh_token:c.refresh_token,id_token:c.id_token,account_id:c.account_id},last_refresh:c.last_refresh??null},null,2)+'\n',config:stringify(config)};
+      const synchronized=routing?await routing(after.auth,before.config):undefined;
+      if(synchronized)after.config=synchronized.config;
       // Retain the original login across repeated A -> B switches.
-      const journal:Journal={before:previous?.state==='applied'?{...previous.before,config:restoredConfig(before.config,previous)}:before,after,accountId:c.account_id,createdAt:new Date().toISOString(),state:'prepared'};
-      await this.save(journal);
+      const journal:Journal={...(routing?{identityOnly:true,checkpoint:before}:{}),before:previous?.state==='applied'?{...previous.before,config:routing?previous.before.config:restoredConfig(before.config,previous)}:before,after,accountId:c.account_id,createdAt:new Date().toISOString(),state:'prepared'};
+      await this.save(journal,journalBefore);
+      const prepared=JSON.stringify(journal);
       try{
         await this.check(input.revision,input.allowRunning);
-        await this.write(this.authPath,after.auth);
+        await this.write(this.authPath,after.auth,before.auth);
         if((await readConfig(this.configPath))!==before.config)throw conflict('配置被其他程序修改，已停止切换。');
-        await this.write(this.configPath,after.config);
-        journal.state='applied';await this.save(journal);
+        await this.write(this.configPath,after.config,before.config);
+        await synchronized?.apply();
+        journal.state='applied';await this.save(journal,prepared);
       }catch(error){
-        // Roll back only bytes we wrote. Do not overwrite a concurrent external edit.
-        if(await readConfig(this.authPath)===after.auth)await this.write(this.authPath,before.auth);
-        if(await readConfig(this.configPath)===after.config)await this.write(this.configPath,before.config);
-        if(digest(await this.files())===digest(before)){if(previous)await this.save(previous);else await this.write(this.backupPath,null);}
+        // Attempt every rollback participant; newer external files always win.
+        const rollbacks=await Promise.allSettled([
+          synchronized?.rollback(),
+          (async()=>{if(await readConfig(this.authPath)===after.auth)await this.write(this.authPath,before.auth,after.auth);})(),
+          (async()=>{if(await readConfig(this.configPath)===after.config)await this.write(this.configPath,before.config,after.config);})(),
+        ]);
+        if(rollbacks.some(result=>result.status==='rejected'))throw conflict('切换未完成，部分文件在回滚时发生变化，已保留登录备份，请检查后恢复。');
+        if(digest(await this.files())===digest(before)){const currentJournal=await readConfig(this.backupPath);if(currentJournal===prepared||currentJournal===JSON.stringify(journal))await this.write(this.backupPath,journalBefore,currentJournal);}
         throw error;
       }
       const check=await (this.checks.loginStatus??codexLoginStatus)(dirname(this.configPath));
@@ -176,28 +187,38 @@ export class CodexAccounts {
     const journal=await this.journal();if(!journal)return undefined;
     return officialCodexModel(this.configPath,recoverCodexConfig(journal.before.config,[journal.after.config]).original,journal.before.auth);
   }
-  async restore(input:{revision:string;allowRunning:boolean}){
+  async restore(input:{revision:string;allowRunning:boolean},routing?:CodexIdentityRouting){
     return this.locked(async()=>{
       await this.check(input.revision,input.allowRunning);
-      const journal=await this.journal();if(!journal||journal.state==='restored')throw conflict('没有可还原的账号切换备份。');
+      const journalBefore=await readConfig(this.backupPath),journal=await this.journal(journalBefore);if(!journal||journal.state==='restored')throw conflict('没有可还原的账号切换备份。');
       const current=await this.files();
       if(digest(current)!==input.revision)throw conflict('本机登录或配置已变化，请刷新后重试。');
       const recovered=recoverCodexConfig(current.config,[journal.before.config,journal.after.config]);
       // A malformed route does not justify replacing a different native login.
-      if(!recovered.recovery&&!sameValue(parse(current.config??''),parse(journal.before.config??''))&&!nativeRouting(parse(current.config??''))||current.auth!==journal.before.auth&&!sameLogin(current.auth,journal.accountId,email(journal.after.auth)))throw conflict('本机登录或配置已有其他修改，已保留备份，未覆盖。');
-      const nextConfig=restoredConfig(recovered.original,journal);if(nextConfig!==null)parse(nextConfig);
+      if(!routing&&!recovered.recovery&&!sameValue(parse(current.config??''),parse(journal.before.config??''))&&!nativeRouting(parse(current.config??''))||current.auth!==journal.before.auth&&!(journal.state==='prepared'&&current.auth===journal.checkpoint?.auth)&&!sameLogin(current.auth,journal.accountId,email(journal.after.auth)))throw conflict('本机登录或配置已有其他修改，已保留备份，未覆盖。');
+      const synchronized=routing?await routing(journal.before.auth,current.config,journal.state==='prepared'?{before:journal.checkpoint?.config??journal.before.config,after:journal.restoring?.config??journal.after.config}:undefined):undefined;
+      const nextConfig=synchronized?synchronized.config:restoredConfig(recovered.original,journal);if(nextConfig!==null)parse(nextConfig);
       if(recovered.recovery)await backupCodexConfig(this.configPath,this.root,current.config);
       await this.check(input.revision,input.allowRunning);
       if(digest(await this.files())!==input.revision)throw conflict('本机登录或配置已变化，请刷新后重试。');
+      const pending=synchronized?{...journal,state:'prepared' as const,checkpoint:current,restoring:{config:nextConfig!}}:undefined;
+      if(pending)await this.save(pending,journalBefore);
+      const pendingText=pending?JSON.stringify(pending):journalBefore;
       try{
         await this.write(this.authPath,journal.before.auth,current.auth);
         await this.write(this.configPath,nextConfig,current.config);
+        await synchronized?.apply();
+        journal.state='restored';delete journal.restoring;await this.save(journal,pendingText);
       }catch(error){
-        // Roll back only the credential bytes we wrote; a newer external login wins.
-        if(await readConfig(this.authPath)===journal.before.auth)await this.write(this.authPath,current.auth,journal.before.auth);
+        const rollbacks=await Promise.allSettled([
+          synchronized?.rollback(),
+          (async()=>{if(await readConfig(this.configPath)===nextConfig)await this.write(this.configPath,current.config,nextConfig);})(),
+          (async()=>{if(await readConfig(this.authPath)===journal.before.auth)await this.write(this.authPath,current.auth,journal.before.auth);})(),
+        ]);
+        if(rollbacks.some(result=>result.status==='rejected'))throw conflict('恢复未完成，部分文件在回滚时发生变化，已保留登录备份，请检查后重试。');
+        if(digest(await this.files())===digest(current)){const currentJournal=await readConfig(this.backupPath);if(currentJournal===pendingText||currentJournal===JSON.stringify(journal))await this.write(this.backupPath,journalBefore,currentJournal);}
         throw error;
       }
-      journal.state='restored';await this.save(journal);
       return this.status();
     });
   }

@@ -11,11 +11,12 @@ const {createDesktopService}=await import('../packages/core/src/service.ts');
 const {codexModelCatalog}=await import('../packages/core/src/codex-model-catalog.ts');
 const {parse}=await import('smol-toml');
 const binary=process.argv[2]??'/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex';
-const officialModel='gpt-fixture-official',gatewayModel='qoder/fixture',compactBeforeOfficial=process.argv.includes('--compact-before-official');let privateGatewayReferencesObserved=false;
+let officialModel='gpt-fixture-official';const gatewayModel='qoder/fixture',compactBeforeOfficial=process.argv.includes('--compact-before-official'),switchAccounts=process.argv.includes('--switch-accounts');let privateGatewayReferencesObserved=false;
 const now=Math.floor(Date.now()/1000),claims={sub:'synthetic-user',iat:now,exp:now+3600,email:'fixture@example.test','https://api.openai.com/auth':{chatgpt_plan_type:'plus',chatgpt_account_id:'synthetic-account',user_id:'synthetic-user'}};
 const jwt=Buffer.from(JSON.stringify({alg:'none',typ:'JWT'})).toString('base64url')+'.'+Buffer.from(JSON.stringify(claims)).toString('base64url')+'.synthetic-signature';
 const auth=JSON.stringify({auth_mode:'chatgpt',tokens:{id_token:jwt,access_token:jwt,refresh_token:'synthetic-refresh',account_id:'synthetic-account'},last_refresh:new Date().toISOString()});
-const officialCatalog={models:codexModelCatalog(officialModel).models};
+const nextJWT=Buffer.from(JSON.stringify({alg:'none',typ:'JWT'})).toString('base64url')+'.'+Buffer.from(JSON.stringify({...claims,email:'next-fixture@example.test','https://api.openai.com/auth':{...claims['https://api.openai.com/auth'],chatgpt_account_id:'synthetic-next-account'}})).toString('base64url')+'.synthetic-signature';
+const officialCatalog=(model=officialModel)=>({models:codexModelCatalog(model).models});
 let service:Awaited<ReturnType<typeof createDesktopService>>|undefined,child:ChildProcessWithoutNullStreams|undefined;
 let gatewayKey='',sequence=0,failedMarker=false;const routes:Array<{route:string;model:string;chatgptAuth:boolean;gatewayCredential:boolean;input:string}>=[];
 const savedFetch=globalThis.fetch;
@@ -38,20 +39,21 @@ async function start(){
 async function page(client:Awaited<ReturnType<typeof start>>,method:string,threadId:string){let cursor:string|undefined;const data:any[]=[];for(let i=0;i<1000;i++){const result=await client.rpc(method,{threadId,limit:2,sortDirection:'asc',...(cursor?{cursor}:{})});data.push(...result.data);if(!result.nextCursor)return data;assert.notEqual(cursor,result.nextCursor);cursor=result.nextCursor;}throw Error('Pagination did not finish');}
 try{
  await mkdir(home,{recursive:true});await mkdir(join(root,'data/cliproxy'),{recursive:true});await writeFile(join(home,'auth.json'),auth,{mode:0o600});await writeFile(join(home,'config.toml'),`model = "${officialModel}"\n`);
- await writeFile(join(root,'data/cliproxy/fixture-accounts.json'),JSON.stringify([{name:'qoder.json',provider:'qoder',email:'fixture@example.test',status:'active',models:['fixture']}]));
+ await writeFile(join(root,'data/cliproxy/fixture-accounts.json'),JSON.stringify([{name:'qoder.json',provider:'qoder',email:'fixture@example.test',status:'active',models:['fixture']},...(switchAccounts?[{name:'next.json',provider:'codex',email:'next-fixture@example.test',status:'active',models:['gpt-fixture-official-next']}]:[])]));
+ if(switchAccounts){await mkdir(join(root,'data/cliproxy/auth'),{recursive:true});await writeFile(join(root,'data/cliproxy/auth/next.json'),JSON.stringify({access_token:nextJWT,id_token:nextJWT,refresh_token:'synthetic-next-refresh',account_id:'synthetic-next-account',last_refresh:new Date().toISOString()}),{mode:0o600});}
  const proxyPort=await freePort();
  globalThis.fetch=async(input,init)=>{
   const url=new URL(String(input));assert.ok(['127.0.0.1','localhost'].includes(url.hostname),'External network forbidden in isolated smoke');
   if(url.port===String(proxyPort)&&url.pathname==='/v1/responses'){
    const body=JSON.parse(String(init?.body)),headers=new Headers(init?.headers);routes.push({route:'gateway',model:body.model,chatgptAuth:headers.get('authorization')===`Bearer ${jwt}`,gatewayCredential:headers.get('x-tokenflow-client-key')===gatewayKey,input:JSON.stringify(body.input)});
-   assert.notEqual(headers.get('authorization'),`Bearer ${jwt}`,'ChatGPT auth leaked to third-party provider');assert.equal(headers.get('x-tokenflow-client-key'),null,'Client key leaked to third-party provider');return sse(body,'GATEWAY');
+   assert.notEqual(headers.get('authorization'),`Bearer ${jwt}`,'ChatGPT auth leaked to third-party provider');assert.notEqual(headers.get('authorization'),`Bearer ${nextJWT}`,'Next ChatGPT auth leaked to third-party provider');assert.equal(headers.get('x-tokenflow-client-key'),null,'Client key leaked to third-party provider');return sse(body,'GATEWAY');
   }
   return savedFetch(input,init);
  };
  service=await createDesktopService({root:join(root,'data'),binary:resolve('tests/fixtures/fake-cliproxy.mjs'),proxyPort,token:'synthetic-admin',localKey:'synthetic-internal',secrets:{get:async()=>'',set:async()=>{}},agentPaths:{codex:join(home,'config.toml'),claude:join(root,'claude.json'),qoder:join(root,'qoder.json'),workbuddy:join(root,'workbuddy.json')},agentProcesses:async()=>[],nativeProcesses:async()=>[],antigravityPath:join(root,'antigravity'),cursorLocalPath:join(root,'cursor'),codexOfficialFetch:async(url,init)=>{
   assert.ok(url.startsWith('https://chatgpt.com/backend-api/codex/'));
-  const headers=new Headers(init.headers);assert.equal(headers.get('authorization'),`Bearer ${jwt}`);assert.equal(headers.get('chatgpt-account-id'),'synthetic-account');assert.equal(headers.get('x-tokenflow-client-key'),null);
-  if(url.includes('/models?'))return Response.json(officialCatalog);
+  const headers=new Headers(init.headers),next=headers.get('chatgpt-account-id')==='synthetic-next-account';assert.equal(headers.get('authorization'),`Bearer ${next?nextJWT:jwt}`);assert.equal(headers.get('chatgpt-account-id'),next?'synthetic-next-account':'synthetic-account');assert.equal(headers.get('x-tokenflow-client-key'),null);
+  if(url.includes('/models?'))return Response.json(officialCatalog(next?'gpt-fixture-official-next':'gpt-fixture-official'));
   const body=JSON.parse(String(init.body));assert.equal(body.model,officialModel);assert.ok(!body.input?.some((item:any)=>item.type==='compaction'&&String(item.encrypted_content).startsWith('tfctx1.')),'Private gateway checkpoint reached official provider');assert.ok(!String(body.previous_response_id??'').startsWith('resp_tf_'),'Private gateway response ID reached official provider');routes.push({route:'official',model:body.model,chatgptAuth:true,gatewayCredential:false,input:JSON.stringify(body.input)});
   if(JSON.stringify(body.input?.at(-1)).includes('FAILED_MIXED_MARKER')){failedMarker=true;return Response.json({error:{type:'invalid_request_error',message:'Synthetic official source failure'}},{status:400});}
   return sse(body,'OFFICIAL');
@@ -72,7 +74,18 @@ try{
  const fork=await client.rpc('thread/fork',{threadId:thread,beforeTurnId:failed.id,excludeTurns:true});await client.turn(fork.thread.id,gatewayModel,'MIXED_FORK_MARKER');const forkItems=await page(client,'thread/items/list',fork.thread.id);assert.ok(JSON.stringify(forkItems).includes('MIXED_FORK_MARKER'));assert.ok(!JSON.stringify(forkItems).includes('FAILED_MIXED_MARKER'));await client.stop();
  assert.equal(await readFile(join(home,'auth.json'),'utf8'),auth,'Synthetic original login was rewritten');assert.ok(failedMarker);if(!compactBeforeOfficial)assert.deepEqual(routes.map(r=>r.route),['gateway','official','gateway','official','official','gateway']);else{assert.ok(privateGatewayReferencesObserved,'Fixture did not exercise gateway checkpoint at official boundary');assert.ok(routes.length>=6);}
  for(const route of routes.slice(1))assert.ok(route.input.includes('MIXED_FIRST_MARKER'));assert.ok(!routes.at(-1)!.input.includes('FAILED_MIXED_MARKER'));
- console.log(JSON.stringify({passed:true,scope:'installed Codex + actual TokenFlow service; isolated HOME and synthetic ChatGPT JWT/providers; no live account',mixedCatalog:true,gatewayCompactionBeforeOfficial:compactBeforeOfficial,privateGatewayReferencesObserved,requiresOpenAIAuth:true,authPreserved:true,credentialSeparation:true,modelRoutes:routes.map(r=>r.route),restart:true,turns:turns.length,items:items.length,forkBeforeFailedTurn:true}));
+ if(switchAccounts){
+  const beforeConfig=parse(await readFile(join(home,'config.toml'),'utf8')) as any,connection=connected.json(),native=service.proxy.snapshot().accounts.find(a=>a.provider==='codex')!;
+  let status=(await service.app.inject({url:'/api/codex-accounts',headers:admin})).json();
+  const switched=await service.app.inject({method:'POST',url:'/api/codex-accounts/switch',headers:admin,payload:{revision:status.revision,sourceId:native.id,model:'codex/gpt-fixture-official-next',restoreHistory:false}});assert.equal(switched.statusCode,200,switched.body);assert.equal(switched.json().gatewayConnected,true);assert.equal(switched.json().codexCoexist,true);
+  officialModel='gpt-fixture-official-next';client=await start();let menu=await client.rpc('model/list',{});assert.ok(menu.data.some((model:any)=>model.id===officialModel));assert.ok(menu.data.some((model:any)=>model.id===gatewayModel));assert.ok(!menu.data.some((model:any)=>model.id==='gpt-fixture-official'));
+  const switchedThread=await client.rpc('thread/start',{cwd:home,approvalPolicy:'never',sandbox:'read-only'});await client.turn(switchedThread.thread.id,officialModel,'ACCOUNT_SWITCH_OFFICIAL');await client.turn(switchedThread.thread.id,gatewayModel,'ACCOUNT_SWITCH_GATEWAY');await client.stop();
+  status=(await service.app.inject({url:'/api/codex-accounts',headers:admin})).json();const restored=await service.app.inject({method:'POST',url:'/api/codex-accounts/restore',headers:admin,payload:{revision:status.revision,restoreHistory:false}});assert.equal(restored.statusCode,200,restored.body);assert.equal(restored.json().gatewayConnected,true);assert.equal(restored.json().backup,null);
+  officialModel='gpt-fixture-official';client=await start();menu=await client.rpc('model/list',{});assert.ok(menu.data.some((model:any)=>model.id===officialModel));assert.ok(menu.data.some((model:any)=>model.id===gatewayModel));assert.ok(!menu.data.some((model:any)=>model.id==='gpt-fixture-official-next'));
+  const restoredThread=await client.rpc('thread/start',{cwd:home,approvalPolicy:'never',sandbox:'read-only'});await client.turn(restoredThread.thread.id,officialModel,'ACCOUNT_RESTORE_OFFICIAL');await client.turn(restoredThread.thread.id,gatewayModel,'ACCOUNT_RESTORE_GATEWAY');await client.stop();
+  const afterConfig=parse(await readFile(join(home,'config.toml'),'utf8')) as any,target=(await service.app.inject({url:'/api/a2a',headers:admin})).json().targets.find((target:any)=>target.id==='codex');assert.deepEqual(afterConfig.model_providers,beforeConfig.model_providers);assert.equal(target.connection.id,connection.id);assert.equal(target.connection.keyId,connection.keyId);assert.deepEqual(target.connection.officialModelSlugs,[officialModel]);assert.equal(await readFile(join(home,'auth.json'),'utf8'),auth);
+ }
+ console.log(JSON.stringify({passed:true,scope:'installed Codex + actual TokenFlow service; isolated HOME and synthetic ChatGPT JWT/providers; no live account',mixedCatalog:true,officialIdentitySwitchAndRestore:switchAccounts,gatewayCompactionBeforeOfficial:compactBeforeOfficial,privateGatewayReferencesObserved,requiresOpenAIAuth:true,authPreserved:true,credentialSeparation:true,modelRoutes:routes.map(r=>r.route),restart:true,turns:turns.length,items:items.length,forkBeforeFailedTurn:true}));
 }finally{
  if(child&&child.exitCode===null)await new Promise<void>(resolve=>{child!.once('exit',()=>resolve());child!.kill();});
  await service?.app.close();globalThis.fetch=savedFetch;await rm(root,{recursive:true,force:true});
