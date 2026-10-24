@@ -143,7 +143,7 @@ export class CodexThreadMigration {
    for(const entry of journal.entries){const row=current.find(row=>row.id===entry.id);if(active(entry)&&row?.provider==='token_flow'&&!allowedModels.includes(row.model)){entry.state='pending';entry.nextModel=model;changed=true;}}
    if(changed){journal.state='prepared';await this.save(journal);}
   }
-  if(rows.length)await this.backup(rows,model,false);
+  if(rows.length)await this.backup(rows,model,false,allowedModels);
  }
  /** Also retain conversations created while the gateway was active. */
  async prepareOfficial(model:string){
@@ -155,12 +155,12 @@ export class CodexThreadMigration {
   if(!model||model.includes('/'))throw fail('请先选择一个官方 Codex 模型，再还原这些对话。');
   await this.idle();await this.backup(rows,model,true);
  }
- private async backup(rows:Route[],model:string,official:boolean){
+ private async backup(rows:Route[],model:string,official:boolean,allowedModels:string[]=[model]){
   // Check runtime availability before creating a backup or changing configuration.
   if(this.clientFactory===codexMigrationClient)await migrationBinary();
   // Empty drafts have no saved model or completed turn; leave them untouched.
   this.progress={phase:'backup',done:0,total:rows.length};
-  const journal:Journal={version:1,id:randomUUID(),createdAt:new Date().toISOString(),state:'prepared',entries:rows.map(row=>({...row,observedRoute:{provider:row.provider,model:row.model},provider:official?'openai':row.provider,model:official?model:row.model,nextModel:official?row.model:model,state:official?'migrated':'pending'}))};
+  const journal:Journal={version:1,id:randomUUID(),createdAt:new Date().toISOString(),state:'prepared',entries:rows.map(row=>({...row,observedRoute:{provider:row.provider,model:row.model},provider:official?'openai':row.provider,model:official?model:row.model,nextModel:official||allowedModels.includes(row.model)?row.model:model,state:official?'migrated':'pending'}))};
   const directory=join(this.directory,journal.id);await mkdir(directory,{recursive:true,mode:0o700});
   try{
    const {DatabaseSync,backup}=await import('node:sqlite');
@@ -228,7 +228,7 @@ export class CodexThreadMigration {
     if(restore&&!restoredModel)throw fail('请先选择一个官方 Codex 模型，再还原这些对话。');
     if(restore&&row.provider===restoredProvider&&row.model===restoredModel){entry.state='restored';await this.save(journal);continue;}
     if(!(restore&&row.provider===restoredProvider)&&row.provider!==(restore?'token_flow':entry.provider)&&row.provider!=='token_flow')throw fail('旧对话来源已被其他程序修改，未覆盖；请检查后重试。');
-    if(!restore){entry.nextModel=model!;await this.save(journal);}
+    if(!restore){entry.nextModel=allowedModels.includes(row.model)?row.model:model!;await this.save(journal);}
     // Codex refuses to resume archived threads. Keep the archive intent durable
     // so a crash between unarchive and archive is recoverable on the next attempt.
     const runtime=await getClient();await this.idle(runtime.pid);

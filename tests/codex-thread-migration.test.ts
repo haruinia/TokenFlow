@@ -286,3 +286,24 @@ it('backs up and switches large histories without starting any compaction',async
   await f.reopen().migrate('gateway');await f.reopen().restore();expect(f.compacted).toEqual([]);
  }finally{await f.close();}
 });
+
+it('keeps an authorized official model while moving its provider into a mixed catalog, including later repairs',async()=>{
+ const f=await fixture();try{
+  const allowed=['gateway','native'];
+  await f.migration.prepare('gateway',allowed);
+  const manifest=JSON.parse(await readFile(join(f.root,'codex-thread-backups',(await readdir(join(f.root,'codex-thread-backups')))[0]!,'manifest.json'),'utf8'));
+  expect(manifest.entries.every((entry:any)=>entry.nextModel==='native')).toBe(true);
+  await f.migration.migrate('gateway',allowed);
+  for(const id of ['old','cli'])expect(f.db.prepare('select model_provider,model from threads where id=?').get(id)).toMatchObject({model_provider:'token_flow',model:'native'});
+  const before=f.calls();await f.reopen().prepare('gateway',allowed);await f.reopen().migrate('gateway',allowed);expect(f.calls()).toBe(before);
+  // A resumed official route may need its provider repaired, without replacing
+  // the still-authorized official model with the gateway default.
+  f.db.prepare("update threads set model_provider='openai' where id='old'").run();
+  await f.reopen().prepare('gateway',allowed);await f.reopen().migrate('gateway',allowed);
+  expect(f.db.prepare("select model_provider,model from threads where id='old'").get()).toMatchObject({model_provider:'token_flow',model:'native'});
+  // New official conversations discovered on a later apply use the same rule.
+  const file=join(f.home,'later-mixed.jsonl');await writeFile(file,'later mixed history');f.db.prepare('insert into threads values (?,?,?,?,?,?)').run('later-mixed','openai','native',file,'vscode',0);
+  await f.reopen().prepare('gateway',allowed);await f.reopen().migrate('gateway',allowed);
+  expect(f.db.prepare("select model_provider,model from threads where id='later-mixed'").get()).toMatchObject({model_provider:'token_flow',model:'native'});
+ }finally{await f.close();}
+});

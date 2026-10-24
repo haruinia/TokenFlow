@@ -4,6 +4,7 @@ import {Thinking} from './LoadingState';
 import {orderModels,useModelOrder} from './display-order';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
 import {FlowDialog} from './FlowDialog';
+import {SupplierImport} from './SupplierImport';
 import type { ApiSource } from '../../../packages/core/src/api-sources';
 import type { LocalAgentSnapshot } from '../../../packages/core/src/cliproxy';
 import { requestJSON } from './request';
@@ -153,7 +154,7 @@ export function ApiInflow({local,usage,onChange,notify,onContext}:{onContext?:(c
  }
 
  return <section className="tfApis" aria-label="API 接口">
-  <header className="tfCollectionHead"><UsageFold loaded={usage.loaded} error={usage.error} onRetry={usage.reload} title="API 接口用量" subtitle="今日 API 用量与缓存命中" rows={usage.allRows.filter(row=>row.day===localDay(new Date())&&row.origin!=='native'&&sources.some(source=>source.id===row.sourceId))} range="today"/><button className="iconButton tfCollectionAdd" aria-label="添加 API" title="添加 API" disabled={busy||form!==undefined} onClick={()=>open(null)}><Icon name="plus" size={18}/></button></header>
+  <header className="tfCollectionHead"><UsageFold loaded={usage.loaded} error={usage.error} onRetry={usage.reload} title="API 接口用量" subtitle="今日 API 用量与缓存命中" rows={usage.allRows.filter(row=>row.day===localDay(new Date())&&row.origin!=='native'&&sources.some(source=>source.id===row.sourceId))} range="today"/><SupplierImport disabled={busy||form!==undefined} onChange={onChange} notify={notify}/><button className="iconButton tfCollectionAdd" aria-label="添加 API" title="添加 API" disabled={busy||form!==undefined} onClick={()=>open(null)}><Icon name="plus" size={18}/></button></header>
   {form!==undefined&&<FlowDialog open title={form?`编辑 API · ${form.name}`:'添加 API'} className="tfApiEditorDialog" onClose={close}><form className="tfForm tfApiEditor" onSubmit={event=>void submit(event)} noValidate aria-label={form?'编辑 API':'添加 API'}>
    <div className="tfKeyFields">
    <label>名称备注<input name="name" autoComplete="off" aria-invalid={!!errors.name} value={name} disabled={busy} onChange={event=>{setName(event.target.value);setErrors(e=>({...e,name:undefined}));}} placeholder="例如：公司中转 · Kimi" autoFocus/>{errors.name&&<span className="tfError">{errors.name}</span>}</label>

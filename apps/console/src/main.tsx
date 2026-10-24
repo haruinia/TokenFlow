@@ -128,8 +128,8 @@ function App(){
   <aside className="tfSide">
    <div className="tfBrand"><img src="/logo.svg" alt="" width="24" height="24"/>TokenFlow</div>
    <nav aria-label="主导航">
-    <small className="tfNavGroup">已保存</small>{saved.map(navButton)}
     <small className="tfNavGroup">使用</small>{used.map(navButton)}
+    <small className="tfNavGroup">供应商</small>{saved.map(navButton)}
    </nav>
    <nav aria-label="更多" className="tfSideFoot">{secondary.map(navButton)}</nav>
   </aside>

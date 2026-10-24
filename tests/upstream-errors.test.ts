@@ -48,3 +48,18 @@ it.each(['workbuddy_text_mismatch','workbuddy_model_mismatch','workbuddy_missing
  const safe=upstreamError(502,JSON.stringify({error:{code,message:'PRIVATE_PROMPT Bearer private-token'}}));
  expect(safe.code).toBe(code);expect(safe.message).not.toMatch(/PRIVATE_PROMPT|private-token/);
 });
+
+it.each([
+ ['tools.0.custom.name',"String should match pattern PRIVATE"],
+ ['messages.1.content.0','Invalid `signature` in `thinking` block PRIVATE'],
+ ['tools[2].input_schema.anyOf[0].type','Unsupported schema PRIVATE'],
+])('extracts only a whitelisted structural path from nested Antigravity errors: %s',(param,detail)=>{
+ const inner={type:'error',error:{type:'invalid_request_error',message:`${param}: ${detail}`}};
+ const result=upstreamError(400,JSON.stringify({error:{type:'invalid_request_error',message:JSON.stringify(inner)}}));
+ expect(result).toMatchObject({code:'upstream_invalid_request',param});
+ expect(result.message).toContain(param);expect(result.message).not.toMatch(/PRIVATE|signature`|String should/);
+});
+it.each(['tools.0.custom.PRIVATE_TOKEN','messages.0.content.secret','tools.0.input_schema.properties.privateCustomerName','tools.0.custom.name\nPRIVATE','Bearer private-token','x'.repeat(300)])('rejects nonstructural provider parameter text: %s',param=>{
+ const result=upstreamError(400,JSON.stringify({error:{type:'invalid_request_error',message:`${param}: PRIVATE`,param}}));
+ expect(result.param).toBeUndefined();expect(result.message).not.toMatch(/PRIVATE|private-token|privateCustomerName/);
+});

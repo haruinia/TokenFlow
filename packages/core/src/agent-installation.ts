@@ -1,6 +1,6 @@
 import {access,readFile,realpath} from 'node:fs/promises';
 import {constants} from 'node:fs';
-import {delimiter,dirname,isAbsolute,join,win32} from 'node:path';
+import {basename,delimiter,dirname,isAbsolute,join,win32} from 'node:path';
 import {homedir} from 'node:os';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
@@ -16,7 +16,7 @@ const recipes={
  workbuddy:{bin:'workbuddy',package:'',download:'https://www.codebuddy.cn/work/'},
  'workbuddy-ai':{bin:'workbuddyai',package:'',download:'https://www.workbuddy.ai/'},
 } as const;
-export type AgentInstallation={installed:boolean;channel:'npm'|'application'|'other'|'missing';version?:string;path?:string;download:string;automatic:boolean;supported?:boolean;reason?:string};
+export type AgentInstallation={installed:boolean;channel:'npm'|'application'|'other'|'missing';version?:string;path?:string;download:string;automatic:boolean;supported?:boolean;reason?:string;configurationSupported?:boolean;npmPrefix?:string};
 const failure=(message:string)=>Object.assign(new Error(message),{statusCode:409});
 const dirs=()=>[...(process.env.PATH??'').split(delimiter),join(homedir(),'.npm-global','bin'),join(homedir(),'.local','bin'),...(process.platform==='win32'?[join(homedir(),'.npm-global'),...(process.env.APPDATA?[join(process.env.APPDATA,'npm')]:[])]:['/opt/homebrew/bin','/usr/local/bin'])].filter(isAbsolute);
 async function executable(name:string,unresolved=false){
@@ -25,13 +25,19 @@ async function executable(name:string,unresolved=false){
  }
 }
 async function packageOf(path:string,name:string){
- try{const data=JSON.parse(await readFile(join(dirname(path),'node_modules',name,'package.json'),'utf8'));if(data.name===name&&typeof data.version==='string')return data.version;}catch{/* npm shims use a sibling node_modules directory on Windows. */}
- let dir=dirname(path);
- for(let i=0;i<6;i++,dir=dirname(dir))try{
+ const metadata=async(dir:string)=>{
   const data=JSON.parse(await readFile(join(dir,'package.json'),'utf8'));
-  if(data.name===name&&typeof data.version==='string')return data.version;
- }catch{/* Executables need not be npm packages. */}
+  if(data.name!==name||typeof data.version!=='string')return;
+  const modules=name.startsWith('@')?dirname(dirname(dir)):dirname(dir);
+  if(basename(modules)!=='node_modules')return;
+  const parent=dirname(modules),prefix=process.platform==='win32'?parent:basename(parent)==='lib'?dirname(parent):undefined;
+  return {version:data.version as string,prefix};
+ };
+ try{const data=await metadata(join(dirname(path),'node_modules',name));if(data)return data;}catch{/* Windows npm shims use a sibling node_modules directory. */}
+ let dir=dirname(path);
+ for(let i=0;i<6;i++,dir=dirname(dir))try{const data=await metadata(dir);if(data)return data;}catch{/* Executables need not be npm packages. */}
 }
+
 const desktopNames:Partial<Record<Target|'claude-desktop'|'workbuddy-ai'|'qoder-ide',string[]>>={'claude-desktop':['Claude'],codex:['Codex','ChatGPT'],qoder:['Qoder'],'qoder-ide':['Qoder IDE','Qoder'],workbuddy:['WorkBuddy'],'workbuddy-ai':['WorkBuddy AI','WorkBuddyAI'],deepseek:['DeepSeek Harness']};
 export function desktopCandidates(target:Target|'claude-desktop'|'workbuddy-ai'|'qoder-ide',platform=process.platform,home=homedir(),env:NodeJS.ProcessEnv=process.env){
  if(platform==='darwin')return (desktopNames[target]??[]).flatMap(name=>['/Applications',join(home,'Applications')].map(base=>join(base,`${name}.app`)));
@@ -90,7 +96,7 @@ async function desktopInstallation(target:Target|'claude-desktop'|'workbuddy-ai'
   if(store?.location)return {installed:true,channel:'application',path:store.location,version:store.version,download:recipes[target].download,automatic:false,...agentCompatibility(target)};
  }
 }
-export async function detectAgent(target:Target|'claude-desktop'|'workbuddy-ai'):Promise<AgentInstallation>{
+async function detectInstallation(target:Target|'claude-desktop'|'workbuddy-ai'):Promise<AgentInstallation>{
  const recipe=recipes[target];
  const desktop=await desktopInstallation(target);if(desktop&&(target!=='codex'))return desktop;
  // DeepSeek is the official desktop app; Pi is the official coding-agent package.
@@ -99,14 +105,18 @@ export async function detectAgent(target:Target|'claude-desktop'|'workbuddy-ai')
  if(target==='claude'&&path&&/\.cmd$/i.test(path)){
   for(const name of ['bin/claude.exe','cli.js']){const native=join(dirname(path),'node_modules','@anthropic-ai','claude-code',name);try{await access(native,constants.F_OK);path=native;break;}catch{}}
  }
- if(path){const npmVersion=recipe.package?await packageOf(path,recipe.package):undefined;let version=npmVersion;
+ if(path){const npmPackage=recipe.package?await packageOf(path,recipe.package):undefined;const npmVersion=npmPackage?.version;let version=npmVersion;
   // Recent Claude npm packages are launchers; metadata alone does not prove the native payload works.
-  if(target==='claude')try{version=versionOf((await exec(path.endsWith('.js')?process.execPath:path,path.endsWith('.js')?[path,'--version']:['--version'],{env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},timeout:10000,maxBuffer:4096,windowsHide:true})).stdout);if(!version)throw Error('missing version');}catch{return {installed:false,channel:'missing',path,download:recipe.download,automatic:!!npmVersion&&process.platform!=='win32',reason:'Claude Code 程序不完整，请重新安装修复。'};}
+  if(target==='claude')try{version=versionOf((await exec(path.endsWith('.js')?process.execPath:path,path.endsWith('.js')?[path,'--version']:['--version'],{env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},timeout:10000,maxBuffer:4096,windowsHide:true})).stdout);if(!version)throw Error('missing version');}catch{return {installed:false,channel:'missing',path,download:recipe.download,automatic:!!npmPackage?.prefix,npmPrefix:npmPackage?.prefix,reason:'Claude Code 程序不完整，请重新安装修复。'};}
   if(!version&&['pi','claude','codex'].includes(target)&&process.platform!=='win32')try{version=versionOf((await exec(path,['--version'],{timeout:3000,maxBuffer:4096})).stdout);}catch{/* Unknown version never implies an update. */}
-  return {installed:true,channel:npmVersion?'npm':'other',path,version,download:recipe.download,automatic:!!npmVersion&&path.includes('/lib/node_modules/')&&process.platform!=='win32'};
+  return {installed:true,channel:npmVersion?'npm':'other',path,version,download:recipe.download,automatic:!!npmPackage?.prefix,npmPrefix:npmPackage?.prefix};
  }
  if(desktop)return desktop;
- return {installed:false,channel:'missing',download:recipe.download,automatic:!!recipe.package&&process.platform!=='win32'};
+ return {installed:false,channel:'missing',download:recipe.download,automatic:!!recipe.package};
+}
+export async function detectAgent(target:Target|'claude-desktop'|'workbuddy-ai'):Promise<AgentInstallation>{
+ const installation=await detectInstallation(target);
+ return {...installation,configurationSupported:target==='claude'||installation.installed};
 }
 export class AgentInstallationManager {
  private busy=false;
@@ -123,14 +133,15 @@ export class AgentInstallationManager {
    if(action==='update'&&!installed.installed)throw failure('程序尚未安装，请先安装。');
    if(action==='install'&&installed.installed)return {message:'已经检测到此 Agent，无需重复安装。',installation:installed};
    if((await this.processes(target)).length)throw failure('请先保存工作并退出此 Agent，再安装或更新。');
-   const npm=await executable('npm');
-   if(!npm||!npm.endsWith('/npm/bin/npm-cli.js'))throw failure('没有找到可用的 Node.js/npm，请先安装 Node.js 后重试。');
+   let npm=await executable('npm');
+   if(npm&&!/[\\/]npm[\\/]bin[\\/]npm-cli\.js$/.test(npm)){const cli=join(dirname(npm),'node_modules','npm','bin','npm-cli.js');try{await access(cli,constants.F_OK);npm=cli;}catch{npm=undefined;}}
+   if(!npm)throw failure('没有找到可用的 Node.js/npm，请先安装 Node.js 后重试。');
    // Fixed package names only; no shell or caller-controlled install arguments.
    const env:{[key:string]:string}=Object.fromEntries(['HOME','USERPROFILE','PATH','TMPDIR','TEMP','TMP','SystemRoot','APPDATA'].flatMap(key=>process.env[key]?[[key,process.env[key]!]]:[]));
    // Running npm through Electron makes npm derive its default global prefix from the app bundle.
    // PREFIX is only a default: the user's .npmrc prefix still wins, and updates pass their own --prefix.
-   if(action==='install'){const shim=await executable('npm',true);if(shim)env.PREFIX=dirname(dirname(shim));}
-   try{await exec(process.execPath,[npm,'install','--global',...(installed.path?.includes('/lib/node_modules/')?['--prefix',installed.path.split('/lib/node_modules/')[0]]:[]),recipe.package,'--registry=https://registry.npmjs.org/',...(target==='claude'?['--ignore-scripts=false','--allow-scripts=@anthropic-ai/claude-code']:['--ignore-scripts']),'--no-audit','--no-fund'],{env:{...env,ELECTRON_RUN_AS_NODE:'1'},timeout:180000,maxBuffer:1024*1024,windowsHide:true});}
+   if(action==='install'){const shim=await executable('npm',true);if(shim)env.PREFIX=process.platform==='win32'?dirname(shim):dirname(dirname(shim));}
+   try{await exec(process.execPath,[npm,'install','--global',...(installed.npmPrefix?['--prefix',installed.npmPrefix]:[]),recipe.package,'--registry=https://registry.npmjs.org/',...(target==='claude'?['--ignore-scripts=false','--allow-scripts=@anthropic-ai/claude-code']:['--ignore-scripts']),'--no-audit','--no-fund'],{env:{...env,ELECTRON_RUN_AS_NODE:'1'},timeout:180000,maxBuffer:1024*1024,windowsHide:true});}
    catch{throw failure('安装或更新未完成，请检查网络和安装目录权限后重试。已有配置已保留。');}
    const next=await detectAgent(target);if(!next.installed)throw failure('安装命令已结束，但还未检测到程序，请检查 Node.js 安装目录。');
    return {message:`${action==='install'?'安装':'更新'}完成${next.version?` · ${next.version}`:''}，请重新打开 Agent。`,installation:next};

@@ -1,26 +1,44 @@
 # TODO
 
-项目当前待办的统一入口。更新于 2026-10-20；源码回归、包内检查与平台实机验收分别记录。文档导航见 [目录](README.md)。
+项目当前待办的统一入口。更新于 2026-10-23；源码回归、包内检查与平台实机验收分别记录。文档导航见 [目录](README.md)。
 
 ## 当前待办
 
 | 编号 | 优先级 | 事项 | 当前状态与验收入口 |
 | --- | --- | --- | --- |
 | AUTH-001 | P1 | 账号授权各平台真实可用性 | Claude 全流程从未实测，Kimi 授权已过期，xAI／ZCode 只验证过目录；Kimi、Qoder、ZCode（含 BigModel）、Trae、WorkBuddy 海外导入、Claude 授权码登录等代码修复已完成待实测，Codex 切换核验与 Codex／Claude 刷新令牌共享待修；见 [核查与待实测清单](testing/account-authorization-readiness.md) |
-| LOGIN-001 | P1 | 自定义模型客户端的官方登录选中与网关配置独立 | WorkBuddy／WorkBuddyAI／Qoder 共存规则已修正，70 项回归及界面模拟通过；Windows 待实机，见 [验证记录](testing/official-login-coexist.md) |
+| LOGIN-001 | P1 | 自定义模型客户端的官方登录选中与网关配置独立 | WorkBuddy／WorkBuddyAI／Qoder 既有共存规则保留；Codex 显式共存模式已接入官方身份选中，隔离原生 smoke 与 UI 通过；Windows 待实机，见 [既有验证](testing/official-login-coexist.md)、[本轮客户端验证](testing/client-configuration-repair-2026-10-23.md) |
 | MODEL-001 | P1 | WorkBuddy 导入后模型名称重复、附带内部 ID | 代码已修复，86 项回归及本机原生函数／CLI 验证通过；Windows 菜单待实测，见 [验证记录](testing/workbuddy-model-labels.md) |
-| USAGE-001 | P1 | Claude 用量的渠道、来源账号与真实客户端归属 | 源码夹具通过；真实渠道与包内历史失败待验收 |
+| USAGE-001 | P1 | Claude 用量的渠道、来源账号与真实客户端归属 | 源码夹具及 .57 M／Intel 包内原生归属检查通过；真实渠道对账仍待验收 |
 | USAGE-002 | P1 | 反重力使用渠道与来源统计 | SQLite v1 直连采集已接入，生产 Worker 只读核对 45 次调用；其他格式及实机对账待验收，见 [覆盖范围](testing/native-direct-usage.md) |
 | USAGE-003 | P1 | 用量界面区分目标客户端、来源、渠道与采集位置 | 待核对界面；反重力的 Claude 模型不能归入 Claude 官方账号 |
 | USAGE-004 | P1 | 全部授权平台的客户端直连用量 | 现有日志、反重力 SQLite 与 Cursor 本机会话＋官方明细已接入；Kimi／ZCode／Trae／Grok 待采集器，WorkBuddyAI 旧格式待适配；见 [支持矩阵](testing/native-direct-usage.md) |
 | USAGE-005 | P1 | Codex 个人主页日桶差额、请求账号归属 | 未发现本机重复响应；子线程归属已修复；账号／时区组合未对齐。官方 CLI 日桶 263,551,960 与主页 3.5 亿也不同，新主页接口权限受限，仍待完整口径，见 [排查记录](testing/native-direct-usage.md#codex-个人主页与本机日志差异排查2026-10-17) |
 | WIN-001 | P0 | Windows 授权、退出／重启、窗口与功能回归 | [完整验收清单](待修复的问题win兼容.md)，实机项保持未测直至回传结果 |
-| CONFIG-001 | P1 | CC Switch 等工具改配置后的重新应用 | 代码、67 项回归与界面模拟通过；Windows 共存实测待完成，见 C09/C11 |
+| CONFIG-001 | P1 | CC Switch 等工具改配置后的重新应用 | 已实现重复 TOML 的完整坏文件备份、合法基底／最小重建、A2A 应用与 native／原登录恢复，以及 revision 保护；合成单测和 HTTP 通过，未改用户真实配置；见 [验证记录](testing/client-configuration-repair-2026-10-23.md) |
 | CONFIG-002 | 待定 | 配置管理 + 按需协议转换 | 产品设计待用户确认，暂缓实现；见下文「产品设计待确认」 |
-| CORE-001 | P1 | Codex 官方登录恢复时的外部并发修改 | 历史 FIX-001 未完成闭环，需在当前版本复现和验证 |
-| CODEX-AGG-001 | P1 | Codex 默认官方＋网关模型聚合进同一模型列表 | 新立项，未实现；当前 Codex 仍为官方直连／网关二选一。实现方案见下文专节 |
+| CORE-001 | P1 | Codex 官方登录恢复时的外部并发修改 | 恢复已加登录／配置二次 revision、逐文件 expected 检查与仅回滚本次登录写入，隔离并发回归通过；历史 FIX-001 的授权写回后、配置替换前精确竞态仍待闭环，见 [客户端验证](testing/client-configuration-repair-2026-10-23.md) |
+| CODEX-AGG-001 | P1 | Codex 默认官方＋网关模型聚合进同一模型列表 | 已实现完整官方 catalog＋所选网关目录、精确模型分流与独立鉴权；有可用官方登录的新接入默认共存，已有连接沿用当前模式。隔离原生 model/list、续聊／重启／分页及 tfctx 回到官方 smoke 通过；真实用户账号与跨平台仍待验收，见 [原生验证](testing/codex-continuation-repair-2026-10-23.md)、[配置与 UI](testing/client-configuration-repair-2026-10-23.md) |
+| CODEX-HISTORY-001 | P1 | 回退历史改写后的投影一致性、编辑/分支与重启显示 | 已修 immutable rollout ID、越界偏移及祖先投影保留；隔离真实 Codex 的分页、失败前分支、往返切换与重启通过。旧版本已删除祖先投影、且历史此前已改写的两类损伤均通过原生重建验证；用户原对话仍待验收，见 [验证记录](testing/codex-continuation-repair-2026-10-23.md) |
+| CODEX-COMPACT-001 | P1 | 首次整理耗时与持续压缩 | 已修为完整提取、最多一次完整合并并复用缓存；增加结构化开销／usage 诊断，修复相关缓存重复计数。合成调度与原生重复压缩通过；原真实来源的摘要质量、耗时和循环原因仍待核对，见 [续聊验证](testing/codex-continuation-repair-2026-10-23.md)、[协议验证](testing/model-protocol-repair-2026-10-23.md) |
+| CODEX-STREAM-001 | P1 | 失败换模型后的断流与结束响应无效 | 已修无效终结／缺终结的明确错误传递，失败不写成成功历史；安全结构诊断与隔离失败前分支通过。原 SSE 未留存，不宣称上游 503／429 已消除；见 [验证记录](testing/codex-continuation-repair-2026-10-23.md) |
+| AGENT-001 | P1 | 仅安装 Claude Code VS Code 扩展也可应用 | 已分开配置应用与独立 CLI 安装能力；无 CLI 的共享配置应用及保留 Desktop 入口已通过夹具与 built UI。VS Code 实际聊天、远端／自定义目录仍待验收；见 [验证记录](testing/client-configuration-repair-2026-10-23.md) |
+| AGENT-002 | P2 | 按渠道直接安装和更新本地 Agent | 已接通固定 npm recipe、原全局 prefix 更新、渠道识别与现有操作弹窗；本地项目依赖不冒充全局安装，非 npm 桌面仍跳官网。安装测试为 mock，真实安装／更新及 Windows 待验收；见 [验证记录](testing/client-configuration-repair-2026-10-23.md) |
+| IMPORT-001 | P2 | 从 CC Switch 等导入供应商及模型 | 已支持本机 CC Switch SQLite、.db／.sql、legacy 与 generic JSON 的选择预览、协议映射、去重和安全存储批次导入；9 项测试及隔离 UI 通过，不执行导入 SQL、不自动切换客户端；见 [客户端验证](testing/client-configuration-repair-2026-10-23.md) |
+| MODEL-002 | P1 | Cursor Grok 4.7 model-not-found | 有界 A/B 探测工具与 mock 已完成；原生 OAuth 读取 SDK 目录经系统代理返回 401，未推理，不能代替当前 SDK key。仍等待安装进程内当前 SDK key 的参数 A/B，不隐藏模型或改生产参数；见 [验证记录](testing/model-protocol-repair-2026-10-23.md) |
+| MODEL-003 | P1 | Antigravity Claude 长对话/工具 400 | 已修 Claude 入口工具名双向映射、相关缓存 usage 及安全错误路径；名称／原生签名工具往返真实对照通过，usage 用合成 fixture 验证。原用户 payload 未留存，Desktop 当前请求未采样，不将坏签名认定为原故障；见 [验证记录](testing/model-protocol-repair-2026-10-23.md) |
+| AUTH-002 | P1 | 凭证读取复用的包内和系统授权验收 | 4149f08 已包含于 .57 安装包，7 项回归与包内检查通过；实际启动等待 macOS 钥匙串授权，系统提示次数未验收，不承诺只提示一次；见 [交付验证](testing/client-gateway-delivery-2026-10-23.md) |
+| UI-002 | P2 | 使用组前置、已保存更名供应商 | 已调整现有组顺序和标题，保留子入口及 Claude Desktop；本轮 built UI 的 7 张深浅色／小窗口截图通过，无新增产品 CSS；见 [验证记录](testing/client-configuration-repair-2026-10-23.md) |
 | UI-001 | P2 | 右下通知、统一居中 Thinking 与应用模型固定窗口 | 代码、15 项回归、前端构建和界面模拟通过；见 [验证记录](testing/ui-feedback.md) 与 [界面设计](design.md)，真实客户端与跨平台待验收 |
 | ARCH-001 | P2 | 按领域逐步拆分服务装配与路由 | [架构说明](architecture.md)已整理，运行模块尚未重构 |
+
+## 本轮实施与验证（2026-10-23）
+
+- [Codex 历史投影、压缩与续聊](testing/codex-continuation-repair-2026-10-23.md)：源码修复与隔离真实 Codex 的分页、分支、重启、共存认证分流及 tfctx 回到官方请求通过；旧版本两类祖先索引损伤恢复通过，用户原历史仍待验收。
+- [客户端配置、安装与 UI](testing/client-configuration-repair-2026-10-23.md)：重复 TOML 可备份重建和恢复、Claude 扩展应用、npm 渠道、供应商导入与导航已实施；供应商导入 9 项测试、built UI 7 张截图通过。真实安装／更新、授权和 Windows 保持待测。
+- [模型协议修复](testing/model-protocol-repair-2026-10-23.md)：Antigravity Claude 工具名修复有真实对照，缓存 usage 与安全错误路径有隔离回归；原用户失败根因及当前 SDK key 的 Grok A/B 仍未定案。
+
+最终全仓 154 文件／1,489 项测试、typecheck、构建及 .57 M／Intel 包内运行检查通过；.57 已替换本机应用。实际启动仍等待 macOS 钥匙串授权，AUTH-002 系统提示次数与 Grok 当前 SDK key 对照未完成。见 [交付验证](testing/client-gateway-delivery-2026-10-23.md)。
 
 ## 产品设计待确认
 
@@ -42,7 +60,7 @@
 
 - [x] WorkBuddy、WorkBuddyAI、Qoder 不因网关配置取消官方身份选中；已保存账号和未入池本机账号共用规则，显示“已登录”。
 - [x] WorkBuddy、Qoder 切换或恢复官方账号保留网关模型、接入记录和 Key，身份失败时不修改资料；国内／海外身份隔离。
-- [x] Codex 继续区分官方直连和网关模式；本机 Qoder 原生显示函数与 Codex `model/list` 未复现重复名称。
+- [x] Codex 非共存模式仍区分官方直连与仅网关；本轮新增显式官方＋网关共存模式，匹配的本机官方账号保持“已登录”，真实 Codex 隔离 `model/list` 与认证分流通过。见 [本轮验证](testing/codex-continuation-repair-2026-10-23.md)。
 - [ ] Windows 实际客户端验证切换／恢复后自定义模型仍可选择，官方账号仍已登录；WorkBuddyAI 的 TokenFlow 自动导入入口没有在本轮新增。
 
 ## MODEL-001：WorkBuddy 导入后的模型命名
@@ -59,7 +77,7 @@
 - [ ] 真实 Claude Code 分别使用官方登录、独立 API、经 TokenFlow 的其他来源、直接第三方接口，核对总览／账号页／活动中的渠道和来源。
 - [ ] 官方直连只在有请求证据或有效登录观察时间段时关联账号；未知历史不按当前登录回填。账号／组织切换、外部配置变更和“暂不读取安全存储”分别验收。
 - [ ] 网关请求在本机日志出现后不重复累计；缓存读取／写入、输出、未知 usage 和失败计数保持正确。
-- [ ] 重建目标包，重跑 `scripts/check-packaged-runtime.mjs` 的 Claude 归属断言；此前 Intel 包失败仍未关闭。
+- [x] `.57` M／Intel 包重跑 `scripts/check-packaged-runtime.mjs`，Claude 原生归属断言均通过；Intel 由 Rosetta 执行。真实渠道对账与 Windows 验证仍保留独立待办。
 - [ ] Windows 对应 U04 真实测试，附版本、步骤和不含凭据的结果。
 
 本轮原有 37 项用量回归通过；新增反重力场景后共 38 项。仅代表源码与隔离来源夹具，详见 [验证记录](testing/usage-attribution.md)。
@@ -98,20 +116,20 @@
 
 ## CORE-001 与架构后续
 
-历史问题原文见 [FIX-001](archive/reports/待修复问题.md)。先复现“授权文件写回之后、配置替换之前发生外部修改”，核对新增字段保留及登录／配置一致性，再决定修改。普通重新应用的版本保护通过，不能替代官方登录恢复的验收。
+历史问题原文见 [FIX-001](archive/reports/待修复问题.md)。本轮官方登录恢复已加入登录／配置二次 revision、逐文件 expected 检查，以及只回滚本次且未被外部更新的登录写入；坏 TOML、外部账号保护与隔离并发回归通过。仍需精确复现“授权文件写回之后、配置替换之前发生外部修改”，核对新增字段及两文件一致性，不用普通重新应用或写入前的并发检查替代该时序验收。见 [本轮验证](testing/client-configuration-repair-2026-10-23.md)。
 
 ARCH-001 按用量、来源授权、客户端接入／重启逐步提取路由注册，先保持 API 和依赖注入接口不变；目录整理不同时搬动运行模块。
 
 ## 已有完成与暂缓记录
 
-## Claude 桌面版接入（2026-10-16 暂缓）
+## Claude 桌面版入口（2026-10-23 用户纠正）
 
-- [x] 前端隐藏 Claude 独立桌面版入口、客户端类型切换及专属展示；本地 Agent 只展示 Claude Code 终端 / IDE。
-- [x] 移除指向已隐藏桌面入口的提示文案，不将桌面组件引入主界面构建。
-- [ ] 后续再评估 Claude 桌面版的官方接入限制、账号状态与模型兼容性。
-- [ ] 完成配置备份、还原、重启和跨平台验证后，再决定是否恢复入口，并沿用统一页面布局。
+- [x] 按用户明确纠正保留 Claude CLI／Claude Desktop 客户端切换与桌面入口，不再执行原“隐藏桌面版”方案。
+- [x] 只移除桌面版单独的默认模型前端字段；沿用现有模型选择、应用、备份与恢复流程。
+- [x] 隔离 built UI 确认缺少独立 CLI 时仍可应用共享配置，Claude Desktop 切换入口保留。
+- [ ] Desktop 当前真实请求、官方登录、模型菜单、配置恢复和跨平台体验仍需实机验收，不用 CLI 请求采样代替。
 
-现有桌面版实现与后端能力保留供后续研究；本次不修改用户的 Claude 登录或配置。接入依据见 [Claude Desktop 接入依据](reference/claude-desktop-integration.md)。
+本轮未修改用户的 Claude 登录或配置。接入依据见 [Claude Desktop 接入依据](reference/claude-desktop-integration.md)，本轮范围见 [客户端验证](testing/client-configuration-repair-2026-10-23.md)。
 
 ## 页面一致性（2026-10-16）
 

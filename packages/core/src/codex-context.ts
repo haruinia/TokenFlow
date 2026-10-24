@@ -5,6 +5,7 @@ import {constants} from 'node:fs';
 import {GatewayContext,GatewayContextError,type ContextScope} from './gateway-context.js';
 import {safePath} from './agent-connections.js';
 import {CodexHistoryBackups,type HistorySnapshot} from './codex-history-backups.js';
+import {repairCodexProjectionLineages,type CodexProjectionRepair} from './codex-projection-repair.js';
 import {replayCodexHistory} from './codex-rollout-history.js';
 
 type Item=Record<string,any>;
@@ -121,6 +122,14 @@ export class CodexContext {
   }
   throw failure();
  }
+ /** Coexisting official routes understand native opaque state, but cannot
+  * decrypt our local checkpoints or resolve gateway-owned response IDs. */
+ async forOfficial<T extends Record<string,unknown>>(body:T,scopes:ContextScope[]):Promise<T>{
+  return this.context.forOfficial(body,[codexContextScope,...scopes],item=>{
+   if(item.type==='compaction'||item.type==='reasoning'&&typeof item.encrypted_content==='string'&&item.encrypted_content&&!/^rs_chatcmpl[-_]/.test(String(item.id)))return [item];
+   return portableCodexItem(item);
+  });
+ }
  /** Called before leaving the gateway. Restore plaintext checkpoints only after
   * Codex has exited; compare bytes again and back up before atomic replacement. */
  async repairLineage(processes:()=>Promise<number[]>){return this.prepare([],processes,false);}
@@ -138,13 +147,13 @@ export class CodexContext {
   };
   // Keep only headers and numeric boundaries for unchanged history. A large
   // Codex home can contain gigabytes of rollouts; never retain them all in RAM.
-  const views=new Map<string,{header:string;originalHeader:string;row:Item;boundaries:number[]}>();
+  const views=new Map<string,{header:string;originalHeader:string;row:Item;boundaries:number[];bytes:number;turns:{id:string;ordinal:number}[]}>();
   const remember=(path:string,text:string)=>{
    const lines=text.split('\n');let row:Item;try{row=JSON.parse(lines[0]!);}catch{return;}
-   const boundaries:number[]=[];let bytes=0,ordinal=Number.isSafeInteger(row.ordinal)&&row.ordinal>=0?row.ordinal:0;boundaries[ordinal]=0;
-   for(const line of lines){if(!line)break;let event:Item;try{event=JSON.parse(line);}catch{break;}if(event.ordinal!==ordinal)break;bytes+=Buffer.byteLength(line)+1;boundaries[++ordinal]=bytes;}
+   const boundaries:number[]=[],turns:{id:string;ordinal:number}[]=[];let bytes=0,ordinal=Number.isSafeInteger(row.ordinal)&&row.ordinal>=0?row.ordinal:0;boundaries[ordinal]=0;
+   for(const line of lines){if(!line)break;let event:Item;try{event=JSON.parse(line);}catch{break;}if(event.ordinal!==ordinal)break;if(event.type==='turn_context'&&typeof event.payload?.turn_id==='string')turns.push({id:event.payload.turn_id,ordinal});bytes+=Buffer.byteLength(line)+1;boundaries[++ordinal]=bytes;}
    const header=detached(lines[0]!);
-   views.set(path,{header,originalHeader:views.get(path)?.originalHeader??header,row,boundaries});
+   views.set(path,{header,originalHeader:views.get(path)?.originalHeader??header,row,boundaries,bytes:Buffer.byteLength(text),turns});
   };
   for(const {path} of await this.files()){
    await safePath(path);const before=await readFile(path,'utf8');remember(path,before);const lines=before.split('\n');let malformed=false;
@@ -223,6 +232,13 @@ export class CodexContext {
   // left by older TokenFlow versions, from explicit ordinals (never guess).
   const sources=new Map<string,string>(),invalidated=new Set<string>();
   for(const [path] of views){const id=rolloutId(path);if(id)sources.set(id,path);}
+  const invalidate=(path:string)=>{
+   const immutable=rolloutId(path),logical=views.get(path)?.row.payload?.id;
+   if(immutable)invalidated.add(immutable);
+   // The logical ID can also name an unchanged ancestor rollout. Its
+   // independent projection is still needed to page inherited turns.
+   if(typeof logical==='string'&&(!sources.has(logical)||sources.get(logical)===path))invalidated.add(logical);
+  };
   let changed=true,passes=0;
   while(changed){
    if(++passes>views.size+1)throw new GatewayContextError('分页历史依赖存在循环，原记录保留。',409);
@@ -233,7 +249,7 @@ export class CodexContext {
     const source=sources.get(base.thread_id);if(!source)continue;
     const offset=views.get(source)!.boundaries[base.end_ordinal_exclusive];
     if(offset===undefined||offset===base.end_byte_offset)continue;
-    const sourceThread=views.get(source)!.row.payload?.id;if(typeof sourceThread==='string')invalidated.add(sourceThread);base.end_byte_offset=offset;
+    invalidate(source);base.end_byte_offset=offset;
     const header=JSON.stringify(view.row),delta=Buffer.byteLength(header)-Buffer.byteLength(view.header);
     for(let ordinal=0;ordinal<view.boundaries.length;ordinal++)if(view.boundaries[ordinal]!==undefined&&view.boundaries[ordinal]!>0)view.boundaries[ordinal]!+=delta;
     view.header=header;changed=true;
@@ -247,9 +263,58 @@ export class CodexContext {
    await safePath(path);const before=await readFile(path,'utf8');if(before.split('\n',1)[0]!==view.originalHeader)throw new GatewayContextError('迁移期间会话发生变化，原记录保留。',409);
    await stage(path,before,view.header+rest(before));
   }
-  for(const c of candidates){const id=views.get(c.path)?.row.payload?.id;if(typeof id==='string')invalidated.add(id);}
-  if(!candidates.length)return {migrated:0};
-  if((await processes()).length)throw Object.assign(new Error(`有 ${candidates.length} 个会话需要兼容处理。请先退出 Codex，再切换官方登录；原配置和会话尚未修改。`),{statusCode:409});
+  for(const c of candidates)invalidate(c.path);
+  // Older releases may already have rewritten the durable file while leaving
+  // its immutable-ID projection intact. Repair only offsets disproved by the
+  // persisted file's size/ordinal boundaries; never delete durable history.
+  const home=dirname(this.configPath);
+  const homeFiles=await readdir(home).catch((error:NodeJS.ErrnoException)=>{if(error.code==='ENOENT')return [];throw error;});
+  const databases=homeFiles.filter(n=>/^thread_history_\d+\.sqlite$/.test(n));
+  const nativeRepairs=new Map<string,CodexProjectionRepair>();
+  const stateName=homeFiles.filter(n=>/^state_\d+\.sqlite$/.test(n)).sort((a,b)=>Number(b.match(/\d+/)![0])-Number(a.match(/\d+/)![0]))[0];
+  const routes:{id:string;path:string}[]=[];
+  if(stateName&&databases.length){
+   const {DatabaseSync}=await import('node:sqlite');const path=join(home,stateName);await safePath(path);const db=new DatabaseSync(path,{readOnly:true});
+   try{for(const row of db.prepare('SELECT id,rollout_path FROM threads').all())if(typeof row.id==='string'&&typeof row.rollout_path==='string')routes.push({id:row.id,path:row.rollout_path});}finally{db.close();}
+  }
+  for(const name of databases){
+   const path=join(home,name);await safePath(path);
+   const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(path,{readOnly:true});
+   try{
+    const columns=new Set(db.prepare('PRAGMA table_info(thread_history_projection_state)').all().map(row=>row.name));
+    if(!['thread_id','next_rollout_byte_offset','next_rollout_ordinal'].every(name=>columns.has(name)))continue;
+    const lookup=db.prepare('SELECT next_rollout_byte_offset AS offset,next_rollout_ordinal AS ordinal FROM thread_history_projection_state WHERE thread_id=?');
+    for(const [rollout,path] of sources){
+     const view=views.get(path)!,logical=view.row.payload?.id;
+     for(const id of new Set([rollout,...(typeof logical==='string'&&(!sources.has(logical)||sources.get(logical)===path)?[logical]:[])])){
+      const row=lookup.get(id);if(!row)continue;
+      const offset=Number(row.offset),ordinal=Number(row.ordinal),boundary=view.boundaries[ordinal];
+      if(offset>view.bytes||Number.isSafeInteger(boundary)&&boundary!==offset)invalidate(path);
+     }
+    }
+    for(const route of routes){
+     const leaf=views.get(route.path);if(!leaf)continue;
+     const ancestors:CodexProjectionRepair['ancestors']=[];let view=leaf,seen=new Set<string>();let needsRepair=false;
+     while(view.row.payload?.history_base){
+      const base=view.row.payload.history_base,id=base.thread_id,path=sources.get(id);
+      if(typeof id!=='string'||!path||seen.has(id))break;seen.add(id);
+      const source=views.get(path)!,offset=source.boundaries[base.end_ordinal_exclusive];
+      if(!Number.isSafeInteger(offset)||offset!==base.end_byte_offset)break;
+      const state=lookup.get(id);
+      if(!state||invalidated.has(id))needsRepair=true;
+      ancestors.push({id,ordinal:base.end_ordinal_exclusive,offset,boundaries:source.boundaries});view=source;
+     }
+     if(!needsRepair||!ancestors.length)continue;
+     const immutable=rolloutId(route.path);
+     const turn=immutable?db.prepare("SELECT turn_id FROM thread_turns WHERE thread_id=? AND status IN ('completed','failed','interrupted') ORDER BY rollout_ordinal DESC LIMIT 1").get(immutable):undefined;
+     const lastTurnId=typeof turn?.turn_id==='string'?turn.turn_id:leaf.turns.at(-1)?.id??view.turns.find(turn=>turn.ordinal<ancestors.at(-1)!.ordinal)?.id;
+     if(!lastTurnId)throw new GatewayContextError('历史祖先索引需要重建，但缺少明确的轮次边界；原记录和备份保留。',409);
+     nativeRepairs.set(route.id,{threadId:route.id,lastTurnId,ancestors});
+    }
+   }finally{db.close();}
+  }
+  if(!candidates.length&&!invalidated.size&&!nativeRepairs.size)return {migrated:0};
+  if((await processes()).length)throw Object.assign(new Error((candidates.length?`有 ${candidates.length} 个会话需要兼容处理。`:'会话历史索引需要兼容处理。')+'请先退出 Codex，再切换官方登录；原配置和会话尚未修改。'),{statusCode:409});
   const changedDuringBackup=()=>Object.assign(new Error('迁移期间会话发生变化，已停止；原始备份已保留。'),{statusCode:409});
   const batch=join(this.backups,randomUUID());await mkdir(batch,{recursive:true,mode:0o700});
   const journal=candidates.map(c=>({path:relative(dirname(this.configPath),c.path),historySnapshot:undefined as HistorySnapshot|undefined,beforeHash:c.beforeHash,afterHash:c.afterHash}));
@@ -262,11 +327,10 @@ export class CodexContext {
   // This database is a derived UI projection with byte offsets into the
   // rollouts. Preserve a consistent backup, then let Codex rebuild affected
   // projections from history instead of reusing offsets into rewritten bytes.
-  const home=dirname(this.configPath);
   const databaseCandidates:string[]=[];
   for(const directory of [join(this.root,'codex-thread-backups'),this.backups])for(const id of await readdir(directory).catch(()=>[]))if(/^[a-f0-9-]{36}$/.test(id))databaseCandidates.push(join(directory,id));
-  for(const name of (await readdir(home)).filter(n=>/^thread_history_\d+\.sqlite$/.test(n))){
-   if(!invalidated.size)break;
+  for(const name of databases){
+   if(!invalidated.size&&!nativeRepairs.size)break;
    const path=join(home,name);await safePath(path);
    const {DatabaseSync,backup}=await import('node:sqlite');const db=new DatabaseSync(path);
    try{
@@ -285,6 +349,7 @@ export class CodexContext {
    const temp=candidate.path+'.token-flow-'+randomUUID();
    try{await copyFile(candidate.staged,temp,constants.COPYFILE_EXCL);await chmod(temp,0o600);if(!await unchanged(temp,candidate.afterHash))throw changedDuringBackup();if((await processes()).length||!await unchanged(candidate.path,candidate.beforeHash))throw Object.assign(new Error('Codex 重新启动或会话发生变化，迁移已停止，备份保留。'),{statusCode:409});await rename(temp,candidate.path);}finally{await rm(temp,{force:true});}
   }
+  if(nativeRepairs.size)await repairCodexProjectionLineages(home,[...nativeRepairs.values()],processes);
   return {migrated:candidates.length};
  }
 }

@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { parse, stringify } from 'smol-toml';
 import { z } from 'zod';
-import { agentProcesses, readConfig, safePath, officialCodexModel } from './agent-connections.js';
+import { agentProcesses, readConfig, safePath, officialCodexModel, recoverCodexConfig, backupCodexConfig } from './agent-connections.js';
 import { migrationBinary, runtimeLaunch } from './codex-runtime.js';
 import type {NativeUsageLogin} from './native-usage-logins.js';
 
@@ -83,12 +83,12 @@ export class CodexAccounts {
   }
   private async files(){return {auth:await readConfig(this.authPath),config:await readConfig(this.configPath)};}
   private async journal():Promise<Journal|null>{const raw=await readConfig(this.backupPath);if(raw===null)return null;try{return journalSchema.parse(JSON.parse(raw));}catch{throw conflict('账号切换备份无法读取，请保留备份并检查。');}}
-  private async write(path:string,value:string|null){
+  private async write(path:string,value:string|null,expected?:string|null){
     await safePath(path);
-    if(value===null){await rm(path,{force:true});return;}
+    if(value===null){if(expected!==undefined&&await readConfig(path)!==expected)throw conflict('本机登录或配置已变化，已停止恢复。');await rm(path,{force:true});return;}
     await mkdir(dirname(path),{recursive:true,mode:0o700});
     const temp=`${path}.${randomUUID()}.tmp`;
-    try{await writeFile(temp,value,{mode:0o600,flag:'wx'});await rename(temp,path);}finally{await rm(temp,{force:true});}
+    try{await writeFile(temp,value,{mode:0o600,flag:'wx'});if(expected!==undefined&&await readConfig(path)!==expected)throw conflict('本机登录或配置已变化，已停止恢复。');await rename(temp,path);}finally{await rm(temp,{force:true});}
   }
   private save(value:Journal){return this.write(this.backupPath,JSON.stringify(value));}
   async usageLogin():Promise<NativeUsageLogin|null>{
@@ -101,19 +101,20 @@ export class CodexAccounts {
     return {provider:'codex',accountId,email:mail};
   }
   async status(){
-    const files=await this.files();let config:Record<string,unknown>;
-    try{config=parse(files.config??'');}catch{throw conflict('Codex 配置格式无效，未修改。');}
-    const journal=await this.journal();
-    const storage=String(config.cli_auth_credentials_store??'file');
+    const files=await this.files(),journal=await this.journal();
+    const recovered=recoverCodexConfig(files.config,journal?[journal.before.config,journal.after.config]:[]);
+    const config=parse(recovered.original??'');
+    const storage=recovered.recovery?'unknown':String(config.cli_auth_credentials_store??'file');
     const fileActive=storage==='file';
     let auth:{auth_mode?:unknown;OPENAI_API_KEY?:unknown;tokens?:{access_token?:unknown}}={};let readError='';
     try{auth=JSON.parse(files.auth??'{}');if(!auth||typeof auth!=='object'||Array.isArray(auth))throw Error();}catch{auth={};readError='Codex 登录文件格式无效，请在客户端重新登录。';}
     if(!fileActive)readError='Codex 当前使用系统钥匙串或自动凭据存储，暂不能确认本机登录；可在此页重新授权。';
     const managed=await this.managedStore();
     if(managed)readError=`Codex 被管理员配置强制用「${managed}」方式保存登录，TokenFlow 无法切换本机登录。`;
+    if(recovered.recovery)readError=journal&&journal.state!=='restored'?'Codex 配置格式无效，恢复原登录时会保留完整坏文件备份。':'Codex 配置格式无效，可重新应用模型以保留坏文件备份并修复。';
     const signedIn=fileActive&&!readError&&(!auth.auth_mode||auth.auth_mode==='chatgpt')&&!auth.OPENAI_API_KEY&&typeof auth.tokens?.access_token==='string'&&!!auth.tokens.access_token.trim()&&!!identity(files.auth);
     const loginState=readError?'unreadable' as const:signedIn?'signed-in' as const:'signed-out' as const;
-    return {revision:digest(files),accountId:signedIn?identity(files.auth):null,email:signedIn?email(files.auth):null,loginState,readError,storage,model:typeof config.model==='string'?config.model:null,provider:typeof config.model_provider==='string'?config.model_provider:'openai',pids:await this.processes(),backup:journal&&journal.state!=='restored'?{createdAt:journal.createdAt,state:journal.state}:null};
+    return {revision:digest(files),...(recovered.recovery?{configurationRecovery:recovered.recovery}:{}),accountId:signedIn?identity(files.auth):null,email:signedIn?email(files.auth):null,loginState,readError,storage,model:!recovered.recovery&&typeof config.model==='string'?config.model:null,provider:recovered.recovery?'unknown':typeof config.model_provider==='string'?config.model_provider:'openai',pids:await this.processes(),backup:journal&&journal.state!=='restored'?{createdAt:journal.createdAt,state:journal.state}:null};
   }
   private async locked<T>(operation:()=>Promise<T>){
     await safePath(this.configPath);await mkdir(dirname(this.configPath),{recursive:true,mode:0o700});
@@ -173,17 +174,29 @@ export class CodexAccounts {
   }
   async restoreModel(){
     const journal=await this.journal();if(!journal)return undefined;
-    return officialCodexModel(this.configPath,journal.before.config,journal.before.auth);
+    return officialCodexModel(this.configPath,recoverCodexConfig(journal.before.config,[journal.after.config]).original,journal.before.auth);
   }
   async restore(input:{revision:string;allowRunning:boolean}){
     return this.locked(async()=>{
       await this.check(input.revision,input.allowRunning);
       const journal=await this.journal();if(!journal||journal.state==='restored')throw conflict('没有可还原的账号切换备份。');
       const current=await this.files();
-      // Refreshed tokens for the same account are expected; a different native login is not.
-      if(!sameValue(parse(current.config??''),parse(journal.before.config??''))&&!nativeRouting(parse(current.config??''))||current.auth!==journal.before.auth&&!sameLogin(current.auth,journal.accountId,email(journal.after.auth)))throw conflict('本机登录或配置已有其他修改，已保留备份，未覆盖。');
-      await this.write(this.authPath,journal.before.auth);
-      await this.write(this.configPath,restoredConfig(current.config,journal));
+      if(digest(current)!==input.revision)throw conflict('本机登录或配置已变化，请刷新后重试。');
+      const recovered=recoverCodexConfig(current.config,[journal.before.config,journal.after.config]);
+      // A malformed route does not justify replacing a different native login.
+      if(!recovered.recovery&&!sameValue(parse(current.config??''),parse(journal.before.config??''))&&!nativeRouting(parse(current.config??''))||current.auth!==journal.before.auth&&!sameLogin(current.auth,journal.accountId,email(journal.after.auth)))throw conflict('本机登录或配置已有其他修改，已保留备份，未覆盖。');
+      const nextConfig=restoredConfig(recovered.original,journal);if(nextConfig!==null)parse(nextConfig);
+      if(recovered.recovery)await backupCodexConfig(this.configPath,this.root,current.config);
+      await this.check(input.revision,input.allowRunning);
+      if(digest(await this.files())!==input.revision)throw conflict('本机登录或配置已变化，请刷新后重试。');
+      try{
+        await this.write(this.authPath,journal.before.auth,current.auth);
+        await this.write(this.configPath,nextConfig,current.config);
+      }catch(error){
+        // Roll back only the credential bytes we wrote; a newer external login wins.
+        if(await readConfig(this.authPath)===journal.before.auth)await this.write(this.authPath,current.auth,journal.before.auth);
+        throw error;
+      }
       journal.state='restored';await this.save(journal);
       return this.status();
     });

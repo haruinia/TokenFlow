@@ -10,7 +10,7 @@ import {detectAgent,AgentInstallationManager,desktopCandidates,agentCompatibilit
 afterEach(()=>vi.unstubAllEnvs());
 beforeEach(()=>{fixture.files.clear();fixture.links.clear();fixture.commands=[];fixture.fail=false;vi.stubEnv('PATH','/fixture/bin');fixture.links.set('/fixture/bin/npm','/fixture/node_modules/npm/bin/npm-cli.js');fixture.files.set('/fixture/lib/node_modules/@openai/codex/package.json',JSON.stringify({name:'@openai/codex',version:'1.1.0'}));});
 it('does not confuse config files with installation, and verifies installation after its fixed npm recipe',async()=>{
- expect(await detectAgent('codex')).toMatchObject({installed:false,channel:'missing',automatic:process.platform!=='win32'});
+ expect(await detectAgent('codex')).toMatchObject({installed:false,channel:'missing',automatic:true});
  const manager=new AgentInstallationManager(async()=>[]);
  const result=await manager.manage('codex','install');expect(result.installation).toMatchObject({installed:true,channel:'npm',version:'1.1.0'});
  expect(fixture.commands[0].args).toEqual(['/fixture/node_modules/npm/bin/npm-cli.js','install','--global','@openai/codex','--registry=https://registry.npmjs.org/','--ignore-scripts','--no-audit','--no-fund']);
@@ -83,4 +83,25 @@ it.runIf(process.platform==='darwin')('reads the international WorkBuddy version
  expect(await detectAgent('workbuddy-ai')).toMatchObject({installed:true,channel:'application',version:'5.5.2',path:'/Applications/WorkBuddy AI.app'});
  expect(await detectAgent('workbuddy')).toMatchObject({installed:true,version:'5.8.2'});
  expect(fixture.commands).toHaveLength(0);
+});
+
+it('updates npm clients from a custom node_modules prefix using the same fixed recipe',async()=>{
+ fixture.links.set('/fixture/bin/codex','/custom/npm/lib/node_modules/@openai/codex/bin/codex.js');
+ fixture.files.set('/custom/npm/lib/node_modules/@openai/codex/package.json',JSON.stringify({name:'@openai/codex',version:'1.1.0'}));
+ expect(await detectAgent('codex')).toMatchObject({installed:true,channel:'npm',automatic:true});
+ await new AgentInstallationManager(async()=>[]).manage('codex','update');
+ const install=fixture.commands.find(command=>command.args.includes('install'))!;
+ expect(install.args).toEqual(['/fixture/node_modules/npm/bin/npm-cli.js','install','--global','--prefix','/custom/npm','@openai/codex','--registry=https://registry.npmjs.org/','--ignore-scripts','--no-audit','--no-fund']);
+});
+it('allows shared Claude configuration without treating the extension runtime as a standalone CLI',async()=>{
+ const claude=await detectAgent('claude');expect(claude.installed).toBe(false);
+ expect(claude.configurationSupported).toBe(true);
+ expect((await detectAgent('codex')).configurationSupported).toBe(false);
+});
+
+it.runIf(process.platform!=='win32')('does not treat a local project dependency as a global npm prefix',async()=>{
+ fixture.links.set('/fixture/bin/codex','/project/node_modules/@openai/codex/bin/codex.js');
+ fixture.files.set('/project/node_modules/@openai/codex/package.json',JSON.stringify({name:'@openai/codex',version:'1.1.0'}));
+ expect(await detectAgent('codex')).toMatchObject({installed:true,channel:'npm',automatic:false});
+ const open=vi.fn(async()=>{});await new AgentInstallationManager(async()=>[],open).manage('codex','update');expect(open).toHaveBeenCalled();expect(fixture.commands.some(command=>command.args.includes('install'))).toBe(false);
 });

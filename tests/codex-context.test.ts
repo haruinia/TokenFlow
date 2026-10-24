@@ -383,3 +383,75 @@ it('recovers large local rollouts and histories without byte cutoffs',async()=>{
  expect(cached[0].content[0].text).toHaveLength(17*1024*1024);
  expect(createHash('sha256').update(await readFile(f.file)).digest('hex')).toBe(createHash('sha256').update(text).digest('hex'));
 });
+
+it.each([false,true])('invalidates immutable rollback IDs and repairs existing stale projections (alreadyRewritten=%s)',async alreadyRewritten=>{
+ const f=await fixture(),logical='11111111-1111-4111-8111-111111111111',immutable='22222222-2222-4222-8222-222222222222';
+ const path=join(f.file.slice(0,f.file.lastIndexOf('/')),`rollout-2026-10-23T01-00-00-${logical}_${immutable}.jsonl`);
+ const original=[{ordinal:0,type:'session_meta',payload:{id:logical,model_provider:'token_flow'}},{ordinal:1,type:'response_item',payload:alreadyRewritten?{type:'message',role:'assistant',content:[]}:{type:'reasoning',id:'rs_chatcmpl_'+ 'x'.repeat(160),summary:[]}}].map(r=>JSON.stringify(r)+'\n').join('');await writeFile(path,original);
+ const db=new DatabaseSync(join(f.root,'codex/thread_history_1.sqlite'));db.exec(await readFile(new URL('./fixtures/codex/thread-history-schema.sql',import.meta.url),'utf8'));
+ const ids=[logical,immutable,'unrelated'];
+ for(const id of ids){
+  db.prepare('insert into thread_turns(thread_id,turn_id,rollout_ordinal,status) values (?,?,?,?)').run(id,'turn',0,'completed');
+  db.prepare('insert into thread_items(thread_id,turn_id,item_id,rollout_ordinal,created_at_ms,item_json) values (?,?,?,?,?,?)').run(id,'turn','item',0,0,'{}');
+  db.prepare('insert into thread_realtime_items(thread_id,item_id,rollout_ordinal,created_at_ms,item_type,item_json) values (?,?,?,?,?,?)').run(id,'item',0,0,'message','{}');
+  db.prepare('insert into thread_history_projection_state values (?,?,?)').run(id,999999,2);
+ }
+ try{
+  await f.migration.prepareOfficial([],async()=>[]);
+  for(const table of ['thread_turns','thread_items','thread_history_projection_state','thread_realtime_items'])expect(db.prepare(`select thread_id from ${table}`).all()).toEqual([{thread_id:'unrelated'}]);
+  const saved=await readFile(path,'utf8');expect(saved).toContain(logical);expect(saved.trim().split('\n').map(r=>JSON.parse(r).ordinal)).toEqual([0,1]);
+  if(alreadyRewritten)expect(saved).toBe(original);
+  expect(await f.migration.prepareOfficial([],async()=>[])).toEqual({migrated:0});
+ }finally{db.close();}
+});
+
+it('retains an unchanged ancestor projection when its ID is also the reverted thread logical ID',async()=>{
+ const f=await fixture(),logical='11111111-1111-4111-8111-111111111111',immutable='22222222-2222-4222-8222-222222222222',directory=f.file.slice(0,f.file.lastIndexOf('/'));
+ const parent=join(directory,`rollout-2026-10-23T00-00-00-${logical}.jsonl`),child=join(directory,`rollout-2026-10-23T01-00-00-${logical}_${immutable}.jsonl`);
+ const encode=(rows:any[],start=0)=>rows.map((r,index)=>JSON.stringify({...r,ordinal:start+index})+'\n').join('');
+ const original=encode([{type:'session_meta',payload:{id:logical}},{type:'response_item',payload:{type:'message',role:'user',content:'ANCESTOR_KEPT'}}]);await writeFile(parent,original);
+ await writeFile(child,encode([{type:'session_meta',payload:{id:logical,model_provider:'token_flow',history_base:{thread_id:logical,end_ordinal_exclusive:2,end_byte_offset:Buffer.byteLength(original)}}},{type:'response_item',payload:{type:'reasoning',id:'rs_chatcmpl_fixture',summary:[]}}],2));
+ const db=new DatabaseSync(join(f.root,'codex/thread_history_1.sqlite'));db.exec(await readFile(new URL('./fixtures/codex/thread-history-schema.sql',import.meta.url),'utf8'));
+ for(const id of [logical,immutable]){db.prepare('insert into thread_turns(thread_id,turn_id,rollout_ordinal,status) values (?,?,?,?)').run(id,'turn',0,'completed');db.prepare('insert into thread_history_projection_state values (?,?,?)').run(id,id===logical?Buffer.byteLength(original):999999,id===logical?2:4);}
+ try{
+  await f.migration.prepareOfficial([],async()=>[]);
+  expect(db.prepare('select thread_id from thread_turns').all()).toEqual([{thread_id:logical}]);
+  expect(await readFile(parent,'utf8')).toBe(original);expect(await f.migration.prepareOfficial([],async()=>[])).toEqual({migrated:0});
+ }finally{db.close();}
+});
+
+it('treats an absent Codex home as having no history to repair',async()=>{
+ const root=await mkdtemp(join(await realpath(tmpdir()),'codex-context-empty-'));roots.push(root);
+ const context=await GatewayContext.open(root),migration=new CodexContext(root,join(root,'not-created/config.toml'),context);
+ expect(await migration.repairLineage(async()=>[])).toEqual({migrated:0});
+});
+
+it('materializes only gateway references for an official route, replacing covered users and keeping fresh/native items',async()=>{
+ const f=await fixture(),old={role:'user',content:'OLD_COVERED_USER'},latest={role:'user',content:'LATEST_USER'};
+ const input=[old,...Array.from({length:20},()=>({role:'assistant',content:'prior work '.repeat(1000)})),latest];
+ const compact=await(await f.context.response('responses/compact',{model:'qoder/test',input},'key','source',async()=>Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'SAVED_TASK_SUMMARY'}]}]}),{scope:codexContextScope,recover:item=>f.migration.recover(item,[])})).json();
+ const native=[{type:'reasoning',id:'rs_native',encrypted_content:'native-encrypted-reasoning',summary:[]},{type:'message',id:'msg_native',role:'assistant',content:[{type:'output_text',text:'Native continuation'}]},{type:'compaction',id:'cmp_native',encrypted_content:'native-official-checkpoint'}];
+ const developer={role:'developer',content:'FRESH_RULE'},fresh={role:'user',content:'FRESH_NEXT_REQUEST'},body={model:'gpt-official',input:[old,developer,...compact.output,...native,fresh],stream:true};
+ const converted=await f.migration.forOfficial(body,[]);
+ expect(JSON.stringify(converted)).not.toContain('tfctx1.');expect(converted.input).not.toContainEqual(old);
+ expect(converted.input.filter(item=>item.role==='user').filter(item=>JSON.stringify(item).includes('LATEST_USER'))).toHaveLength(1);
+ expect(converted.input).toContainEqual(developer);expect(converted.input).toContainEqual(fresh);for(const item of native)expect(converted.input).toContainEqual(item);
+ expect(JSON.stringify(converted)).toContain('SAVED_TASK_SUMMARY');expect(body.input).toContainEqual(old);
+ const untouched={model:'gpt-official',previous_response_id:'resp_native',input:native};expect(await f.migration.forOfficial(untouched,[])).toBe(untouched);
+});
+
+it('restores a private previous response before official inference and fails closed for unavailable private context',async()=>{
+ const f=await fixture(),native={type:'message',id:'msg_native',role:'assistant',content:[{type:'output_text',text:'native suffix'}]};
+ const first=await(await f.context.response('responses',{model:'qoder/test',input:'GATEWAY_FIRST'},'key','source',async()=>Response.json({status:'completed',output:[{type:'message',id:'msg_gateway',role:'assistant',content:[{type:'output_text',text:'GATEWAY_REPLY'}]}]}),{scope:codexContextScope,recover:item=>f.migration.recover(item,[])})).json();
+ const converted=await f.migration.forOfficial({model:'gpt-official',previous_response_id:first.id,input:[native,{role:'user',content:'NEXT'}]},[]);
+ expect(converted).not.toHaveProperty('previous_response_id');expect(JSON.stringify(converted.input)).toContain('GATEWAY_FIRST');expect(JSON.stringify(converted.input)).toContain('GATEWAY_REPLY');expect(JSON.stringify(converted.input)).not.toContain('msg_gateway');expect(converted.input).toContainEqual(native);
+ await expect(f.migration.forOfficial({model:'gpt-official',input:[{type:'compaction',encrypted_content:'tfctx1.invalid'}]},[])).rejects.toThrow('恢复');
+ await expect(f.migration.forOfficial({model:'gpt-official',previous_response_id:'resp_tf_'+'0'.repeat(32)},[])).rejects.toThrow();
+});
+
+it('expands a stored gateway compaction response ID before an official continuation',async()=>{
+ const f=await fixture();
+ const compact=await(await f.context.response('responses',{model:'qoder/test',input:[...history,{type:'compaction_trigger'}]},'key','source',async()=>{throw Error('small complete history needs no summary call');},{scope:codexContextScope,recover:item=>f.migration.recover(item,[])})).json();
+ const converted=await f.migration.forOfficial({model:'gpt-official',previous_response_id:compact.id,input:[{role:'user',content:'NEXT_AFTER_CHECKPOINT'}]},[]);
+ expect(converted).not.toHaveProperty('previous_response_id');expect(JSON.stringify(converted)).not.toContain('tfctx1.');expect(JSON.stringify(converted)).toContain('original tool result');expect(JSON.stringify(converted)).toContain('NEXT_AFTER_CHECKPOINT');
+});

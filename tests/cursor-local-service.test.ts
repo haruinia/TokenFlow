@@ -19,7 +19,7 @@ it('protects local Cursor detection, shows reusable accounts and never exposes o
  }finally{await service.app.close();vi.restoreAllMocks();await rm(root,{recursive:true,force:true});}
 });
 
-it.each(['trae','zcode'] as const)('protects %s native detection and import while exposing only identity and models',async provider=>{
+it.each(['trae'] as const)('protects %s native detection and import while exposing only identity and models',async provider=>{
  const root=await mkdtemp(join(await realpath(tmpdir()),'native-readonly-api-'));
  const {createServer}=await import('node:net');const allocator=createServer();await new Promise<void>(r=>allocator.listen(0,'127.0.0.1',r));const port=(allocator.address() as {port:number}).port;await new Promise<void>(r=>allocator.close(()=>r()));
  await mkdir(join(root,'cliproxy'));await writeFile(join(root,'cliproxy/fixture-options.json'),JSON.stringify({localCredentials:{[provider]:{type:provider,uid:'local-user',access_token:'private-native',refresh_token:'private-refresh'}}}));
@@ -32,4 +32,17 @@ it.each(['trae','zcode'] as const)('protects %s native detection and import whil
   const after=await service.app.inject({url,headers});expect(after.json().accounts[0].accountId).toBe(after.json().accountId);expect(after.json().revision).toBe(before.json().revision);
   expect((await service.app.inject({url:url+'/switch',method:'POST',headers,payload:{}})).statusCode).toBe(400);
  }finally{await service.app.close();await rm(root,{recursive:true,force:true});}
+});
+
+it('rejects unsupported native ZCode detection and import before reading credentials or starting the gateway',async()=>{
+ const root=await mkdtemp(join(await realpath(tmpdir()),'zcode-native-unsupported-'));
+ const fetcher=vi.spyOn(globalThis,'fetch').mockRejectedValue(new Error('Native ZCode must not contact a provider'));
+ const service=await createDesktopService({root,binary:resolve('tests/fixtures/fake-cliproxy.mjs'),token:'admin',localKey:'internal',secrets:{get:async()=>'',set:async()=>{throw Error('Unsupported native imports must not store credentials');}},claudeCredentialStore:null});
+ const headers={host:'127.0.0.1:9527',authorization:'Bearer admin'},url='/api/native-accounts/zcode';
+ try{
+  expect((await service.app.inject({url,headers:{host:headers.host}})).statusCode).toBe(401);
+  const detection=await service.app.inject({url,headers});expect(detection.statusCode).toBe(410);expect(detection.json().error).toContain('ZCode');
+  const imported=await service.app.inject({url:'/api/local-agent/import-local/zcode',method:'POST',headers,payload:{}});expect(imported.statusCode,imported.body).toBe(400);expect(imported.json().code).toBe('local_agent_error');
+  expect(imported.body).not.toMatch(/access_token|refresh_token|apiKey/);expect(service.proxy.snapshot().state).toBe('stopped');expect(fetcher).not.toHaveBeenCalled();
+ }finally{await service.app.close();vi.restoreAllMocks();await rm(root,{recursive:true,force:true});}
 });

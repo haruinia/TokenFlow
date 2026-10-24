@@ -81,10 +81,10 @@ export function upstreamError(status:number,body:string):{code?:string;type:stri
  if(['context_length_exceeded','context_too_large'].includes(code??''))return {code:'upstream_context_length',...known.upstream_context_length!};
  if(status===429||['rate_limit_exceeded','rate_limit_error'].includes(code??'')||parsed.error?.type==='rate_limit_error')return {code:'upstream_rate_limited',...known.upstream_rate_limited!};
  if(status===400||code==='upstream_invalid_request'){
-  const param=typeof parsed?.error?.param==='string'?parsed.error.param:'';
+  const param=typeof parsed?.error?.param==='string'?parsed.error.param:message.match(/^([A-Za-z0-9_.\[\]]{1,256}):(?:\s|$)/)?.[1]??'';
   // Retain only structural request paths; arbitrary parameter names can contain
   // user data. Raw upstream messages never cross this boundary.
-  const safeParam=/^(?:input|messages|tools|model|instructions|reasoning|text|response_format|tool_choice|max_output_tokens)(?:\[\d+\]|\.(?:\d+|content|type|text|role|name|parameters|schema|format|strict|effort|summary|call_id|arguments|output|encrypted_content))*$/.test(param)?param:'';
+  const safeParam=param.length<=256&&/^(?:input|messages|tools|model|instructions|system|reasoning|thinking|text|response_format|tool_choice|max_tokens|max_output_tokens)(?:\[\d{1,9}\]|\.(?:\d{1,9}|content|type|text|role|name|custom|function|parameters|input_schema|schema|format|strict|effort|summary|call_id|arguments|output|encrypted_content|thinking|signature|budget_tokens|anyOf|oneOf|allOf|items))*$/.test(param)?param:'';
   if(safeParam||['upstream_invalid_request','invalid_request_error','invalid_type','invalid_value','missing_required_parameter','unsupported_parameter','unsupported_value','invalid_parameter'].includes(code??'')||parsed?.error?.type==='invalid_request_error')return {code:'upstream_invalid_request',type:'invalid_request_error',...(safeParam?{param:safeParam}:{}),message:`上游拒绝了请求格式或参数${safeParam?`（字段：${safeParam}）`:''}。请保留此错误用于排查协议兼容性；切换账号或修改 DNS 不能修复参数错误。`};
  }
  if(message.includes('User location is not supported for the API use'))return {code:'region_not_supported',type:'region_not_supported',message:'所选账号的上游服务不支持当前地区使用 API。请查看提供商的地区支持说明；重新登录不能解决此限制。'};
