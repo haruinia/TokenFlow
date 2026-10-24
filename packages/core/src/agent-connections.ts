@@ -399,12 +399,12 @@ export function connectedConfig(target:Target,original:string|null,origin:string
   const doc=original===null?{}:parse(original);
   // Full original bytes remain in the backup; TOML serialization preserves semantic settings.
   const providers=doc.model_providers===undefined?{}:object(doc.model_providers);
-  // Use Codex's custom-provider compaction: the client owns the summary prompt,
-  // history selection and replacement. The gateway forwards that normal model
-  // request; only imported oversized history needs our initial organization.
+  // Coexistence exposes one provider: Codex triggers remote compaction, official
+  // models retain native checkpoints, and gateway models use our summary bridge.
+  // Standalone gateway mode keeps Codex's client-owned summary behavior.
   const routing={model,model_provider:'token_flow',model_auto_compact_token_limit_scope:'total',...(catalogPath?{model_catalog_json:catalogPath}:{})};
   delete doc.openai_base_url;delete doc.review_model;delete doc.model_auto_compact_token_limit;delete doc.model_context_window;
-  const next:{[key:string]:any}={...doc,...routing,model_providers:{...providers,token_flow:{name:'TokenFlow',base_url:`${url.origin}${codexCoexist?'/codex':''}/v1`,wire_api:'responses',...(codexCoexist?{http_headers:{'x-tokenflow-client-key':key}}:{experimental_bearer_token:key}),requires_openai_auth:codexCoexist,supports_websockets:false}}};
+  const next:{[key:string]:any}={...doc,...routing,model_providers:{...providers,token_flow:{name:'TokenFlow',base_url:`${url.origin}${codexCoexist?'/codex':''}/v1`,wire_api:'responses',...(codexCoexist?{http_headers:{'x-tokenflow-client-key':key},capabilities:{remote_compaction:'v2'}}:{experimental_bearer_token:key}),requires_openai_auth:codexCoexist,supports_websockets:false}}};
   // Legacy clients overlay the selected profile. Keep its policy and selection;
   // update only model routing. Newer CLI-selected profile files stay user-owned.
   const profile=codexProfile(doc);

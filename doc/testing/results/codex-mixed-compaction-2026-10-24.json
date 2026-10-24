@@ -1,0 +1,115 @@
+{
+  "probeCompleted": true,
+  "automaticPerModelCapabilitySplit": false,
+  "scope": "Installed engine; one provider; official/gateway/official aliases; synthetic auth/upstream; manual compaction; no production changes",
+  "results": [
+    {
+      "scenario": "mixed-local",
+      "provider": "token_flow",
+      "providerCaps": {
+        "imageGeneration": true,
+        "webSearch": true
+      },
+      "selectionPassthrough": true,
+      "observed": [
+        {
+          "model": "gpt-6-astra",
+          "effort": "high",
+          "tier": "omitted/default",
+          "path": "/codex/v1/responses"
+        },
+        {
+          "model": "tf-fixture-gateway",
+          "effort": "high",
+          "tier": "omitted/default",
+          "path": "/codex/v1/responses"
+        },
+        {
+          "model": "gpt-6-astra",
+          "effort": "high",
+          "tier": "omitted/default",
+          "path": "/codex/v1/responses"
+        }
+      ],
+      "compaction": [
+        {
+          "path": "/codex/v1/responses",
+          "model": "gpt-6-astra",
+          "remoteTrigger": false,
+          "localSummaryPrompt": true
+        }
+      ],
+      "transitions": [
+        {
+          "model": "gpt-6-astra",
+          "remoteTrigger": false,
+          "localSummaryPrompt": true
+        },
+        {
+          "model": "tf-fixture-gateway",
+          "remoteTrigger": false,
+          "localSummaryPrompt": true
+        },
+        {
+          "model": "gpt-6-astra",
+          "remoteTrigger": false,
+          "localSummaryPrompt": true
+        }
+      ]
+    },
+    {
+      "scenario": "mixed-remote",
+      "provider": "token_flow",
+      "providerCaps": {
+        "imageGeneration": true,
+        "webSearch": true
+      },
+      "selectionPassthrough": true,
+      "observed": [
+        {
+          "model": "gpt-6-astra",
+          "effort": "high",
+          "tier": "omitted/default",
+          "path": "/codex/v1/responses"
+        },
+        {
+          "model": "tf-fixture-gateway",
+          "effort": "high",
+          "tier": "omitted/default",
+          "path": "/codex/v1/responses"
+        },
+        {
+          "model": "gpt-6-astra",
+          "effort": "high",
+          "tier": "omitted/default",
+          "path": "/codex/v1/responses"
+        }
+      ],
+      "compaction": [
+        {
+          "path": "/codex/v1/responses",
+          "model": "gpt-6-astra",
+          "remoteTrigger": true,
+          "localSummaryPrompt": false
+        }
+      ],
+      "transitions": [
+        {
+          "model": "gpt-6-astra",
+          "remoteTrigger": true,
+          "localSummaryPrompt": false
+        },
+        {
+          "model": "tf-fixture-gateway",
+          "remoteTrigger": true,
+          "localSummaryPrompt": false
+        },
+        {
+          "model": "gpt-6-astra",
+          "remoteTrigger": true,
+          "localSummaryPrompt": false
+        }
+      ]
+    }
+  ]
+}

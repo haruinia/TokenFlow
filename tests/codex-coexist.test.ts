@@ -41,6 +41,21 @@ it('routes official and gateway models independently, rejects unknown IDs, and s
  const zipped=await service.app.inject({method:'POST',url:'/codex/v1/responses',headers:{...headers,'content-type':'application/json','content-encoding':'zstd'},payload:zstdCompressSync(Buffer.from(JSON.stringify({model:'official-test',input:'compressed fixture'})))});expect(zipped.statusCode,zipped.body).toBe(200);expect(officialCalls[1].body.input).toBe('compressed fixture');
  expect((await ask(model)).statusCode).toBe(200);expect(gatewayCalls[0].headers.authorization).toBe('Bearer third-party-secret');expect(gatewayCalls[0].headers['chatgpt-account-id']).toBeUndefined();expect(JSON.stringify(gatewayCalls)).not.toContain('current-client-oauth');
  expect((await ask('unknown-official')).statusCode).toBe(403);expect(gatewayCalls).toHaveLength(1);expect(officialCalls).toHaveLength(2);
+ // Exercise the actual service boundary, including opaque native history and
+ // both native compaction protocols. No gateway summary may rewrite these.
+ const officialBodies=[
+  {path:'responses',body:{model:'official-test',input:[{role:'user',content:'fixture'}],reasoning:{effort:'low',summary:'auto'},service_tier:'default'}},
+  {path:'responses',body:{model:'official-test',input:[{type:'compaction',encrypted_content:'opaque-official-state'},{role:'user',content:'continue'}],reasoning:{effort:'xhigh'},service_tier:'priority',store:false,stream:false}},
+  {path:'responses',body:{model:'official-test',input:[{role:'user',content:'fixture'},{type:'compaction_trigger'}],reasoning:{effort:'high'},service_tier:'priority'}},
+  {path:'responses/compact',body:{model:'official-test',input:[{role:'user',content:'fixture'}],instructions:'Preserve task state'}}
+ ];
+ for(const {path,body} of officialBodies){
+  const result=await service.app.inject({method:'POST',url:`/codex/v1/${path}`,headers,payload:body});
+  expect(result.statusCode,result.body).toBe(200);
+  expect(officialCalls.at(-1)?.url).toBe(`https://chatgpt.com/backend-api/codex/${path}`);
+  expect(officialCalls.at(-1)?.body).toEqual(body);
+ }
+ expect(gatewayCalls).toHaveLength(1);
  expect((await service.app.inject({method:'POST',url:'/codex/v1/responses',headers:{...headers,'x-tokenflow-client-key':'bad'},payload:{model:'official-test',input:'x'}})).statusCode).toBe(401);
- await service.app.close();service=await createDesktopService(options);expect((await ask('official-test')).statusCode).toBe(200);expect(officialCalls).toHaveLength(3);
+ await service.app.close();service=await createDesktopService(options);expect((await ask('official-test')).statusCode).toBe(200);expect(officialCalls).toHaveLength(7);
 });

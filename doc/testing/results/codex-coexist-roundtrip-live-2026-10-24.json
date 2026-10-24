@@ -1,0 +1,164 @@
+{
+  "passed": true,
+  "live": true,
+  "scope": "Installed Codex, production coexist routing, isolated login/config/history; explicit compaction and two model round trips",
+  "rounds": [
+    {
+      "phase": "official-seed",
+      "completed": true,
+      "markersVerified": 1
+    },
+    {
+      "phase": "official-compact-1",
+      "completed": true,
+      "nativeRemote": true,
+      "gatewaySummaryCalls": 0
+    },
+    {
+      "phase": "gateway-after-official-compact",
+      "completed": true,
+      "markersVerified": 1
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "completed": true,
+      "markersVerified": 2
+    },
+    {
+      "phase": "gateway-before-compact",
+      "completed": true,
+      "markersVerified": 2
+    },
+    {
+      "phase": "gateway-compact-1",
+      "completed": true,
+      "nativeRemote": false,
+      "gatewaySummaryCalls": 1
+    },
+    {
+      "phase": "official-after-gateway-compact",
+      "completed": true,
+      "markersVerified": 2
+    },
+    {
+      "phase": "official-compact-2",
+      "completed": true,
+      "nativeRemote": true,
+      "gatewaySummaryCalls": 0
+    },
+    {
+      "phase": "gateway-second-return",
+      "completed": true,
+      "markersVerified": 2
+    },
+    {
+      "phase": "gateway-add-final-requirement",
+      "completed": true,
+      "markersVerified": 3
+    },
+    {
+      "phase": "gateway-final-before-compact",
+      "completed": true,
+      "markersVerified": 3
+    },
+    {
+      "phase": "gateway-compact-2",
+      "completed": true,
+      "nativeRemote": false,
+      "gatewaySummaryCalls": 1
+    },
+    {
+      "phase": "official-final-return",
+      "completed": true,
+      "markersVerified": 3
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-seed",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "remoteTrigger": false
+    },
+    {
+      "phase": "official-compact-1",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "remoteTrigger": true
+    },
+    {
+      "phase": "gateway-after-official-compact",
+      "route": "gateway",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "opaque": 0
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "route": "gateway",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "opaque": 0
+    },
+    {
+      "phase": "gateway-before-compact",
+      "route": "gateway",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "opaque": 0
+    },
+    {
+      "phase": "gateway-compact-1",
+      "route": "gateway",
+      "summary": true,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "opaque": 0
+    },
+    {
+      "phase": "official-after-gateway-compact",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "remoteTrigger": false
+    },
+    {
+      "phase": "official-compact-2",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "remoteTrigger": true
+    },
+    {
+      "phase": "gateway-second-return",
+      "route": "gateway",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "opaque": 0
+    },
+    {
+      "phase": "gateway-add-final-requirement",
+      "route": "gateway",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "opaque": 0
+    },
+    {
+      "phase": "gateway-final-before-compact",
+      "route": "gateway",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "opaque": 0
+    },
+    {
+      "phase": "gateway-compact-2",
+      "route": "gateway",
+      "summary": true,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "opaque": 0
+    },
+    {
+      "phase": "official-final-return",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "remoteTrigger": false
+    }
+  ]
+}

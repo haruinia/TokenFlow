@@ -306,7 +306,13 @@ a:hover{text-decoration:underline}
 .tfAgentPickerCatalog>header>.tfAgentCatalogIdentity{display:flex;align-items:center;gap:8px;min-width:0;flex:0 1 auto}
 .tfAgentCatalogIdentity small{max-width:220px}
 .tfAgentPickerCatalog>header>.textButton{margin-left:auto;flex-shrink:0}
-.tfAgentPickerCatalog>header>.tfAgentPickerRings{display:flex;align-items:center;gap:8px;min-width:0;overflow:auto}
+.tfAgentPickerCatalog>header>.tfAgentPickerRings{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;min-width:0;flex-basis:100%}
+.tfAgentPickerQuotaWindow{display:flex;align-items:center;gap:6px;min-width:0;font-size:11px;color:var(--muted)}
+.tfAgentPickerQuotaWindow>span:last-child{display:grid;gap:2px;overflow-wrap:anywhere}
+.tfModelQuotaDialog{width:min(560px,calc(100vw - 32px))}
+.tfModelQuotaDialog .quota{max-height:none;padding:0}
+.tfModelQuotaDialog .quotaWindowDetails{min-width:0;overflow-wrap:anywhere}
+.tfAgentPickerCatalog>header>.tfModelQuotaButton{margin-left:0}
 .tfAgentPickerRings .quotaRing{width:36px;height:36px}
 .tfAgentPickerRings .quotaRing>span{font-size:11px}
 .tfAgentPickerRings .quotaRing>span>small{font-size:8px}

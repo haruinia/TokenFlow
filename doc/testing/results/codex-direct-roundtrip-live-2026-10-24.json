@@ -1,0 +1,105 @@
+{
+  "passed": true,
+  "scope": "Native Codex OpenAI provider, no official base URL override; isolated TokenFlow stopped before final official continuation and compaction",
+  "networkProxy": true,
+  "officialForwardAttempts": 0,
+  "serviceStopped": true,
+  "rounds": [
+    {
+      "phase": "native-official-seed",
+      "provider": "openai",
+      "markersVerified": 1,
+      "durationMs": 33928
+    },
+    {
+      "phase": "native-official-compact",
+      "provider": "openai",
+      "durationMs": 5572
+    },
+    {
+      "phase": "native-official-compact-checkpoint",
+      "kind": "native"
+    },
+    {
+      "phase": "loaded-thread-provider-switch-probe",
+      "requested": "token_flow",
+      "actual": "openai"
+    },
+    {
+      "phase": "gateway-after-native-checkpoint",
+      "provider": "token_flow",
+      "markersVerified": 1,
+      "durationMs": 23915
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "provider": "token_flow",
+      "markersVerified": 2,
+      "durationMs": 10158
+    },
+    {
+      "phase": "gateway-before-summary",
+      "provider": "token_flow",
+      "markersVerified": 2,
+      "durationMs": 13604
+    },
+    {
+      "phase": "gateway-summary",
+      "provider": "token_flow",
+      "durationMs": 8686
+    },
+    {
+      "phase": "gateway-summary-checkpoint",
+      "kind": "gateway"
+    },
+    {
+      "phase": "prepare-direct-official",
+      "migrated": 1
+    },
+    {
+      "phase": "native-after-tokenflow-stopped",
+      "provider": "openai",
+      "markersVerified": 2,
+      "durationMs": 11094
+    },
+    {
+      "phase": "native-compact-tokenflow-stopped",
+      "provider": "openai",
+      "durationMs": 12129
+    },
+    {
+      "phase": "native-continue-after-compact-tokenflow-stopped",
+      "provider": "openai",
+      "markersVerified": 2,
+      "durationMs": 6167
+    },
+    {
+      "phase": "passive-usage-without-inference-proxy",
+      "samples": 5,
+      "inputTokens": 104953,
+      "outputTokens": 402
+    }
+  ],
+  "requests": [
+    {
+      "phase": "gateway-after-native-checkpoint",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-before-summary",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-summary",
+      "summary": true,
+      "model": "antigravity/gemini-3.8-flash-low"
+    }
+  ]
+}
