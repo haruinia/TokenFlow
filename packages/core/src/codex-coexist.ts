@@ -29,7 +29,13 @@ export async function loadOfficialCodexCatalogForAuth(configPath:string,authoriz
   const result=catalogSchema.safeParse(JSON.parse(Buffer.concat(chunks).toString('utf8')));if(!result.success)throw unavailable('官方模型目录格式暂不兼容，尚未改动配置。');
   if(new Set(result.data.models.map(m=>m.slug)).size!==result.data.models.length)throw unavailable('官方模型目录包含重复 ID，尚未改动配置。');
   return result.data;
- }catch(error){if(error instanceof RunnerCoreError)throw error;throw unavailable('无法读取官方模型列表，请检查网络或 Codex 登录后重试。');}
+ }catch(error){
+  if(error instanceof RunnerCoreError)throw error;
+  // Do not expose fetch causes (which can contain credentials or proxy details),
+  // or suggest logging in again for a transport/JSON failure before any writes.
+  const reason=error instanceof SyntaxError?'官方模型目录格式暂不兼容':error instanceof Error&&error.name==='TimeoutError'?'读取官方模型列表超时（15 秒）':'无法连接官方模型目录，请检查网络或代理';
+  throw unavailable(`${reason}。本次未改动配置，原有模式仍保留，请稍后重试。`);
+ }
 }
 export function mergeCodexCatalog<T extends {models:Array<{slug:string}>}>(gateway:T,official:OfficialCodexCatalog){
  const ids=new Set(official.models.map(m=>m.slug));if(gateway.models.some(m=>ids.has(m.slug)))throw unavailable('网关模型 ID 与官方模型重复，请为网关模型使用带来源的 ID。');

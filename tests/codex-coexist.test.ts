@@ -23,6 +23,15 @@ it('separates official identity from the managed gateway key and browser credent
  expect(officialCodexHeaders({authorization:'Bearer official','x-tokenflow-client-key':'local-secret',cookie:'browser-secret','x-api-key':'wrong','chatgpt-account-id':'account'})).toEqual({authorization:'Bearer official','content-type':'application/json','chatgpt-account-id':'account'});
  expect(()=>officialCodexHeaders({'x-tokenflow-client-key':'local'})).toThrow('登录');
 });
+it.each([
+ ['timeout',()=>Promise.reject(new DOMException('PRIVATE_NETWORK_DETAIL','TimeoutError')),'读取官方模型列表超时'],
+ ['network',()=>Promise.reject(new TypeError('PRIVATE_NETWORK_DETAIL')),'无法连接官方模型目录'],
+ ['json',async()=>new Response('<html>PRIVATE_NETWORK_DETAIL</html>'),'官方模型目录格式暂不兼容'],
+] as const)('distinguishes %s discovery failures without exposing transport details or blaming login',async(_kind,fetcher,message)=>{
+ const {config}=await profile();
+ await expect(loadOfficialCodexCatalog(config,fetcher)).rejects.toMatchObject({code:'codex_coexist_unavailable',message:expect.stringContaining(message)});
+ try{await loadOfficialCodexCatalog(config,fetcher);}catch(error){expect(String(error)).not.toContain('PRIVATE_NETWORK_DETAIL');expect(String(error)).toContain('未改动配置');}
+});
 it('routes official and gateway models independently, rejects unknown IDs, and survives a service restart',async()=>{
  const {root,config}=await profile(),officialCalls:Array<{url:string;headers:Record<string,string>;body:any}>=[],gatewayCalls:Array<{headers:typeof reqHeaders;body:any}>=[];const reqHeaders:Record<string,unknown>={};
  const response=(model:string,text:string)=>({id:'resp_test',status:'completed',model,output:[{type:'message',id:'msg_test',role:'assistant',content:[{type:'output_text',text}]}],usage:{input_tokens:10,output_tokens:1,total_tokens:11}});

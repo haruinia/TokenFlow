@@ -10,6 +10,7 @@ import {CodexAccounts} from '../packages/core/src/codex-accounts.js';
 import {AgentConnections} from '../packages/core/src/agent-connections.js';
 import {CodexContext} from '../packages/core/src/codex-context.js';
 import {CodexThreadMigration} from '../packages/core/src/codex-thread-migration.js';
+import {CodexSwitchLifecycle} from '../packages/core/src/codex-switch-lifecycle.js';
 const clean:Array<()=>Promise<unknown>>=[];
 afterEach(async()=>{vi.restoreAllMocks();for(const fn of clean.splice(0).reverse())await fn();});
 const oauth=(id:string)=>({account_id:id,access_token:`fixture-access-${id}`,refresh_token:`fixture-refresh-${id}`,id_token:`x.${Buffer.from(JSON.stringify({email:`${id}@example.test`})).toString('base64url')}.x`});
@@ -28,6 +29,21 @@ async function setup(hybrid=false){
  const connected=await post('/api/a2a/connect',{target:'codex',sourceId:source.id,model:'codex/model-a',selections:[{sourceId:source.id,model:'codex/model-a'}],revision:target.revision,codexCoexist:!hybrid,codexDirectHybrid:hybrid});expect(connected.statusCode,connected.body).toBe(200);
  return {root,config,auth,originalAuth,get service(){return service;},restart:async()=>{await service.app.close();service=await createDesktopService(options);await service.proxy.start();},get,post,fetcher,fail:(value:boolean)=>fail=value,onFetch:(value:()=>Promise<void>)=>onFetch=value};
 }
+it('keeps the existing hybrid connection intact and never stops Codex when repeated application cannot discover official models',async()=>{
+ const f=await setup(true),target=(await f.get('/api/a2a')).targets.find((t:any)=>t.id==='codex'),record=target.connection;
+ const config=await readFile(f.config,'utf8'),auth=await readFile(f.auth,'utf8'),catalogPath=(parse(config) as any).model_catalog_json;
+ const catalogBefore=await readFile(catalogPath,'utf8'),bridgePath=join(f.root,'codex-direct-bridge/settings.json'),bridgeBefore=await readFile(bridgePath,'utf8');
+ const keys=await f.get('/api/gateway-keys'),lifecycle=vi.spyOn(CodexSwitchLifecycle.prototype,'change');
+ f.onFetch(async()=>{throw new DOMException('fixture timeout','TimeoutError');});
+ for(let i=0;i<2;i++){
+  const result=await f.post('/api/a2a/connect',{target:'codex',sourceId:record.sourceId,model:record.model,selections:record.selections,revision:target.revision,replaceId:record.id,rewrite:true,restartCodex:true,codexCoexist:false,codexDirectHybrid:true});
+  expect(result.statusCode,result.body).toBe(409);expect(result.json().code).toBe('codex_coexist_unavailable');
+ }
+ expect(lifecycle).not.toHaveBeenCalled();expect(await readFile(f.config,'utf8')).toBe(config);expect(await readFile(f.auth,'utf8')).toBe(auth);
+ expect(await readFile(catalogPath,'utf8')).toBe(catalogBefore);expect(await readFile(bridgePath,'utf8')).toBe(bridgeBefore);
+ expect(await f.get('/api/gateway-keys')).toEqual(keys);
+ const after=(await f.get('/api/a2a')).targets.find((t:any)=>t.id==='codex');expect(after.connection).toEqual(record);expect(after.backups).toEqual(target.backups);expect(after.configurationState).toBe('configured');
+});
 it('preserves gateway routing and its key while switching and restoring official identities and refreshes account-scoped models',async()=>{
  const f=await setup();const initial=(await f.get('/api/a2a')).targets.find((t:any)=>t.id==='codex').connection;const initialConfig=parse(await readFile(f.config,'utf8')) as any;const key=initialConfig.model_providers.token_flow.http_headers['x-tokenflow-client-key'];
  for(const id of ['a','b']){const status=await f.get('/api/codex-accounts'),source=f.service.proxy.snapshot().accounts.find(a=>a.models?.includes(`codex/model-${id}`))!;const result=await f.post('/api/codex-accounts/switch',{revision:status.revision,sourceId:source.id,model:`codex/model-${id}`,restoreHistory:false});expect(result.statusCode,result.body).toBe(200);expect(result.json()).toMatchObject({gatewayConnected:true,codexCoexist:true,accountId:id,provider:'token_flow'});

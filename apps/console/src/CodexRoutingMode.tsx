@@ -9,10 +9,11 @@ const descriptions:Record<Mode,string>={
  unreadable:'暂时无法判断连接方式，请先检查配置。'
 };
 
-export function CodexRoutingMode({mode='unreadable',busy,canRestore,canGateway,dirty,onOfficial,onGateway,onHybrid,hybrid=false,bridge}:{mode?:Mode;busy:boolean;canRestore:boolean;canGateway:boolean;dirty:boolean;onOfficial:()=>void;onGateway:()=>void;onHybrid?:()=>void;hybrid?:boolean;bridge?:{supported:boolean;connected:boolean;stage?:string}}){
+export function CodexRoutingMode({mode='unreadable',busy,canRestore,canGateway,dirty,onOfficial,onGateway,onHybrid,hybrid=false,configurationMatches=false,bridge}:{mode?:Mode;busy:boolean;canRestore:boolean;canGateway:boolean;dirty:boolean;onOfficial:()=>void;onGateway:()=>void;onHybrid?:()=>void;hybrid?:boolean;configurationMatches?:boolean;bridge?:{supported:boolean;connected:boolean;stage?:string}}){
+ const hybridSaved=hybrid&&configurationMatches&&!dirty;
  return <section className="tfCodexRouting" aria-label="Codex 连接方式">
   <div className="tfCodexRoutingHead"><strong>连接方式</strong><span>已保存配置：{hybrid?'官方直连＋网关（实验）':labels[mode]}</span><div className="tfRow">
-   <button type="button" disabled={busy||!canGateway||!bridge?.supported} onClick={onHybrid}>官方账号＋网关模型…</button>
+   <button type="button" disabled={busy||!canGateway||!bridge?.supported||hybridSaved} onClick={onHybrid}>{hybridSaved?'官方账号＋网关模型已配置':hybrid&&dirty?'应用混合模式的模型更改…':'官方账号＋网关模型…'}</button>
    <button type="button" disabled={busy||!canRestore} onClick={onOfficial}>{mode==='official'&&!hybrid?'官方直连已配置':'使用官方直连…'}</button>
    <button type="button" disabled={busy||!canGateway||mode==='gateway'&&!dirty} onClick={onGateway}>{mode==='gateway'&&!dirty?'网关模型已配置':dirty?'应用网关模型…':'使用网关模型…'}</button>
   </div></div>
