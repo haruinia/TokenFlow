@@ -1,0 +1,34 @@
+{
+  "passed": true,
+  "fixtureCalls": 8,
+  "scope": "Isolated two WebSocket clients, synthetic credentials, one loopback fixture turn; no external inference",
+  "rounds": [
+    {
+      "phase": "manager-unsubscribe-without-ownership",
+      "status": "notSubscribed"
+    },
+    {
+      "phase": "desktop-still-subscribed",
+      "actual": "openai",
+      "pid": 29894
+    },
+    {
+      "phase": "manager-unsubscribe-own-connection",
+      "status": "unsubscribed"
+    },
+    {
+      "phase": "desktop-still-subscribed-after-manager-unsubscribe",
+      "actual": "openai",
+      "pid": 29894
+    },
+    {
+      "phase": "desktop-unsubscribe",
+      "status": "unsubscribed"
+    },
+    {
+      "phase": "all-subscribers-released",
+      "actual": "token_flow",
+      "pid": 29894
+    }
+  ]
+}

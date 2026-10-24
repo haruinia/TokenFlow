@@ -1,0 +1,151 @@
+{
+  "passed": true,
+  "noRestartSwitch": true,
+  "switchMethod": "unsubscribe-resume",
+  "samePid": true,
+  "officialForwardAttempts": 0,
+  "scope": "Isolated single Codex app-server, native official and real Gemini; no production desktop control or installed app modification",
+  "rounds": [
+    {
+      "phase": "official-with-tokenflow-running",
+      "pid": 18158,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 13184
+    },
+    {
+      "phase": "official-native-compact-with-tokenflow-running",
+      "pid": 18158,
+      "gatewayCalls": 0,
+      "durationMs": 7801
+    },
+    {
+      "phase": "tokenflow-stopped",
+      "pid": 18158,
+      "portClosed": true
+    },
+    {
+      "phase": "official-with-tokenflow-stopped",
+      "pid": 18158,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 1917
+    },
+    {
+      "phase": "official-native-compact-with-tokenflow-stopped",
+      "pid": 18158,
+      "gatewayCalls": 0,
+      "durationMs": 6864
+    },
+    {
+      "phase": "official-after-native-compact-service-stopped",
+      "pid": 18158,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 2722
+    },
+    {
+      "phase": "tokenflow-reopened",
+      "pid": 18158
+    },
+    {
+      "phase": "model-only-settings-update",
+      "pid": 18158,
+      "keys": []
+    },
+    {
+      "phase": "subscribed-thread-resume",
+      "pid": 18158,
+      "requested": "token_flow",
+      "actual": "openai",
+      "model": "api-4349899c9106774caf0039fc/gateway"
+    },
+    {
+      "phase": "unsubscribe",
+      "status": "unsubscribed"
+    },
+    {
+      "phase": "unsubscribed-thread-resume",
+      "pid": 18158,
+      "requested": "token_flow",
+      "actual": "token_flow",
+      "model": "api-4349899c9106774caf0039fc/gateway"
+    },
+    {
+      "phase": "gateway-without-codex-restart",
+      "pid": 18158,
+      "markersVerified": 1,
+      "gatewayCalls": 1,
+      "durationMs": 11393
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "pid": 18158,
+      "markersVerified": 2,
+      "gatewayCalls": 1,
+      "durationMs": 8032
+    },
+    {
+      "phase": "gateway-local-summary-without-restart",
+      "pid": 18158,
+      "gatewayCalls": 1,
+      "durationMs": 8012
+    },
+    {
+      "phase": "gateway-after-local-summary",
+      "pid": 18158,
+      "markersVerified": 2,
+      "gatewayCalls": 1,
+      "durationMs": 7677
+    },
+    {
+      "phase": "return-official-unsubscribe-resume",
+      "pid": 18158,
+      "requested": "openai",
+      "actual": "openai",
+      "model": "gpt-6-astra"
+    },
+    {
+      "phase": "official-after-gateway-and-service-stop",
+      "pid": 18158,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 9769
+    },
+    {
+      "phase": "official-native-after-roundtrip-service-stop",
+      "pid": 18158,
+      "gatewayCalls": 0,
+      "durationMs": 9566
+    },
+    {
+      "phase": "official-final-continuation",
+      "pid": 18158,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 4348
+    }
+  ],
+  "requests": [
+    {
+      "phase": "gateway-without-codex-restart",
+      "model": "antigravity/gemini-3.8-flash-low",
+      "summary": false
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "model": "antigravity/gemini-3.8-flash-low",
+      "summary": false
+    },
+    {
+      "phase": "gateway-local-summary-without-restart",
+      "model": "antigravity/gemini-3.8-flash-low",
+      "summary": false
+    },
+    {
+      "phase": "gateway-after-local-summary",
+      "model": "antigravity/gemini-3.8-flash-low",
+      "summary": false
+    }
+  ]
+}
