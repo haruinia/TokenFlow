@@ -776,3 +776,17 @@ it('rejects official and gateway model slug collisions before changing Codex con
  const {paths,connections}=await setup();const original='model="native"\n';await writeFile(paths.codex,original);
  await expect(connections.apply({target:'codex',revision:(await connections.status())[0].revision,origin:'http://127.0.0.1:9527',model:'collision',sourceId:'s',keyId:randomUUID(),key:'key',officialCatalog:{models:[{slug:'collision'}]}})).rejects.toThrow('重复');expect(await readFile(paths.codex,'utf8')).toBe(original);
 });
+
+it('keeps official direct and its login while declaring a separate local-summary gateway provider, accepting model-menu changes and restoring native',async()=>{
+ const {paths,connections}=await setup();const auth=JSON.stringify({auth_mode:'chatgpt',tokens:{access_token:'fixture-official'}});await writeFile(join(paths.codex,'../auth.json'),auth);
+ await writeFile(paths.codex,'model="official-b"\nmodel_provider="openai"\nprofile="work"\n[profiles.work]\nmodel="official-b"\napproval_policy="never"\nsandbox_mode="read-only"\n[model_providers.openai]\nbase_url="http://127.0.0.1:9999/v1"\n');
+ const official={models:[{slug:'official-a',context_window:400000},{slug:'official-b',context_window:272000}]};
+ const record=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,origin:'http://127.0.0.1:9527',model:'gateway/test',sourceId:'source',keyId:randomUUID(),key:'fixture-gateway',officialCatalog:official,codexDirectHybrid:true});
+ const doc=parse(await readFile(paths.codex,'utf8')) as any;
+ expect(doc).toMatchObject({model:'official-b',model_provider:'openai',profiles:{work:{model:'official-b',model_provider:'openai',approval_policy:'never',sandbox_mode:'read-only'}}});expect(doc.model_providers.openai).toBeUndefined();expect(doc.model_auto_compact_token_limit_scope).toBeUndefined();
+ expect(doc.model_providers.token_flow).toMatchObject({base_url:'http://127.0.0.1:9527/v1',requires_openai_auth:false,capabilities:{remote_compaction:'unsupported'}});
+ expect(record.codexDirectHybrid).toBe(true);expect(record.codexCoexist).toBe(false);expect((await connections.review(record.id)).checks.every(c=>c.ok)).toBe(true);
+ expect(JSON.parse(await readFile(doc.model_catalog_json,'utf8')).models.slice(0,2)).toEqual(official.models);
+ doc.model='gateway/test';doc.profiles.work.model='gateway/test';await writeFile(paths.codex,stringify(doc));expect((await connections.status())[0].configurationState).toBe('configured');expect((await connections.review(record.id)).checks.every(c=>c.ok)).toBe(true);
+ const preview=await connections.restorePreview(record.id,'native');expect(preview.canRestore).toBe(true);await connections.restore(record.id,undefined,'native');expect(parse(await readFile(paths.codex,'utf8')).model_provider).toBe('openai');expect(await readFile(join(paths.codex,'../auth.json'),'utf8')).toBe(auth);
+});

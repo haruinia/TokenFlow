@@ -1,0 +1,37 @@
+# Codex 官方直连＋网关会话桥（10.15.26.68 实验版）
+
+用户选择：继续接通官方直连＋网关的会话重载，再安装测试。旧版 .64/.66/.67 与本次源码、安装包分别保留。
+
+## 链路与启动
+
+官方使用内置 `openai` provider，推理与原生 compaction 由 Codex 直连官方；TokenFlow 不转发这两类请求。网关 provider 使用 `/v1`，明确 `remote_compaction=unsupported`，由 Codex 请求当前网关模型生成可读摘要。
+
+使用当前桌面客户端支持的 `CODEX_CLI_PATH` 加载一个 stdio JSON-RPC 桥。它不处理 HTTP 推理。桥接代码和只含路径、模型 ID 的配置复制到用户数据目录 `codex-direct-bridge`，由 Codex 自带 Node 启动原版 Codex 引擎。退出 TokenFlow 不终止已加载的会话桥和原生引擎。
+
+首次启用需要退出并重新打开 Codex 一次。后续通过本页「重启」入口启动混合模式；尚未安装系统级持久启动配置，普通应用图标启动不保证加载桥。界面区分配置已保存与桥已连接。此次安装本身不切换用户 provider，不退出当前 Codex；用户将在安装后选模式。
+
+模型选择对应 `thread/settings/update` 或 `turn/start`，桥在必要时通过自身连接退订，按目标 provider 重载相同 thread ID，再恢复权限及模型设置。网关产生新内容后返回官方，先等待 Codex 的可读摘要完成。临时会话、活动回复/审批、后台终端、无法复原的权限、其他订阅者阻止重载时拒绝发送待发请求。失败尝试恢复原 provider；不会误将官方请求发往第三方。
+
+官方加密压缩项不能被第三方直接解读。官方→网关的可读恢复沿用 TokenFlow 本地历史恢复；网关→官方使用可读摘要。并非无损状态共享。缺失本地历史应失败而非猜测。
+
+## 验证证据
+
+- `scripts/codex-provider-bridge-smoke.mts --live --long`：隔离 CODEX_HOME，实际安装 Codex 引擎、实际 OpenAI 与 Antigravity Gemini。经产品 `/api/a2a/connect` 配置新模式，生成约 50 万字符上下文。官方原生压缩、关闭测试 TokenFlow 服务续聊/压缩、重开服务、仅发送普通模型选择请求转网关、摘要后返回官方、再次关闭服务并压缩/续聊全部通过。两端标记保留，同线程，桥 PID 94060、引擎 PID 94061 未重启，官方转发尝试 0，测试登录文件内容不变。结果：`results/codex-provider-bridge-long-2026-10-24.json`。
+- 短往返结果：`results/codex-provider-bridge-smoke-2026-10-24.json`。
+- `scripts/codex-provider-bridge-tools.mts`：实际 Codex 引擎＋隔离本地 Responses 夹具（非真实供应商推理）。动态工具注册在官方→网关→官方重载后均能收到客户端调用和返回结果。三个阶段 reasoning=high；官方两端保留 service_tier=priority。自定义网关的原生请求没有 priority 字段：传递选项不代表第三方具备官方 Fast 能力。结果：`results/codex-provider-bridge-tools-2026-10-24.json`。
+- 协议回归覆盖繁忙、临时会话、后台终端、其他订阅者、权限不一致、摘要失败、不泄露原始内部错误、工具和流消息转发、官方请求参数不变。
+- 配置回归覆盖官方内置 provider、原官方目录 metadata、独立网关 Key、菜单改模型仍识别配置、恢复官方不触碰登录。
+- 账号切换回归覆盖混合模式保持官方直连、原网关 Key、账号目录与桥路由同步，原账号可恢复。
+
+## 验证边界
+
+引擎与会话协议测试已完成；用户真实桌面窗口的首次加载、模型菜单交互和视觉无痕程度仍需本次安装后验收。不要将这些测试描述为所有 Codex 原生特性完全等价。
+
+尚未验证官方父代理调用不同 provider 子代理、运行中子代理跨 provider 迁移、所有第三方模型、远程主机、外部沙箱和所有客户端版本。该实验入口仅支持当前可识别的 macOS Codex 安装。
+
+## 发布前检查
+
+- 9 个相关测试文件，175 项测试通过；TypeScript 检查、生产构建通过。
+- 19 项 Electron 生产包运行检查通过，macOS ad-hoc 签名及 strict 校验通过。
+- 工具往返夹具另外使用 Codex 自带 `cua_node/bin/node` 运行最终生产 bundle，三阶段工具调用与官方参数检查通过。
+- 安装前只读确认当前用户配置 provider=openai，无官方 base URL 覆盖；记录配置及 auth 文件哈希用于安装后核对。没有在当前会话启用新模式。

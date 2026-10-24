@@ -42,11 +42,11 @@ export const modelSelectionSchema=z.object({sourceId:z.string().regex(/^[a-f0-9]
 export type ModelSelection=z.infer<typeof modelSelectionSchema>;
 export const modelSelectionsSchema=z.array(modelSelectionSchema).min(1).max(100).refine(items=>new Set(items.map(i=>i.model)).size===items.length,'每个模型只能选择一个来源账号');
 const recoverySchema=z.object({strategy:z.enum(['backup','minimal']),message:z.string()});
-const recordSchema=z.object({codexCoexist:z.boolean().optional(),officialModelSlugs:z.array(z.string().min(1)).max(1000).optional(),recovery:recoverySchema.optional(),id:z.string().uuid(),target:targetSchema,createdAt:z.string(),before:z.string().nullable(),after:z.string(),beforeHash:z.string(),afterHash:z.string(),state:z.enum(['prepared','applied','restored']),keyId:z.string().uuid(),sourceId:z.string(),model:z.string(),fastModel:z.string().min(1).max(300).optional(),selections:modelSelectionsSchema.optional(),modelAliases:z.record(z.string().min(1).max(300)).optional(),supersedes:z.string().uuid().optional(),previousConfig:z.string().nullable().optional(),previousHash:z.string().optional(),deepseekScope:z.enum(['home','profile']).optional()});
+const recordSchema=z.object({codexDirectHybrid:z.boolean().optional(),codexCoexist:z.boolean().optional(),officialModelSlugs:z.array(z.string().min(1)).max(1000).optional(),recovery:recoverySchema.optional(),id:z.string().uuid(),target:targetSchema,createdAt:z.string(),before:z.string().nullable(),after:z.string(),beforeHash:z.string(),afterHash:z.string(),state:z.enum(['prepared','applied','restored']),keyId:z.string().uuid(),sourceId:z.string(),model:z.string(),fastModel:z.string().min(1).max(300).optional(),selections:modelSelectionsSchema.optional(),modelAliases:z.record(z.string().min(1).max(300)).optional(),supersedes:z.string().uuid().optional(),previousConfig:z.string().nullable().optional(),previousHash:z.string().optional(),deepseekScope:z.enum(['home','profile']).optional()});
 type Record=z.infer<typeof recordSchema>;
 export type ConnectionRecord=Omit<Record,'before'|'after'|'previousConfig'>;
 const publicRecord=({before,after,previousConfig,...record}:Record):ConnectionRecord=>record;
-const codexModelAllowed=(record:Record,model:unknown)=>typeof model==='string'&&((record.selections??[record]).some(item=>item.model===model)||!!record.codexCoexist&&!!record.officialModelSlugs?.includes(model));
+const codexModelAllowed=(record:Record,model:unknown)=>typeof model==='string'&&((record.selections??[record]).some(item=>item.model===model)||!!(record.codexCoexist||record.codexDirectHybrid)&&!!record.officialModelSlugs?.includes(model));
 const clientModelID=(record:Record,model:string)=>Object.entries(record.modelAliases??{}).find(([,route])=>route===model)?.[0]??model;
 export type AgentPaths={[K in Target]:string};
 const targetNames={codex:'Codex',claude:'Claude Code',workbuddy:'WorkBuddy',qoder:'Qoder',deepseek:'DeepSeek Harness',pi:'Pi Agent','workbuddy-ai':'WorkBuddyAI'};
@@ -162,11 +162,11 @@ function normalizeOwnedModelDrift(record:Record,after:unknown,actual:unknown):un
   }
   if(record.target!=='codex'||!isObject(after)||!isObject(actual))return actual;
   const expectedProviders=after.model_providers,actualProviders=actual.model_providers;
-  if(!isObject(expectedProviders)||!isObject(actualProviders)||!isDeepStrictEqual(actualProviders.token_flow,expectedProviders.token_flow)||actual.model_provider!=='token_flow')return actual;
+  if(!isObject(expectedProviders)||!isObject(actualProviders)||!isDeepStrictEqual(actualProviders.token_flow,expectedProviders.token_flow)||actual.model_provider!==(record.codexDirectHybrid?'openai':'token_flow'))return actual;
   const normalized:{[key:string]:unknown}={...actual,model:after.model};
   if(typeof after.profile==='string'&&actual.profile===after.profile&&isObject(after.profiles)&&isObject(actual.profiles)){
     const expectedProfile=after.profiles[after.profile],actualProfile=actual.profiles[after.profile];
-    if(isObject(expectedProfile)&&isObject(actualProfile)&&actualProfile.model_provider==='token_flow')normalized.profiles={...actual.profiles,[after.profile]:{...actualProfile,model:expectedProfile.model}};
+    if(isObject(expectedProfile)&&isObject(actualProfile)&&actualProfile.model_provider===(record.codexDirectHybrid?'openai':'token_flow'))normalized.profiles={...actual.profiles,[after.profile]:{...actualProfile,model:expectedProfile.model}};
   }
   return normalized;
 }
@@ -190,7 +190,7 @@ function appliedConfig(record:Record,current:string|null):boolean {
     let actual=decodeConfig(record.target,current);
     if(record.target==='claude'&&isObject(actual)&&(record.selections??[record]).some(item=>claudeModelMatches(actual as {[key:string]:unknown},item.model)))actual={...actual,model:record.model};
     if(record.selections&&(record.target==='qoder'||record.target==='deepseek'))actual=normalizeOwnedModelDrift(record,decodeConfig(record.target,record.after),actual);
-    if((record.selections||record.codexCoexist)&&record.target==='codex'&&isObject(actual)){
+    if((record.selections||record.codexCoexist||record.codexDirectHybrid)&&record.target==='codex'&&isObject(actual)){
       const effective={...actual,...codexProfile(actual)};
       if(codexModelAllowed(record,effective.model))actual=normalizeOwnedModelDrift(record,decodeConfig(record.target,record.after),actual);
     }
@@ -559,19 +559,19 @@ export class AgentConnections {
       }else{
         const provider=actual.model_providers?.token_flow;const original=expected.model_providers.token_flow;
         const effective={...actual,...codexProfile(actual)};
-        checks.push({name:'模型与配置层级正确',ok:codexModelAllowed(record,effective.model)&&effective.model_provider==='token_flow'&&actual.profile===expected.profile},{name:'接口与协议正确',ok:provider?.base_url===original.base_url&&provider?.wire_api==='responses'&&provider?.requires_openai_auth===!!record.codexCoexist},{name:'客户端 Key 未被覆盖',ok:record.codexCoexist?provider?.experimental_bearer_token===undefined&&isDeepStrictEqual(provider?.http_headers,original.http_headers):provider?.experimental_bearer_token===original.experimental_bearer_token});
+        checks.push({name:'模型与配置层级正确',ok:codexModelAllowed(record,effective.model)&&effective.model_provider===(record.codexDirectHybrid?'openai':'token_flow')&&actual.profile===expected.profile},{name:'接口与协议正确',ok:provider?.base_url===original.base_url&&provider?.wire_api==='responses'&&provider?.requires_openai_auth===!!record.codexCoexist},{name:'客户端 Key 未被覆盖',ok:record.codexCoexist?provider?.experimental_bearer_token===undefined&&isDeepStrictEqual(provider?.http_headers,original.http_headers):provider?.experimental_bearer_token===original.experimental_bearer_token});
         checks.push({name:'本地配置档案选择保留',ok:actual.profile===parse(record.before??'').profile});
       }
-      if(record.selections||record.codexCoexist){
+      if(record.selections||record.codexCoexist||record.codexDirectHybrid){
         const ids=(record.selections??[record]).map(item=>item.model);
-        if(record.target==='codex'){const catalog=JSON.parse(await readFile(String(actual.model_catalog_json),'utf8'));checks.push({name:'所选模型目录完整',ok:isDeepStrictEqual(catalog.models.map((m:{slug:string})=>m.slug),[...(record.codexCoexist?record.officialModelSlugs??[]:[]),...ids])});}
+        if(record.target==='codex'){const catalog=JSON.parse(await readFile(String(actual.model_catalog_json),'utf8'));checks.push({name:'所选模型目录完整',ok:isDeepStrictEqual(catalog.models.map((m:{slug:string})=>m.slug),[...((record.codexCoexist||record.codexDirectHybrid)?record.officialModelSlugs??[]:[]),...ids])});}
         if(record.target==='claude')checks.push({name:'所选模型菜单与授权一致',ok:isDeepStrictEqual(actual.availableModels,ids)&&isDeepStrictEqual(actual.modelPicker,expected.modelPicker)&&actual.env?.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY==='1'});
         if(workbuddyModels(record.target))checks.push({name:'所选模型配置完整',ok:ids.every(route=>{const id=clientModelID(record,route),model=actual.models?.find((m:{id:string})=>m.id===id),original=expected.models.find((m:{id:string})=>m.id===id);return model?.apiKey===original?.apiKey&&model?.url===original?.url&&model?.supportsToolCall===true;})});
       }
     }catch{checks.push({name:'配置格式可解析',ok:false});}
     return {id,target:record.target,model:record.model,checks,liveCallVerified:false,...(record.target==='claude'?{compatibility:{autoMode:'unverified' as const,note:'主模型、辅助模型配置一致不代表 Auto Mode 审批可用。审批分类器与 App 的维修审批模型相互独立；Messages 文本和工具检测也不能验证分类器。'}}:{}),note:record.target==='pi'?'在官方 Pi 的 /model 菜单选择 token-flow 模型。':record.target==='deepseek'?'重新打开 DeepSeek Harness 官方桌面应用，在模型菜单选择 token-flow 模型；已有对话从历史继续。':record.target==='qoder'?`重启 Qoder 独立应用，在模型菜单选择 ${record.model}。原登录与内置模型保留；不适用于 Qoder IDE。`:record.target==='workbuddy'?`在 WorkBuddy 新建任务的输入框下方打开模型菜单，选择 ${record.model}。若没有显示，重启 WorkBuddy 后再查看。配置检查不代表已在客户端选用。`:record.target==='workbuddy-ai'?`在 WorkBuddyAI 新建任务的输入框下方打开模型菜单，选择 ${record.model}。若没有显示，重启 WorkBuddyAI 后再查看。配置检查不代表已在客户端选用。官方登录保持不变。`:'重启 Agent 后加载配置；项目级设置或已有终端环境变量仍可能覆盖用户配置。'};
   }
-  async apply(input:{target:Target;revision:string;origin:string;model:string;sourceId:string;keyId:string;key:string;allowRunning?:boolean;replaceId?:string;rewrite?:boolean;selections?:ModelSelection[];fastModel?:string;modelLabels?:{[id:string]:string};modelContextWindows?:{[id:string]:number};officialCatalog?:OfficialCodexCatalog}){
+  async apply(input:{target:Target;revision:string;origin:string;model:string;sourceId:string;keyId:string;key:string;allowRunning?:boolean;replaceId?:string;rewrite?:boolean;selections?:ModelSelection[];fastModel?:string;modelLabels?:{[id:string]:string};modelContextWindows?:{[id:string]:number};officialCatalog?:OfficialCodexCatalog;codexDirectHybrid?:boolean}){
     return this.run(input.target,async()=>{
       await this.requireEditableProfile(input.target);
       if(!input.allowRunning)await this.idle(input.target);
@@ -589,7 +589,17 @@ export class AgentConnections {
       const gatewayCatalog=input.target==='codex'?codexModelCatalog(selectedModels??input.model,input.modelLabels,input.modelContextWindows):undefined;
       const catalog=gatewayCatalog&&input.officialCatalog?mergeCodexCatalog(gatewayCatalog,input.officialCatalog):gatewayCatalog;
       const catalogPath=catalog?this.catalogPath(JSON.stringify(catalog)):undefined;
-      let after:string;try{after=connectedConfig(input.target,original,input.origin,input.model,input.key,catalogPath,selectedModels,input.modelLabels,input.fastModel,!!input.officialCatalog);}catch{throw conflict('配置格式无法安全解析，未修改原文件。');}
+      let after:string;try{after=connectedConfig(input.target,original,input.origin,input.model,input.key,catalogPath,selectedModels,input.modelLabels,input.fastModel,!!input.officialCatalog&&!input.codexDirectHybrid);}catch{throw conflict('配置格式无法安全解析，未修改原文件。');}
+      if(input.codexDirectHybrid){
+        if(!input.officialCatalog?.models.length)throw conflict('官方模型目录缺失，未启用直连混合模式。');
+        const doc=parse(after) as any,prior=parse(original??'') as any;
+        const official=input.officialCatalog.models.map(m=>m.slug),preferred={...prior,...codexProfile(prior)}.model;
+        const nativeModel=official.includes(preferred)?preferred:official[0];
+        const configure=(d:any)=>{d.model_provider='openai';d.model=nativeModel;delete d.model_auto_compact_token_limit_scope;delete d.openai_base_url;if(d.model_providers)delete d.model_providers.openai;};
+        configure(doc);const profile=codexProfile(doc);if(profile){configure(profile);if(profile.model_providers)delete profile.model_providers.token_flow;}
+        doc.model_providers.token_flow.capabilities={remote_compaction:'unsupported'};
+        after=stringify(doc);
+      }
       if(catalogPath){
         await safePath(catalogPath);const temp=`${catalogPath}.${randomUUID()}.tmp`;
         try{await writeFile(temp,JSON.stringify(catalog),{mode:0o600,flag:'wx'});await rename(temp,catalogPath);}finally{await rm(temp,{force:true});}
@@ -597,14 +607,14 @@ export class AgentConnections {
       const routes=selectedModels??[input.model];
       const modelAliases=workbuddyModels(input.target)?Object.fromEntries((JSON.parse(after) as {id:string}[]).slice(-routes.length).flatMap((entry,i)=>entry.id!==routes[i]?[[entry.id,routes[i]]]:[])):undefined;
       if(recovered.recovery)await this.backupDamagedCodex(before);
-      const record:Record={...(input.officialCatalog?{codexCoexist:true,officialModelSlugs:input.officialCatalog.models.map(model=>model.slug)}:{}),...(recovered.recovery?{recovery:recovered.recovery}:{}),id:randomUUID(),target:input.target,createdAt:new Date().toISOString(),before:original,after,beforeHash:hash(original),afterHash:hash(after),state:'prepared',keyId:input.keyId,sourceId:input.sourceId,model:input.model,...(input.fastModel?{fastModel:input.fastModel}:{}),...(modelAliases&&Object.keys(modelAliases).length?{modelAliases}:{}),...(input.target==='deepseek'?{deepseekScope:this.deepseekProfilePath?'profile' as const:'home' as const}:{}),...(input.selections?{selections:input.selections}:{}),...(active?{supersedes:active.id}:{}),...((active||recovered.recovery)?{previousConfig:before,previousHash:hash(before)}:{})};
+      const record:Record={...(input.officialCatalog?{codexCoexist:!input.codexDirectHybrid,...(input.codexDirectHybrid?{codexDirectHybrid:true}:{}),officialModelSlugs:input.officialCatalog.models.map(model=>model.slug)}:{}),...(recovered.recovery?{recovery:recovered.recovery}:{}),id:randomUUID(),target:input.target,createdAt:new Date().toISOString(),before:original,after,beforeHash:hash(original),afterHash:hash(after),state:'prepared',keyId:input.keyId,sourceId:input.sourceId,model:input.model,...(input.fastModel?{fastModel:input.fastModel}:{}),...(modelAliases&&Object.keys(modelAliases).length?{modelAliases}:{}),...(input.target==='deepseek'?{deepseekScope:this.deepseekProfilePath?'profile' as const:'home' as const}:{}),...(input.selections?{selections:input.selections}:{}),...(active?{supersedes:active.id}:{}),...((active||recovered.recovery)?{previousConfig:before,previousHash:hash(before)}:{})};
       await this.save(record);await this.replace(input.target,input.revision,after,input.allowRunning);record.state='applied';await this.save(record);await this.retirePrevious(record);return publicRecord(record);
     });
   }
   /** Prepare an identity-only catalog update. The caller holds the shared Codex config lock
    * throughout preparation, auth/config replacement, apply and rollback. No key is replaced. */
   async prepareCodexIdentityCatalog(id:string,current:string|null,official:OfficialCodexCatalog,recovery?:{before:string|null;after:string}){
-    const record=(await this.records()).find(r=>r.id===id&&r.target==='codex'&&r.state==='applied'&&r.codexCoexist);
+    const record=(await this.records()).find(r=>r.id===id&&r.target==='codex'&&r.state==='applied'&&(r.codexCoexist||r.codexDirectHybrid));
     const interrupted=record&&recovery&&(current===recovery.before||current===recovery.after)&&(appliedConfig(record,recovery.before)||appliedConfig(record,recovery.after));
     if(!record||!appliedConfig(record,current)&&!interrupted)throw conflict('Codex 共存配置已变化，请刷新或重新应用后再切换账号。');
     const doc=parse(current??''),profile=codexProfile(doc),effective={...doc,...profile};
@@ -618,7 +628,7 @@ export class AgentConnections {
     if(gatewayModels.some(model=>!model))throw conflict('Codex 网关模型目录不完整，请重新应用后再切换账号。');
     const catalog=mergeCodexCatalog({...cached,models:gatewayModels},official),catalogPath=this.catalogPath(JSON.stringify(catalog));
     const allowed=new Set([...official.models.map(model=>model.slug),...gatewaySlugs]);
-    const update=(config:{[key:string]:any})=>{config.model_catalog_json=catalogPath;if(!allowed.has(config.model))config.model=record.model;};
+    const update=(config:{[key:string]:any})=>{config.model_catalog_json=catalogPath;if(!allowed.has(config.model))config.model=record.codexDirectHybrid?official.models[0].slug:record.model;};
     update(doc);if(profile)update(profile);
     // Keep the ownership baseline: copying current user settings into `after` would
     // make a later gateway restore mistake those settings for fields we created.

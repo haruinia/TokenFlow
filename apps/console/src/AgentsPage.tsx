@@ -108,7 +108,7 @@ export function AgentsPage({local,calls,usage,notify,onRepair,onAgent,localError
 function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,usage,problem,notify,onRepair,onChanged,onProgramChanged}:{onRefreshAccounts:()=>Promise<void>;clientSwitch?:ReactNode;target:AgentTarget;update?:AgentUpdate;login?:Login;local:LocalAgentSnapshot;usage:UsageData;problem:string;notify:Notify;onRepair:(chain:MaintenanceChain,intent?:'codex-history')=>void;onChanged:()=>Promise<void>;onProgramChanged:()=>Promise<void>}){
  const [modelOrder,,modelRanks,moveModel]=useModelOrder();
  const [gatewayPending,setGatewayPending]=useState<boolean>();
- const [gatewayConfirm,setGatewayConfirm]=useState<{selections:Choice[];preferred?:Choice}>();
+ const [gatewayConfirm,setGatewayConfirm]=useState<{selections:Choice[];preferred?:Choice;hybrid?:boolean}>();
  const [programError,setProgramError]=useState('');
  const [programOpen,setProgramOpen]=useState(!target.installation.installed&&target.id!=='claude');const [programAction,setProgramAction]=useState<'install'|'update'>('install');
  const pendingSelection=useRef<{selections:Choice[];preferred?:Choice}|undefined>(undefined);
@@ -176,7 +176,7 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
  };
  const applySelected=(selections:Choice[],preferred?:Choice)=>{
   if(!(target.installation.configurationSupported??(target.id==='claude'||target.installation.installed))){pendingSelection.current={selections,preferred};askProgram('install');return;}
-  if(target.id==='codex'){setGatewayConfirm({selections,preferred});return;}
+  if(target.id==='codex'){setGatewayConfirm({selections,preferred,hybrid:!!target.codexBridge?.supported&&(connection?.codexDirectHybrid??true)});return;}
   return connectSelected(selections,preferred);
  };
  const changeCodex=(work:(restartCodex:boolean)=>Promise<string>,approved=false,configurationOnly=false,inApplication=false):Promise<void>|void=>{
@@ -186,7 +186,7 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
   setHistoryOffer('');setMigrationProgress(undefined);switching.current=true;
   return run(()=>work(automatic&&approved),inApplication?'models':undefined);
  };
- const connectSelected=(selections:Choice[],preferred?:Choice,confirmedTarget?:AgentTarget,fast?:Choice)=>{
+ const connectSelected=(selections:Choice[],preferred?:Choice,confirmedTarget?:AgentTarget,fast?:Choice,hybrid=false)=>{
   if(target.id==='claude'&&selections.length>1&&!fast){
    const fallback=preferred??selections.find(item=>isCurrent(item))??selections[0];
    if(!fallback)return;
@@ -194,14 +194,14 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
    setRoles({selections,preferred,confirmedTarget,defaultId:choiceId(fallback),fastId:choiceId(known)});return;
   }
   saveDraft(selections,true);
-  retryApplication.current=()=>connectSelected(selections,preferred,confirmedTarget,fast);
+  retryApplication.current=()=>connectSelected(selections,preferred,confirmedTarget,fast,hybrid);
   return changeCodex(async restartCodex=>{
   const choice=preferred??selections.find(item=>isCurrent(item))??selections[0];
   if(!choice)throw new Error('请至少选择一个模型。');
   saveDraft(selections,true);
   // Starting explicitly replaces current routing; still reject edits made during this write.
   const next=await latest();
-  const result=await requestJSON<{recovery?:{message:string}}>('/api/a2a/connect',post({allowRunning:true,restartCodex,target:target.id,...(target.id==='codex'?{codexCoexist:false}:{}),selections,sourceId:choice.sourceId,model:choice.model,...(fast?{fastSourceId:fast.sourceId,fastModel:fast.model}:{}),revision:next.revision,...(next.connection?{replaceId:next.connection.id}:{}),...(next.connection?{rewrite:true}:{}),tokenLimit:null}),600000);
+  const result=await requestJSON<{recovery?:{message:string}}>('/api/a2a/connect',post({allowRunning:true,restartCodex,target:target.id,...(target.id==='codex'?{codexCoexist:false,codexDirectHybrid:hybrid}:{}),selections,sourceId:choice.sourceId,model:choice.model,...(fast?{fastSourceId:fast.sourceId,fastModel:fast.model}:{}),revision:next.revision,...(next.connection?{replaceId:next.connection.id}:{}),...(next.connection?{rewrite:true}:{}),tokenLimit:null}),600000);
   saveDraft(selections,false);configurationSaved(restartCodex,true);
   if(hidden.includes(choiceId(choice)))hide(hidden.filter(id=>id!==choiceId(choice)));
   const label=modelLabel(local,choice.model);
@@ -209,6 +209,7 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
   if(target.id==='claude')return `${target.name} 已导入 ${selections.length} 个模型，默认 ${label}${fast&&fast.model!==choice.model?`，快速模型 ${modelLabel(local,fast.model)}`:''}。下次启动时加载配置，可用 /model 选择模型。子代理跟随当前会话。`;
   if(target.id==='pi')return `${target.name} 已导入 ${selections.length} 个模型，下次启动时加载配置，可用 /model 选择模型。`;
   if(target.id==='deepseek')return `DeepSeek Harness 桌面版已导入 ${selections.length} 个模型，默认 ${label}；重新打开应用后生效。`;
+  if(target.id==='codex'&&hybrid)return '官方直连＋网关已配置。会话桥已加载后，可在 Codex 内切换模型；从网关返回官方时可能先生成摘要。退出 TokenFlow 前请先切回官方并完成一次回复。';
   if(result.recovery)return `${target.name} 已配置 ${selections.length} 个模型，默认 ${label}。${result.recovery.message}${restartCodex?'已重新打开 Codex。':''}`;
   if(restartCodex)return `Codex 已切为网关模式，默认 ${label}。官方登录保留，对话来源已同步并重新打开。`;
   return `${target.name} 已配置 ${selections.length} 个模型，默认 ${label}。重启后可在 Agent 内切换${menu}。`;
@@ -272,13 +273,16 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
     {!!problem&&<button type="button" className="primary" disabled={busy} onClick={repair}>维修</button>}
    </div>
   </header>
-  {target.id==='codex'&&<CodexRoutingMode mode={target.codexRoutingMode} busy={busy} canRestore={!!connection} canGateway={running&&!target.error&&(!!models.length||!!available.length)} dirty={draftDirty} onOfficial={openRestore} onGateway={()=>{if(models.length)void applySelected(shownModels);else setPicking(true);}}/>}
-  <FlowDialog className="tfRestartDialog tfRestoreConfigDialog" open={!!gatewayConfirm} title="切换为网关模型" busy={busy} showBusyIndicator={false} onClose={()=>setGatewayConfirm(undefined)}>
-   <p className="tfDialogLead">Codex → TokenFlow → 网关模型</p>
+  {target.id==='codex'&&<CodexRoutingMode mode={target.codexRoutingMode} busy={busy} canRestore={!!connection} canGateway={running&&!target.error&&(!!models.length||!!available.length)} dirty={draftDirty} onOfficial={openRestore} hybrid={!!connection?.codexDirectHybrid} bridge={target.codexBridge} onHybrid={()=>{if(models.length)setGatewayConfirm({selections:shownModels,hybrid:true});else setPicking(true);}} onGateway={()=>{if(models.length)setGatewayConfirm({selections:shownModels,hybrid:false});else setPicking(true);}}/>}
+  <FlowDialog className="tfRestartDialog tfRestoreConfigDialog" open={!!gatewayConfirm} title={gatewayConfirm?.hybrid?"官方账号＋网关模型（实验）":"切换为网关模型"} busy={busy} showBusyIndicator={false} onClose={()=>setGatewayConfirm(undefined)}>
+   <p className="tfDialogLead">{gatewayConfirm?.hybrid?'官方：Codex → OpenAI；网关：Codex → TokenFlow':'Codex → TokenFlow → 网关模型'}</p>
+   <label><input type="checkbox" checked={!!gatewayConfirm?.hybrid} disabled={busy||!target.codexBridge?.supported} onChange={event=>setGatewayConfirm(value=>value?{...value,hybrid:event.target.checked}:value)}/> 保留官方直连，通过会话重载切换网关（实验）</label>
    <p className="tfHint">保留官方登录，备份并同步旧对话。Codex 将请求当前网关模型生成摘要；网关模型无法读取官方的加密压缩项，需要从本机历史恢复可读上下文。</p>
    <p>已选 {gatewayConfirm?.selections.length??0} 个模型，默认 {gatewayConfirm&&modelLabel(local,(gatewayConfirm.preferred??gatewayConfirm.selections.find(item=>isCurrent(item))??gatewayConfirm.selections[0])?.model??'')}。</p>
+   <p className="tfHint">{gatewayConfirm?.hybrid?'首次启用会退出并重新打开 Codex，之后在模型菜单切换时自动重载同一对话。官方保持原生压缩；返回官方前网关可能先生成摘要。其他窗口订阅、后台终端和临时会话暂不支持自动切换。':''}</p>
+   <p className="tfHint">{gatewayConfirm?.hybrid?'后续请从 TokenFlow 的「重启」入口启动此模式；普通图标启动不会保证加载会话桥。网关需要 TokenFlow 运行，已切回官方的对话不依赖它。':''}</p>
    <p className="tfHint">{desktopRestart?'请先结束正在进行的任务。确认后会退出本机 Codex 进程并重新打开应用，再进入原对话继续。':'请完全退出 Codex 后继续，完成后重新打开原对话。'}</p>
-   <footer><button disabled={busy} onClick={()=>setGatewayConfirm(undefined)}>取消</button><button className="primary" disabled={busy||!gatewayConfirm?.selections.length} onClick={()=>{const selected=gatewayConfirm;if(!selected)return;setGatewayConfirm(undefined);void connectSelected(selected.selections,selected.preferred);}}>{desktopRestart?'切为网关并重启':'已退出，应用网关'}</button></footer>
+   <footer><button disabled={busy} onClick={()=>setGatewayConfirm(undefined)}>取消</button><button className="primary" disabled={busy||!gatewayConfirm?.selections.length} onClick={()=>{const selected=gatewayConfirm;if(!selected)return;setGatewayConfirm(undefined);void connectSelected(selected.selections,selected.preferred,undefined,undefined,!!selected.hybrid);}}>{desktopRestart?(gatewayConfirm?.hybrid?'启用并重新打开 Codex':'切为网关并重启'):'已退出，应用配置'}</button></footer>
   </FlowDialog>
   <FlowDialog className="tfRestartDialog tfRestoreConfigDialog" open={restoreOpen} title="切换为官方直连" busy={busy} showBusyIndicator={false} onClose={closeRestore}>
    <p className="tfDialogLead">{restoreBlocked?'暂时无法切回官方服务，请检查下方原因。':'停用 TokenFlow 网关，直接使用 Codex 官方接口和默认模型。'}</p>
@@ -408,6 +412,6 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
   </section>}
   </div>
   <AgentUsageDetails target={target.id} local={local} usage={usage}/>
-  <AgentModelPicker open={picking} title={`${target.name} 使用的模型`} local={local} current={current} selected={models} applicationOptions={target.id==='codex'?<p className="tfHint">应用后切为网关模式，保留官方登录。下一步确认退出并重新打开 Codex。</p>:undefined} onConfirm={choices=>{saveDraft(choices);void applySelected(choices);}} onClose={()=>setPicking(false)}/>
+  <AgentModelPicker open={picking} title={`${target.name} 使用的模型`} local={local} current={current} selected={models} applicationOptions={target.id==='codex'?<p className="tfHint">下一步选择官方直连＋网关，或仅使用网关模型。首次启用需要重新打开 Codex。</p>:undefined} onConfirm={choices=>{saveDraft(choices);void applySelected(choices);}} onClose={()=>setPicking(false)}/>
  </section>;
 }

@@ -10,5 +10,6 @@ export default defineConfig([
   // Bundled CommonJS libraries (e.g. YAML) still require Node builtins in ESM.
   banner:{js:"import { createRequire as __tokenflowCreateRequire } from 'node:module'; const require = __tokenflowCreateRequire(import.meta.url);"},
  },
- {entry:{preload:'apps/desktop/src/preload.ts'},format:['cjs'],platform:'node',outDir:'dist',external:['electron']}
+ {entry:{preload:'apps/desktop/src/preload.ts'},format:['cjs'],platform:'node',outDir:'dist',external:['electron']},
+ {entry:{'codex-provider-bridge':'packages/core/src/codex-provider-bridge-entry.ts'},format:['esm'],platform:'node',target:'node22',outDir:'dist',splitting:false}
 ]);

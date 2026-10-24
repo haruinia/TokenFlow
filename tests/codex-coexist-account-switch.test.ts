@@ -1,3 +1,4 @@
+import {CodexBridgeInstallation} from '../packages/core/src/codex-bridge-installation.js';
 import {afterEach,expect,it,vi} from 'vitest';
 import {mkdtemp,mkdir,writeFile,readFile,rm,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -13,17 +14,18 @@ const clean:Array<()=>Promise<unknown>>=[];
 afterEach(async()=>{vi.restoreAllMocks();for(const fn of clean.splice(0).reverse())await fn();});
 const oauth=(id:string)=>({account_id:id,access_token:`fixture-access-${id}`,refresh_token:`fixture-refresh-${id}`,id_token:`x.${Buffer.from(JSON.stringify({email:`${id}@example.test`})).toString('base64url')}.x`});
 const catalog=(slug:string)=>({models:[{slug,display_name:slug,visibility:'list',truncation_policy:{mode:'bytes',limit:1000}}]});
-async function setup(){
+async function setup(hybrid=false){
+ if(hybrid)vi.spyOn(CodexBridgeInstallation.prototype,'preflight').mockResolvedValue({app:'/fixture/Codex.app',binary:'/fixture/codex',node:'/fixture/node'});
  const root=await realpath(await mkdtemp(join(tmpdir(),'coexist-account-')));clean.push(()=>rm(root,{recursive:true,force:true}));
  const config=join(root,'codex/config.toml'),auth=join(root,'codex/auth.json');await mkdir(join(root,'codex'));await mkdir(join(root,'cliproxy/auth'),{recursive:true});await writeFile(config,'model="original"\n');const originalAuth=JSON.stringify({auth_mode:'chatgpt',tokens:oauth('original')});await writeFile(auth,originalAuth);
  await writeFile(join(root,'cliproxy/fixture-accounts.json'),JSON.stringify(['a','b'].map(id=>({name:`${id}.json`,provider:'codex',status:'active',models:[`model-${id}`]}))));for(const id of ['a','b'])await writeFile(join(root,`cliproxy/auth/${id}.json`),JSON.stringify(oauth(id)));
  const allocator=createServer();await new Promise<void>(r=>allocator.listen(0,'127.0.0.1',r));const port=(allocator.address() as {port:number}).port;await new Promise<void>(r=>allocator.close(()=>r()));
  let fail=false;let onFetch:undefined|(()=>Promise<void>);const fetcher=vi.fn(async(_url:string,init:RequestInit)=>{await onFetch?.();return fail?Response.json({error:'unavailable'},{status:403}):Response.json(catalog(`official-${(init.headers as Record<string,string>)['chatgpt-account-id']}`));});
- const options={root,proxyPort:port,binary:resolve('tests/fixtures/fake-cliproxy.mjs'),token:'admin',localKey:'private',secrets:{get:async()=>'',set:async()=>{}},agentPaths:{codex:config,qoder:join(root,'qoder.json'),claude:join(root,'claude.json'),workbuddy:join(root,'workbuddy.json')},agentProcesses:async()=>[],codexOfficialFetch:fetcher};let service=await createDesktopService(options);clean.push(()=>service.app.close());
+ const options={codexBridgeRuntime:resolve('tests/fixtures/fake-cliproxy.mjs'),root,proxyPort:port,binary:resolve('tests/fixtures/fake-cliproxy.mjs'),token:'admin',localKey:'private',secrets:{get:async()=>'',set:async()=>{}},agentPaths:{codex:config,qoder:join(root,'qoder.json'),claude:join(root,'claude.json'),workbuddy:join(root,'workbuddy.json')},agentProcesses:async()=>[],codexOfficialFetch:fetcher};let service=await createDesktopService(options);clean.push(()=>service.app.close());
  vi.spyOn(CodexContext.prototype,'prepareOfficial').mockResolvedValue({changed:0} as any);vi.spyOn(CodexThreadMigration.prototype,'restore').mockResolvedValue({migrated:0} as any);
  await service.proxy.start();const headers={host:'127.0.0.1:9527',authorization:'Bearer admin'},get=async(url:string)=>(await service.app.inject({url,headers})).json(),post=(url:string,payload:unknown)=>service.app.inject({url,method:'POST',headers,payload:payload as any});
  const target=(await get('/api/a2a')).targets.find((t:any)=>t.id==='codex'),source=service.proxy.snapshot().accounts.find(a=>a.models?.includes('codex/model-a'))!;
- const connected=await post('/api/a2a/connect',{target:'codex',sourceId:source.id,model:'codex/model-a',selections:[{sourceId:source.id,model:'codex/model-a'}],revision:target.revision,codexCoexist:true});expect(connected.statusCode,connected.body).toBe(200);
+ const connected=await post('/api/a2a/connect',{target:'codex',sourceId:source.id,model:'codex/model-a',selections:[{sourceId:source.id,model:'codex/model-a'}],revision:target.revision,codexCoexist:!hybrid,codexDirectHybrid:hybrid});expect(connected.statusCode,connected.body).toBe(200);
  return {root,config,auth,originalAuth,get service(){return service;},restart:async()=>{await service.app.close();service=await createDesktopService(options);await service.proxy.start();},get,post,fetcher,fail:(value:boolean)=>fail=value,onFetch:(value:()=>Promise<void>)=>onFetch=value};
 }
 it('preserves gateway routing and its key while switching and restoring official identities and refreshes account-scoped models',async()=>{
@@ -88,4 +90,13 @@ it('replaces a selected official model lost by the next account with the configu
 });
 it('preserves settings added by Codex before an account change when the gateway is later disconnected',async()=>{
  const f=await setup(),source=f.service.proxy.snapshot().accounts[0];await writeFile(f.config,await readFile(f.config,'utf8')+'\n[projects.fixture]\ntrust_level = "trusted"\n');expect((await f.post('/api/codex-accounts/switch',{revision:(await f.get('/api/codex-accounts')).revision,sourceId:source.id,model:source.models![0],restoreHistory:false})).statusCode).toBe(200);const target=(await f.get('/api/a2a')).targets.find((t:any)=>t.id==='codex');const restored=await f.post('/api/a2a/restore',{id:target.connection.id,revision:target.revision,restoreHistory:false});expect(restored.statusCode,restored.body).toBe(200);expect(parse(await readFile(f.config,'utf8')).projects).toEqual({fixture:{trust_level:'trusted'}});
+});
+it('keeps native routing, gateway key and bridge model routing together during a hybrid official account switch and restore',async()=>{
+ const f=await setup(true),initial=(await f.get('/api/a2a')).targets.find((t:any)=>t.id==='codex').connection,routePath=join(f.root,'codex-direct-bridge/settings.json');
+ const before=parse(await readFile(f.config,'utf8')) as any;
+ const source=f.service.proxy.snapshot().accounts.find(a=>a.models?.includes('codex/model-a'))!;
+ const switched=await f.post('/api/codex-accounts/switch',{revision:(await f.get('/api/codex-accounts')).revision,sourceId:source.id,model:'codex/model-a',restoreHistory:false});expect(switched.statusCode,switched.body).toBe(200);
+ const config=parse(await readFile(f.config,'utf8')) as any;expect(config.model_provider).toBe('openai');expect(config.model).toBe('official-a');expect(config.model_providers).toEqual(before.model_providers);expect(JSON.parse(await readFile(routePath,'utf8')).officialModels).toEqual(['official-a']);
+ const current=(await f.get('/api/a2a')).targets.find((t:any)=>t.id==='codex');expect(current.connection).toMatchObject({id:initial.id,keyId:initial.keyId,codexDirectHybrid:true,codexCoexist:false});
+ const restored=await f.post('/api/codex-accounts/restore',{revision:(await f.get('/api/codex-accounts')).revision,restoreHistory:false});expect(restored.statusCode,restored.body).toBe(200);expect(await readFile(f.auth,'utf8')).toBe(f.originalAuth);expect(JSON.parse(await readFile(routePath,'utf8')).officialModels).toEqual(['official-original']);expect(parse(await readFile(f.config,'utf8')).model_provider).toBe('openai');
 });
