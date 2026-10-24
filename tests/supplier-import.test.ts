@@ -19,6 +19,22 @@ async function fixture(){
 }
 const claude={id:'c',app_type:'claude',name:'Claude supplier',settings_config:JSON.stringify({env:{ANTHROPIC_BASE_URL:'https://supplier.example/v1/messages',ANTHROPIC_AUTH_TOKEN:'test-secret-key',ANTHROPIC_MODEL:'claude-custom',ANTHROPIC_DEFAULT_SONNET_MODEL:'claude-custom'}})};
 const codex={id:'d',app_type:'codex',name:'Codex supplier',settings_config:JSON.stringify({auth:{OPENAI_API_KEY:'other-secret'},config:'model="real-model"\nmodel_provider="custom"\n[model_providers.custom]\nbase_url="https://supplier.example/v1"\nwire_api="responses"',modelCatalog:{models:[{model:'catalog-model',displayName:'display-only'}]}})};
+it('never substitutes an exported API key for explicit environment or command credentials',async()=>{
+ const {preview,importer,sources}=await fixture();const settings=JSON.parse(codex.settings_config);
+ const row=(suffix:string)=>({...codex,settings_config:JSON.stringify({...settings,config:settings.config+'\n'+suffix})});
+ const p=await preview([row('env_key="VENDOR_API_KEY"'),row('[model_providers.custom.auth]\ncommand="fixture-never-execute"'),row('env_key="VENDOR_API_KEY"\nexperimental_bearer_token="fixture-direct"')]);
+ expect(p.rows.map(r=>r.status)).toEqual(['unsupported','unsupported','unsupported']);
+ await expect(importer.apply(p.token,['0'])).rejects.toMatchObject({code:'supplier_import_invalid'});expect(await sources.list()).toEqual([]);
+ expect(JSON.stringify(p)).not.toMatch(/VENDOR_API_KEY|other-secret|fixture-direct|fixture-never-execute/);
+});
+it('honors explicit OpenAI authentication over env_key and skips ambiguous or unavailable credentials',async()=>{
+ const {preview,importer,sources}=await fixture();const settings=JSON.parse(codex.settings_config);
+ const p=await preview([{...codex,settings_config:JSON.stringify({...settings,config:settings.config+'\nrequires_openai_auth=true\nenv_key="IGNORED_ENV"'})}]);
+ expect(p.rows[0].status).toBe('ready');await importer.apply(p.token,['0']);expect(await sources.keyFor((await sources.list())[0].id)).toBe('other-secret');
+ const missing=await preview([{...codex,settings_config:JSON.stringify({auth:{tokens:{access_token:'fixture-oauth-only'}},config:settings.config+'\nrequires_openai_auth=true'})}]);
+ expect(missing.rows[0].status).toBe('unsupported');
+ const conflict=await preview([{...codex,settings_config:JSON.stringify({...settings,config:settings.config+'\nrequires_openai_auth=true\nexperimental_bearer_token="fixture-unused"'})}]);expect(conflict.rows[0].status).toBe('unsupported');
+});
 it('previews literal provider configuration without exposing secrets; atomically imports and deduplicates retries',async()=>{
  const {preview,importer,sources,root}=await fixture();const p=await preview([claude,codex]);
  expect(JSON.stringify(p)).not.toMatch(/secret|OPENAI_API_KEY|ANTHROPIC_AUTH/);expect(p.rows.map(r=>r.status)).toEqual(['ready','ready']);

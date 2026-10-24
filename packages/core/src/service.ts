@@ -68,7 +68,7 @@ import { CLIProxyManager, type LocalAgentSnapshot, type LocalModel } from './cli
 import { isLoginProvider, loginProviderIds } from './login/index.js';
 import { RunnerCoreError } from './errors.js';
 
-export type Secrets = {canEncrypt?:()=>boolean;persistent?:boolean;get:(name:string)=>Promise<string>; set:(name:string,value:string)=>Promise<void>;remove?:(name:string)=>Promise<void>};
+export type Secrets = {canEncrypt?:()=>boolean;persistent?:boolean;get:(name:string,options?:{retry?:boolean})=>Promise<string>; set:(name:string,value:string)=>Promise<void>;remove?:(name:string)=>Promise<void>};
 export type ServiceOptions = {codexOfficialFetch?:CodexOfficialFetch;outboundProxyURL?:string;networkSnapshot?:()=>import('./network-proxy.js').NetworkSnapshot;fileCleanup?:FileCleanupOptions;qoderIde?:QoderIdeOptions;claudeDesktop?:ClaudeDesktopOptions;claudeDesktopChange?:(work:()=>Promise<unknown>)=>Promise<unknown>;claudeTerminalChange?:(work:()=>Promise<unknown>)=>Promise<unknown>;desktopAccounts?:DesktopAccountOptions;desktopProcesses?:(target:DesktopProvider|'qoder-ide')=>Promise<number[]>;desktopAccountChange?:(target:DesktopProvider|'qoder-ide',work:()=>Promise<unknown>)=>Promise<unknown>;workbuddySDKFactory?:(proxy:CLIProxyManager)=>Pick<WorkBuddySDKProvider,'response'|'close'>;antigravityPath?:string;cursorLocalPath?:string;claudeCredentialStore?:CredentialStore|null;nativeProcesses?:(target:NativeProvider)=>Promise<number[]>;agentPaths?:Partial<AgentPaths>;agentProcesses?:(target:Target)=>Promise<number[]>;root:string;binary:string;token:string;localKey:string;secrets:Secrets;credentialWarnings?:()=>string[];uiRoot?:string;proxyPort?:number;openExternal?:(url:string)=>Promise<void>};
 const clientCredential=(headers:{authorization?:string;'x-api-key'?:string|string[]})=>{
   const bearer=headers.authorization?.replace(/^Bearer /i,'')??'';
@@ -314,7 +314,8 @@ export async function createDesktopService(options:ServiceOptions) {
         throw error;
       }
     }
-    const credential=target==='qoder'?await desktopAccounts.qoder.importCredential():target==='qoder-ide'?await qoderIdeLogin.importCredential():target==='antigravity'?await antigravityAccountStore.importCredential():await localCredential(target,connections.paths,options.claudeCredentialStore);
+    const retry={retry:!onlyNew};
+    const credential=target==='qoder'?await desktopAccounts.qoder.importCredential(retry):target==='qoder-ide'?await qoderIdeLogin.importCredential(retry):target==='antigravity'?await antigravityAccountStore.importCredential():await localCredential(target,connections.paths,options.claudeCredentialStore,retry);
     return proxy.importCredential(target==='qoder-ide'?'qoder':target,target==='qoder'||target==='qoder-ide'?{...credential,native_client:target}:credential,onlyNew);
   };
   const discoverLocal=()=>discoveryTask??=(async()=>{
@@ -610,14 +611,14 @@ export async function createDesktopService(options:ServiceOptions) {
     await codexAccounts.restore({...input,revision:target.connection?(await codexAccounts.status()).revision:input.revision});await enableAttribution();return codexAccountStatus();
     });
   });
-  const nativeStatus=async(provider:NativeProvider)=>({...await nativeAccounts[provider].status(),accounts:await proxy.nativeAccounts(provider),gatewayConnected:provider==='claude'&&!!(await connections.status()).find(t=>t.id==='claude')?.connection});
+  const nativeStatus=async(provider:NativeProvider,refresh=false)=>{if(provider==='claude'&&refresh)await claudeAccountStore.read({retry:true});return {...await nativeAccounts[provider].status(),accounts:await proxy.nativeAccounts(provider),gatewayConnected:provider==='claude'&&!!(await connections.status()).find(t=>t.id==='claude')?.connection};};
   const officialProvider=z.enum(['claude','antigravity','workbuddy','workbuddy-ai','qoder','qoder-ide']);
   const desktopStatus=async(provider:DesktopProvider|'qoder-ide',refresh=false)=>{const status=await (provider==='qoder-ide'?qoderIdeLogin:desktopAccounts[provider]).status(refresh);return {...status,...(provider==='workbuddy-ai'?{installation:await detectAgent('workbuddy-ai')}:{}),accounts:(await proxy.desktopNativeAccounts(provider==='qoder-ide'?'qoder':provider)).map(a=>status.unavailableReason?{...a,switchable:false,reason:status.unavailableReason}:a),gatewayConnected:!!(await connections.status()).find(t=>t.id===provider)?.connection};};
   const cursorLocalLogin=new CursorLocalLogin(options.cursorLocalPath);
   app.get('/api/native-accounts/cursor',async req=>({...await cursorLocalLogin.status((req.query as {refresh?:string}).refresh==='1'),readOnly:true,pids:[],backup:null,gatewayConnected:false,accounts:proxy.cursor.snapshot().accounts.map(a=>({id:a.id,email:a.label,switchable:false,reason:'请在 Cursor 客户端切换本机登录。'}))}));
   app.get('/api/native-accounts/trae',()=>proxy.localImportStatus('trae'));
   app.get('/api/native-accounts/zcode',async(_req,reply)=>reply.code(410).send({error:'ZCode 不支持本机认证，请通过官网授权添加账号。'}));
-  app.get('/api/native-accounts/:provider',async req=>{const provider=officialProvider.parse((req.params as {provider:string}).provider);return provider==='workbuddy'||provider==='workbuddy-ai'||provider==='qoder'||provider==='qoder-ide'?desktopStatus(provider,(req.query as {refresh?:string}).refresh==='1'):nativeStatus(provider);});
+  app.get('/api/native-accounts/:provider',async req=>{const provider=officialProvider.parse((req.params as {provider:string}).provider),refresh=(req.query as {refresh?:string}).refresh==='1';return provider==='workbuddy'||provider==='workbuddy-ai'||provider==='qoder'||provider==='qoder-ide'?desktopStatus(provider,refresh):nativeStatus(provider,refresh);});
   for(const action of ['switch','restore'] as const)app.post(`/api/native-accounts/:provider/${action}`,async req=>{
     const provider=officialProvider.parse((req.params as {provider:string}).provider);
     if(provider==='workbuddy'||provider==='workbuddy-ai'||provider==='qoder'||provider==='qoder-ide'){
@@ -715,7 +716,7 @@ export async function createDesktopService(options:ServiceOptions) {
   app.post('/api/claude-desktop/restart',async req=>{z.object({}).strict().parse(req.body??{});return qoderLifecycle.restart('claude-desktop');});
   app.post('/api/a2a/import',async req=>{
     const {target}=z.object({target:z.enum(['codex','claude'])}).strict().parse(req.body);
-    try{return await proxy.importCredential(target,await localCredential(target,connections.paths,options.claudeCredentialStore));}
+    try{return await proxy.importCredential(target,await localCredential(target,connections.paths,options.claudeCredentialStore,{retry:true}));}
     catch(error){throw Object.assign(new Error(error instanceof z.ZodError?'本地凭据不是支持的 OAuth 格式，请在账号授权页重新授权。':error instanceof Error?error.message:'导入失败'),{statusCode:400});}
   });
   app.get('/api/a2a/codex-coexist',async()=>({...await codexCoexistStatus(connections.paths.codex),enabled:!!(await connections.status()).find(t=>t.id==='codex')?.connection?.codexCoexist}));

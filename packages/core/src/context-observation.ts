@@ -5,7 +5,7 @@ export type ContextObservation={
  phase:'inference'|'summary';contextWindowTokens:number|null;
  requestBytes:number;instructionsBytes:number;inputBytes:number;historyBytes:number;toolsBytes:number;inputItems:number;historyItems:number;toolsCount:number;
  usage:Record<string,number|Record<string,number>>;
- terminal:{status:string;outputType:string;errorCode?:'invalid_terminal_response'|'incomplete_stream'};
+ terminal:{status:string;outputType:string;errorCode?:'invalid_terminal_response'|'incomplete_stream'|'invalid_stream_event'|'context_persistence_failed'};
 };
 const object=(value:unknown):value is Item=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const bytes=(value:unknown)=>Buffer.byteLength(JSON.stringify(value??null));

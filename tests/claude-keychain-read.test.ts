@@ -14,10 +14,12 @@ it('shares a single protected read across concurrent status and usage readers an
  fixture.revision='revision-2';fixture.value='fixture-two';expect(await store.read()).toBe('fixture-two');
  expect(exec.mock.calls.filter(call=>call[1].includes('-w'))).toHaveLength(2);
 });
-it('preserves OS denial and retries instead of caching an unreadable credential',async()=>{
+it('preserves OS denial until an explicit retry instead of prompting again in background',async()=>{
  const {claudeKeychain}=await import('../packages/core/src/claude-accounts.js');const store=claudeKeychain('/fixture');
  fixture.denied=true;await expect(store.read()).rejects.toThrow('无法读取');
- fixture.denied=false;await expect(store.read()).resolves.toBe('fixture-one');
+ fixture.denied=false;await expect(store.read()).rejects.toThrow('无法读取');
+ expect(exec.mock.calls.filter(call=>call[1].includes('-w'))).toHaveLength(1);
+ await expect(store.read({retry:true})).resolves.toBe('fixture-one');
 });
 it('forces conflict and write verification reads even when metadata timestamps are unchanged',async()=>{
  const {claudeKeychain}=await import('../packages/core/src/claude-accounts.js');const store=claudeKeychain('/fixture');

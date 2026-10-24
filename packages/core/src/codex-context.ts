@@ -101,7 +101,7 @@ export class CodexContext {
    if(value.some(item=>item.type==='compaction'&&!String(item.encrypted_content).startsWith('tfctx1.')))return;
    const items:Item[]=[];
    for(const item of value){
-    if(item.type==='compaction'){items.length=0;items.push(...this.context.decodeCheckpoint(item.encrypted_content,[codexContextScope,...scopes]));}
+    if(item.type==='compaction'){const saved=this.context.decodeCheckpointWindow(item.encrypted_content,[codexContextScope,...scopes]),replayed=this.context.replayCheckpoint(items,saved.input,saved.coveredUsers);items.length=0;items.push(...replayed);}
     else items.push(item);
    }
    return items;
@@ -194,27 +194,28 @@ export class CodexContext {
     // Materialize each in place, preserving event ordinals and all later turns.
     if(!normalize)continue;
     const history=event?.payload?.replacement_history;if(!Array.isArray(history))continue;
-    const recoveredTokens=new Map<string,Item[]>();
+    const recoveredTokens=new Map<string,{input:Item[];coveredUsers:Set<string>}>();
     for(const item of history){
      if(item?.type!=='compaction'||typeof item.encrypted_content!=='string')continue;
      const token=item.encrypted_content;
-     const recovered=token.startsWith('tfctx1.')?this.context.decodeCheckpoint(token,[codexContextScope,...scopes]):await this.cached(token);
+     const cached=token.startsWith('tfctx1.')?undefined:await this.cached(token);
+     const recovered=token.startsWith('tfctx1.')?this.context.decodeCheckpointWindow(token,[codexContextScope,...scopes]):cached?{input:cached,coveredUsers:new Set<string>()}:undefined;
      if(recovered)recoveredTokens.set(token,recovered);
     }
     if(!recoveredTokens.size)continue;
     let changed=false;const output:Item[]=[];
     for(const item of history){
-     if(item?.type!=='compaction'){output.push(...portableCodexItem(item));continue;}
+     if(item?.type!=='compaction'){output.push(item);continue;}
      const recovered=recoveredTokens.get(item.encrypted_content);
      if(!recovered){output.push(item);continue;}
      // This checkpoint covers preceding retained user messages; use the full
      // restored window, not both copies of the same turns.
-     const fresh=output.filter(entry=>['user','system','developer'].includes(String(entry.role))&&!recovered!.some(saved=>saved.role===entry.role&&JSON.stringify(saved.content)===JSON.stringify(entry.content)));
-     output.length=0;output.push(...recovered.flatMap(portableCodexItem),...fresh);changed=true;
+     const replayed=this.context.replayCheckpoint(output,recovered.input,recovered.coveredUsers);
+     output.length=0;output.push(...replayed);changed=true;
     }
     if(changed){
      if(malformed)throw new GatewayContextError('会话记录不完整，迁移已停止；请先退出 Codex 后重试，原文件保留。',409);
-     event!.payload.replacement_history=output;
+     event!.payload.replacement_history=output.flatMap(item=>item.type==='compaction'?[item]:portableCodexItem(item));
      // This optional array is position-aligned with the OLD history. Keeping it
      // causes Codex to ignore the rewritten checkpoint on resume. The independent
      // guardian history and retained user/assistant records remain unchanged.

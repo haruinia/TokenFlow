@@ -8,9 +8,9 @@ import {ClaudeAccountStore,type CredentialStore} from './claude-accounts.js';
 import {nativeCredentialSchema} from './native-accounts.js';
 const token=z.string().min(1).max(20000);
 // Startup discovery and explicit imports read only supported local OAuth files; never return secrets to the renderer.
-export async function localCredential(target:'codex'|'claude',paths:AgentPaths,keychain?:CredentialStore|null):Promise<Record<string,unknown>> {
+export async function localCredential(target:'codex'|'claude',paths:AgentPaths,keychain?:CredentialStore|null,options?:{retry?:boolean}):Promise<Record<string,unknown>> {
   if(target==='claude'){
-    const store=new ClaudeAccountStore(paths.claude,keychain),state=await store.read();
+    const store=new ClaudeAccountStore(paths.claude,keychain),state=await store.read(options);
     const oauth=z.object({accessToken:token,refreshToken:token,expiresAt:z.number(),scopes:z.array(z.string()).optional()}).parse(JSON.parse(state.auth??state.fileAuth??'null'));
     const identity=store.describe(state);
     const credential=nativeCredentialSchema.safeParse({access_token:oauth.accessToken,refresh_token:oauth.refreshToken,expired:new Date(oauth.expiresAt).toISOString(),email:identity.email,account_uuid:identity.accountId??undefined,organization_uuid:identity.organizationId??undefined,scopes:oauth.scopes});

@@ -1,4 +1,6 @@
+import {checkpointMessageIdentity,replayCheckpointWindow} from './checkpoint-window.js';
 import {initialParts,initialParallel,smallerParts,reuseInitialParts,type InitialPart} from './initial-compaction.js';
+import {responsesStream} from './responses-stream.js';
 import {contextObservation,type ContextObservation} from './context-observation.js';
 export type {ContextObservation} from './context-observation.js';
 import {compactionProgress} from './compaction-progress.js';
@@ -198,6 +200,12 @@ export class GatewayContext {
    return {input:items(decoded),coveredUsers:new Set()};
   }catch{throw new GatewayContextError('Context is invalid or belongs to another API key, source or model; resend the original history');}
  }
+ replayCheckpoint<T extends Item>(prefix:T[],replacement:T[],coveredUsers:Set<string>=new Set()):T[]{
+  return this.replayCheckpointEntries(prefix,replacement,coveredUsers,item=>item);
+ }
+ private replayCheckpointEntries<T>(prefix:T[],replacement:T[],coveredUsers:Set<string>,getItem:(entry:T)=>Item):T[]{
+  return replayCheckpointWindow(prefix,replacement,item=>coveredUsers.has(this.userFingerprint(item))||coveredUsers.has(createHmac('sha256',this.secret).update(checkpointMessageIdentity(item)).digest('hex')),getItem);
+ }
  encodeCheckpoint(value:Item[],scope:ContextScope){return this.seal(value,scope);}
  async readStoredHistory(id:unknown,scopes:ContextScope[]){
   if(typeof id!=='string'||!/^resp_tf_[a-f0-9]{32}$/.test(id))throw new GatewayContextError('旧响应 ID 不属于当前网关；请重新发送完整历史，不能仅凭 ID 跨来源续聊。');
@@ -205,7 +213,10 @@ export class GatewayContext {
   catch(error){if(error instanceof GatewayContextError)throw error;throw new GatewayContextError('旧响应记录已不存在；请重新发送完整历史或交接摘要。');}
  }
  decodeCheckpoint(value:unknown,scopes:ContextScope[]):Item[] {
-  for(const scope of scopes){try{return this.unseal(value,scope);}catch{}}
+  return this.decodeCheckpointWindow(value,scopes).input;
+ }
+ decodeCheckpointWindow(value:unknown,scopes:ContextScope[]):{input:Item[];coveredUsers:Set<string>}{
+  for(const scope of scopes){try{return this.unsealHistory(value,scope);}catch{}}
   throw new GatewayContextError('无法恢复此压缩记录；原会话保持不变，请使用保留原始历史的本机继续。');
  }
  /** Translate only our authenticated private references before a native
@@ -214,10 +225,7 @@ export class GatewayContext {
   const privatePrevious=typeof body.previous_response_id==='string'&&body.previous_response_id.startsWith('resp_tf_');
   const privateCheckpoint=(item:Item)=>item.type==='compaction'&&typeof item.encrypted_content==='string'&&item.encrypted_content.startsWith(PREFIX);
   if(!privatePrevious&&!(Array.isArray(body.input)&&body.input.some(item=>object(item)&&privateCheckpoint(item))))return body;
-  const decode=(token:unknown)=>{
-   for(const scope of scopes)try{return this.unsealHistory(token,scope);}catch{}
-   throw new GatewayContextError('无法恢复此压缩记录；原会话保持不变，请使用保留原始历史的本机继续。');
-  };
+  const decode=(token:unknown)=>this.decodeCheckpointWindow(token,scopes);
   type Entry={item:Item;gateway:boolean};
   const covered=new Set<string>();let input:Entry[]=items(body.input).map(item=>({item,gateway:false}));
   if(privatePrevious){
@@ -236,8 +244,8 @@ export class GatewayContext {
     const restored=expand(saved.input.map(item=>({item,gateway:true})),depth+1);
     // A checkpoint replaces the covered window, including re-prepended user
     // messages. Authenticated coverage distinguishes them from fresh requests.
-    const fresh=expanded.filter(({item})=>['user','system','developer'].includes(String(item.role))&&!(item.role==='user'&&covered.has(this.userFingerprint(item)))&&!restored.some(saved=>this.userFingerprint(saved.item)===this.userFingerprint(item)));
-    expanded.length=0;expanded.push(...restored,...fresh);
+    const replayed=this.replayCheckpointEntries(expanded,restored,covered,entry=>entry.item);
+    expanded.length=0;expanded.push(...replayed);
    }
    return expanded;
   };
@@ -290,8 +298,8 @@ export class GatewayContext {
     // The checkpoint replaces its covered window. Preserve fresh user or
     // instruction messages a client prepends when rebuilding that window.
     let restored:Item[];try{const saved=this.unsealHistory(item.encrypted_content,scope);restored=saved.input;managed=true;for(const hash of saved.coveredUsers)coveredUsers.add(hash);}catch(error){if(!migration)throw error;restored=await migration.recover(item);if(typeof item.encrypted_content==='string'&&!item.encrypted_content.startsWith(PREFIX))foreign.push(createHmac('sha256',this.secret).update(item.encrypted_content).digest('hex'));else managed=true;}
-    const fresh=expanded.filter(entry=>['user','system','developer'].includes(String(entry.role))&&!(entry.role==='user'&&coveredUsers.has(this.userFingerprint(entry)))&&!restored.some(saved=>saved.role===entry.role&&JSON.stringify(saved.content)===JSON.stringify(entry.content)));
-    expanded.length=0;expanded.push(...restored,...fresh);
+    const replayed=this.replayCheckpoint(expanded,restored,coveredUsers);
+    expanded.length=0;expanded.push(...replayed);
    }
    else if(item.type==='item_reference')throw new GatewayContextError('This source requires full conversation items, not item_reference');
    else expanded.push(item);
@@ -345,7 +353,7 @@ export class GatewayContext {
    const started=Date.now();const report:CompactionReport={inputBytes:size(history),outputBytes:0,calls:0,reused:0,durationMs:0,inputTokens:0,outputTokens:0,cachedTokens:0,cacheWriteTokens:0,reasoningTokens:0,failed:true,unmetered:false};
    options.onCompactionStart?.();
    if(initial)options.onInitialCompaction?.(true);
-   try{const response=await this.compact(body,history,scope,send,migration?.scope??{owner,model:body.model,source},report,body.store!==false||!!migration,coveredUsers,session?async(prefix,replacement,covered)=>{
+   try{const response=await this.compact(body,history,scope,send,migration?.scope??{owner,model:body.model,source},{owner,source,model:body.model},report,body.store!==false||!!migration,coveredUsers,session?async(prefix,replacement,covered)=>{
     const hash=this.managedPrefixes(prefix).at(-1)?.hash;if(!hash)return;
     session.state.windows=session.state.windows.filter(window=>window.hash!==hash);
     session.state.windows.push({hash,input:replacement.filter(item=>!instruction(item)),coveredUsers:[...covered]});
@@ -408,7 +416,7 @@ export class GatewayContext {
    const valid=Array.isArray(value.output)&&value.output.every(object)&&['completed','incomplete'].includes(String(value.status));
    options.onContextObservation?.(contextObservation('inference',upstream,value,migration?.contextWindowTokens,valid?undefined:'invalid_terminal_response'));
    if(!Array.isArray(value.output)||!value.output.every(object)||!valid)throw new GatewayContextError('Source returned an invalid terminal response',502,undefined,'invalid_terminal_response');
-   if(body.store!==false)await this.save(id,[...input,...value.output],scope,coveredUsers);
+   if(body.store!==false)try{await this.save(id,[...input,...value.output],scope,coveredUsers);}catch{throw new GatewayContextError('Completed source response could not be saved; original history is unchanged',502,undefined,'context_persistence_failed');}
    await remember();
    const output=checkpoint?[checkpoint,...value.output]:value.output;
    // Codex uses this response's input usage to track its live context. Hidden
@@ -428,17 +436,20 @@ export class GatewayContext {
    return result;
   }
   if(!response.body)throw new GatewayContextError('Source returned no stream',502);
-  const decoder=new TextDecoder();const encoder=new TextEncoder();let buffer='';let terminal=false;let checkpointSent=false;let sequence=0;
+  let terminal=false,reportedError=false;let checkpointSent=false;let sequence=0;
+  const reportError=(error:GatewayContextError)=>{if(reportedError)return;reportedError=true;options.onError?.(error);};
   const rewrite=async(frame:string) => {
    if(terminal)return '';
    const data=frame.split('\n').filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trimStart()).join('\n');
-   if(!data||data==='[DONE]')return frame+'\n\n';
-   let event:Item;try{const parsed:unknown=JSON.parse(data);if(!object(parsed))throw new Error();event=parsed;}catch{throw new GatewayContextError('Invalid Responses stream event',502);}
+   if(!data)return frame+'\n\n';
+   if(data==='[DONE]')throw new GatewayContextError('Source stream ended before completion',502,undefined,'incomplete_stream');
+   let event:Item;try{const parsed:unknown=JSON.parse(data);if(!object(parsed))throw new Error();event=parsed;}catch{throw new GatewayContextError('Invalid Responses stream event',502,undefined,'invalid_stream_event');}
+   if(!checkpoint&&Number.isSafeInteger(event.sequence_number)&&Number(event.sequence_number)>=0)sequence=Math.max(sequence,Number(event.sequence_number)+1);
    const contextError=contextLengthError(object(event.response)?event.response:event);
    if(contextError&&['error','response.failed'].includes(String(event.type)))event={type:'response.failed',sequence_number:event.sequence_number,response:{...(object(event.response)?event.response:{}),id,object:'response',status:'failed',error:contextError}};
    if(['response.completed','response.incomplete'].includes(String(event.type))&&!object(event.response)){
     options.onContextObservation?.(contextObservation('inference',upstream,{},migration?.contextWindowTokens,'invalid_terminal_response'));
-    const error=new GatewayContextError('Source returned an invalid terminal response',502,undefined,'invalid_terminal_response');options.onError?.(error);terminal=true;
+    const error=new GatewayContextError('Source returned an invalid terminal response',502,undefined,'invalid_terminal_response');reportError(error);terminal=true;
     return 'event: error\ndata: '+JSON.stringify({type:'error',code:error.code,message:error.message,sequence_number:sequence++})+'\n\n';
    }
    if(object(event.response)){
@@ -446,7 +457,7 @@ export class GatewayContext {
      try{event.response=await finish(event.response);terminal=true;}
      catch(error){
       if(!(error instanceof GatewayContextError)||error.code!=='invalid_terminal_response')throw error;
-      options.onError?.(error);terminal=true;
+      reportError(error);terminal=true;
       return 'event: error\ndata: '+JSON.stringify({type:'error',code:error.code,message:error.message,sequence_number:sequence++})+'\n\n';
      }
     }
@@ -459,7 +470,18 @@ export class GatewayContext {
      event.response={...event.response,id,model:body.model};
     }
    }
-   if(event.type==='response.failed'||event.type==='error')terminal=true;
+   if(event.type==='response.failed'||event.type==='error'){
+    const response=object(event.response)?event.response:undefined,detail=response&&object(response.error)?response.error:object(event.error)?event.error:event;
+    const status=[response?.error_status,response?.status_code,event.status_code,event.status,detail.status_code,detail.status].find(value=>Number.isInteger(value)&&Number(value)>=400&&Number(value)<=599);
+    const safe=upstreamError(Number(status)||502,JSON.stringify({error:detail}));
+    // Codex uses this documented terminal code to offer its context recovery.
+    if(contextError)safe.code='context_length_exceeded';
+    const inferred=({rate_limit_error:429,authentication_error:401,permission_error:403,invalid_request_error:400,source_unavailable:503} as Record<string,number>)[safe.type]??502;
+    if(response)event.response={...response,error:safe};
+    else if(object(event.error))event.error=safe;
+    else {for(const field of ['message','code','param'])delete event[field];Object.assign(event,safe,{type:'error'});}
+    reportError(new GatewayContextError(safe.message,Number(status)||inferred,response?.usage??event.usage,safe.code??safe.type));terminal=true;
+   }
    if('response_id' in event)event.response_id=id;
    if(checkpoint){
     if(typeof event.output_index==='number')event.output_index++;
@@ -472,20 +494,19 @@ export class GatewayContext {
    }
    return frame.split('\n').filter(line=>!line.startsWith('data:')&&!line.startsWith('event:')).concat('event: '+event.type,'data: '+JSON.stringify(event)).join('\n')+'\n\n'+suffix;
   };
-  const stream=response.body.pipeThrough(new TransformStream<Uint8Array,Uint8Array>({
-   async transform(chunk,controller){
-    buffer+=decoder.decode(chunk,{stream:true});buffer=buffer.replace(/\r\n/g,'\n');
-    let end:number;while((end=buffer.indexOf('\n\n'))!==-1){const frame=buffer.slice(0,end);buffer=buffer.slice(end+2);controller.enqueue(encoder.encode(await rewrite(frame)));}
+  const stream=responsesStream(response.body,{
+   rewrite,terminal:()=>terminal,signal:options.signal,onCancel:options.onCancel,
+   failure:cause=>{
+    const error=cause instanceof GatewayContextError?cause:new GatewayContextError('Source stream ended before completion',502,undefined,'incomplete_stream');
+    const code=error.code==='invalid_stream_event'?'invalid_stream_event':error.code==='context_persistence_failed'?'context_persistence_failed':'incomplete_stream';
+    options.onContextObservation?.(contextObservation('inference',upstream,{},migration?.contextWindowTokens,code));
+    reportError(error);terminal=true;
+    return 'event: error\ndata: '+JSON.stringify({type:'error',code:error.code,message:error.message,sequence_number:sequence++})+'\n\n';
    },
-   async flush(controller){buffer+=decoder.decode();if(buffer.trim())controller.enqueue(encoder.encode(await rewrite(buffer)));if(!terminal){
-    options.onContextObservation?.(contextObservation('inference',upstream,{},migration?.contextWindowTokens,'incomplete_stream'));
-    const error=new GatewayContextError('Source stream ended before completion',502,undefined,'incomplete_stream');options.onError?.(error);
-    controller.enqueue(encoder.encode('event: error\ndata: '+JSON.stringify({type:'error',code:error.code,message:error.message,sequence_number:sequence++})+'\n\n'));
-   }}
-  }));
+  });
   const headers=new Headers(response.headers);headers.delete('content-length');if(checkpoint)headers.set('x-token-flow-compaction','model-summary-v1; threshold=utf8-upper-bound');return new Response(stream,{headers});
  }
- private async compact(body:RequestBody,input:Item[],scope:ContextScope,send:Send,cacheScope:ContextScope,report:CompactionReport,persistSummaries:boolean,coveredUsers:Set<string>,remember?:(prefix:Item[],replacement:Item[],covered:Set<string>)=>Promise<void>,durable=false,initial?:{contextWindow?:number;signal?:AbortSignal;threadId?:string},reuseSummaries=false,observe?:ContextOptions['onContextObservation']) {
+ private async compact(body:RequestBody,input:Item[],scope:ContextScope,send:Send,cacheScope:ContextScope,attemptScope:ContextScope,report:CompactionReport,persistSummaries:boolean,coveredUsers:Set<string>,remember?:(prefix:Item[],replacement:Item[],covered:Set<string>)=>Promise<void>,durable=false,initial?:{contextWindow?:number;signal?:AbortSignal;threadId?:string},reuseSummaries=false,observe?:ContextOptions['onContextObservation']) {
   // Keep recent user turns; long tool loops may compact older exchanges within
   // a turn. Never cut across an unfinished tool call.
   const budget=contextBudget(body,input,!!initial);
@@ -545,8 +566,11 @@ export class GatewayContext {
     const path=join(this.directory,(durable?'managed-summary-':'summary-')+cacheKey);
     const remembered=this.summaries.get(cacheKey);if(remembered!==undefined){report.reused++;return remembered;}
     if(persistSummaries)try{const saved=this.unseal(await readFile(path,'utf8'),cacheScope);if(typeof saved[0]?.text==='string'){this.rememberSummary(cacheKey,saved[0].text);report.reused++;return saved[0].text;}}catch{/* Missing/corrupt derived caches may be recomputed; original history is untouched. */}
-    // Concurrent retries share the in-flight summary; only its owner is billed.
-    const pending=this.pending.get(cacheKey);if(pending){
+    // Completed factual summaries remain portable, but a live transport's
+    // capacity/authentication failure belongs to its actual route identity.
+    // Scope contains opaque owner/source IDs, never credential material.
+    const attemptKey=createHmac('sha256',this.secret).update(JSON.stringify({cacheKey,scope:attemptScope})).digest('hex');
+    const pending=this.pending.get(attemptKey);if(pending){
      try{const text=await pending;report.reused++;return text;}catch(error){
       // A disconnected owner must not poison a healthy concurrent caller's
       // transport. It may try its own send; semantic failures remain final.
@@ -554,7 +578,7 @@ export class GatewayContext {
        if(error instanceof GatewayContextError)throw new GatewayContextError(error.message,error.statusCode,usage,error.code);
        throw error;
       }
-      if(this.pending.get(cacheKey)===pending)this.pending.delete(cacheKey);
+      if(this.pending.get(attemptKey)===pending)this.pending.delete(attemptKey);
       return summarize(transcript);
      }
     }
@@ -596,10 +620,10 @@ export class GatewayContext {
      }
      return text;
     })();
-    this.pending.set(cacheKey,task);
+    this.pending.set(attemptKey,task);
     // Share only an active attempt. A failed attempt must not block a fresh
     // Codex reconnect; completed summaries remain reusable on disk.
-    try{return await task;}finally{if(this.pending.get(cacheKey)===task)this.pending.delete(cacheKey);}
+    try{return await task;}finally{if(this.pending.get(attemptKey)===task)this.pending.delete(attemptKey);}
    };
    // Rules are carried verbatim in `preserved`; summarizing them again adds
    // paid chunks without reducing the continuation, especially on IDE rollouts
@@ -657,7 +681,7 @@ export class GatewayContext {
   // genuinely fresh messages prepended by a client during history reconstruction.
   const retainedUsers=new Set(compacted.filter(item=>item.role==='user').map(item=>this.userFingerprint(item)));
   const covered=new Set(coveredUsers);
-  for(const user of input.filter(item=>item.role==='user')){const hash=this.userFingerprint(user);if(!retainedUsers.has(hash))covered.add(hash);}
+  for(const user of input.filter(item=>item.role==='user')){const hash=this.userFingerprint(user);if(!retainedUsers.has(hash)){covered.add(hash);covered.add(createHmac('sha256',this.secret).update(checkpointMessageIdentity(user)).digest('hex'));}}
   if(remember&&cut>0&&compacted!==input)await remember(prefix,compacted.slice(0,compacted.length-tail.length),covered);
   const item={id:'cmp_tf_'+randomBytes(16).toString('hex'),type:'compaction',encrypted_content:this.sealHistory(compacted,scope,covered)};
   return reply({id:'resp_tf_compact_'+randomBytes(16).toString('hex'),object:'response.compaction',created_at:Math.floor(Date.now()/1000),output:[...compacted.filter(entry=>entry.role==='user').map(entry=>({type:'message',...entry})),item],usage},new Headers({'x-token-flow-compaction':'model-summary-v1'}));

@@ -89,9 +89,16 @@ function candidate(raw:Row,index:number):Candidate{
    if(env.ANTHROPIC_CUSTOM_HEADERS||settings.apiKeyHelper)return skip('包含额外请求头或动态凭据，请手动配置该供应商。');
   }else if(row.app==='codex'){
    const config=object(parse(str(settings.config))),provider=object(object(config.model_providers)[str(config.model_provider)]),auth=object(settings.auth);
-   baseURL=str(provider.base_url);apiKey=str(provider.experimental_bearer_token)||str(auth.OPENAI_API_KEY);
+   const openAIAuth=provider.requires_openai_auth===true,directBearer=str(provider.experimental_bearer_token);
+   // A declared credential source is authoritative. Never resolve environment
+   // variables or commands while importing, or replace them with an unrelated
+   // auth.json key. OpenAI authentication explicitly ignores env_key in Codex.
+   if(provider.http_headers||provider.env_http_headers)return skip('包含额外请求头，请手动配置该供应商。');
+   if(provider.command||provider.auth)return skip('使用命令获取凭据，无法直接导入；请手动填写该供应商的 API Key。');
+   if(!openAIAuth&&provider.env_key)return skip('使用环境变量提供凭据，导出文件未包含其值；请手动填写该供应商的 API Key。');
+   if(openAIAuth&&directBearer)return skip('同时配置了 OpenAI 登录和直接令牌，请确认认证方式后手动添加。');
+   baseURL=str(provider.base_url);apiKey=openAIAuth?str(auth.OPENAI_API_KEY):directBearer||str(auth.OPENAI_API_KEY);
    const selectedProtocol=importedProtocol(str(meta.apiFormat)||str(provider.wire_api),'responses');if(!selectedProtocol)return skip('接口协议不受支持，请手动添加。');protocol=selectedProtocol;
-   if(provider.http_headers||provider.env_http_headers||provider.command||(!apiKey&&provider.env_key))return skip('依赖额外请求头或外部凭据，请手动配置该供应商。');
    models=[str(config.model)];
    const catalog=object(settings.modelCatalog??meta.modelCatalog??raw.modelCatalog);
    if(Array.isArray(catalog.models))models.push(...catalog.models.map(v=>str(object(v).model)));

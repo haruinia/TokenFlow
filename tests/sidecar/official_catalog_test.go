@@ -57,7 +57,7 @@ func TestOfficialCatalogManagementRefreshPreservesExclusionsAndAliases(t *testin
 	current := "first-model"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"models": []map[string]any{{"id": current, "supportedInputModalities": []string{"text", "image"}}, {"id": "excluded-model"}}}})
+		json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"models": []map[string]any{{"id": current, "supportedInputModalities": []string{"text", "image"}, "maxInputTokens": 234567}, {"id": "excluded-model"}}}})
 	}))
 	defer server.Close()
 	manager := coreauth.NewManager(nil, nil, nil)
@@ -81,14 +81,18 @@ func TestOfficialCatalogManagementRefreshPreservesExclusionsAndAliases(t *testin
 	}
 	var result struct {
 		Models []struct {
-			ID         string   `json:"id"`
-			Modalities []string `json:"supportedInputModalities"`
+			ID            string   `json:"id"`
+			Modalities    []string `json:"supportedInputModalities"`
+			ContextLength int      `json:"context_length"`
 		} `json:"models"`
 	}
 	json.Unmarshal(response.Body.Bytes(), &result)
 	for _, model := range result.Models {
 		if len(model.Modalities) != 2 || model.Modalities[1] != "image" {
 			t.Fatal("management catalog dropped image capability")
+		}
+		if model.ContextLength != 234567 {
+			t.Fatalf("fresh context capability lost through discovery/alias/management: %d", model.ContextLength)
 		}
 	}
 	found := false
@@ -109,6 +113,40 @@ func TestOfficialCatalogQoderEmptyCLIMustNotExposeIDE(t *testing.T) {
 	models, ok := parseOfficialCatalog("qoder", []byte(`{"cli":[],"chat":[{"key":"chat-only"}],"ide":[{"key":"ide-only"}]}`), nil)
 	if !ok || len(models) != 0 {
 		t.Fatalf("CLI empty permission list must remain empty: %v %d", ok, len(models))
+	}
+}
+
+func TestOfficialCatalogManagementPreservesContextCapabilities(t *testing.T) {
+	const account = "context-capability-fixture"
+	GlobalModelRegistry().RegisterClient(account, "workbuddy", []*ModelInfo{
+		{ID: "canonical", ContextLength: 123456, InputTokenLimit: 999999},
+		{ID: "gemini-style", InputTokenLimit: 654321},
+		{ID: "unknown"}, {ID: "invalid", ContextLength: -1, InputTokenLimit: -2},
+	})
+	defer GlobalModelRegistry().UnregisterClient(account)
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = httptest.NewRequest("GET", "/auth-files/models?name="+account, nil)
+	management.NewHandler(&config.Config{}, "", nil).GetAuthFileModels(c)
+	var result struct {
+		Models []map[string]any `json:"models"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	windows := map[string]float64{"canonical": 123456, "gemini-style": 654321}
+	for _, model := range result.Models {
+		id := model["id"].(string)
+		if expected, ok := windows[id]; ok {
+			if model["context_length"] != expected {
+				t.Errorf("%s capacity lost: got %v, want %v", id, model["context_length"], expected)
+			}
+		} else if _, ok := model["context_length"]; ok {
+			t.Errorf("%s invented capacity", id)
+		}
+	}
+	if len(result.Models) != 4 {
+		t.Fatalf("models missing: %d", len(result.Models))
 	}
 }
 
@@ -496,8 +534,16 @@ func TestOfficialCatalogRetiredDoubaoMakesNoUpstreamRequest(t *testing.T) {
 }
 
 func TestOfficialCatalogZcodeProjectUsesFreshPickerWithoutAnUnimplementedModelsEndpoint(t *testing.T) {
- raw:=[]byte(`{"config":{"providerConfigRules":{"providerRules":[{"providerId":"account:bigmodel-individual-coding-plan","config":{"builtinModelIds":["glm-live"]}},{"providerId":"account:zai-individual-coding-plan","config":{"builtinModelIds":["other-region"]}}]}}}`)
- allowed,ok:=zcodeCodingPicker(raw,"bigmodel");if !ok{t.Fatal("official picker missing")}
- models,ok:=zcodeProjectCatalog(allowed,nil);if !ok||len(models)!=1||models[0].ID!="glm-live"{t.Fatal("live scoped catalog lost")}
- if _,ok:=zcodeProjectCatalog(nil,nil);ok{t.Fatal("missing catalog must not reveal static fallback models")}
+	raw := []byte(`{"config":{"providerConfigRules":{"providerRules":[{"providerId":"account:bigmodel-individual-coding-plan","config":{"builtinModelIds":["glm-live"]}},{"providerId":"account:zai-individual-coding-plan","config":{"builtinModelIds":["other-region"]}}]}}}`)
+	allowed, ok := zcodeCodingPicker(raw, "bigmodel")
+	if !ok {
+		t.Fatal("official picker missing")
+	}
+	models, ok := zcodeProjectCatalog(allowed, nil)
+	if !ok || len(models) != 1 || models[0].ID != "glm-live" {
+		t.Fatal("live scoped catalog lost")
+	}
+	if _, ok := zcodeProjectCatalog(nil, nil); ok {
+		t.Fatal("missing catalog must not reveal static fallback models")
+	}
 }
