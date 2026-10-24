@@ -69,8 +69,17 @@ async function json(response:Response):Promise<Item> {
  const reader=response.body.getReader();const chunks:Uint8Array[]=[];
  try{for(;;){const {value,done}=await reader.read();if(done)break;chunks.push(value);}}
  catch(error){await reader.cancel().catch(()=>{});throw error;}finally{reader.releaseLock();}
- try{const parsed:unknown=JSON.parse(Buffer.concat(chunks).toString());if(object(parsed))return parsed;}catch{/* Report a bounded, non-sensitive error. */}
- throw new GatewayContextError('Source returned invalid response JSON',502);
+ let parsed:unknown;
+ try{parsed=JSON.parse(Buffer.concat(chunks).toString());}catch{throw new GatewayContextError('Source returned invalid response JSON',502);}
+ if(!object(parsed))throw new GatewayContextError('Source returned invalid response JSON',502);
+ // Some API gateways return HTTP 200 with an error envelope, even for a
+ // streaming request. Reject it before validating output or persisting history.
+ if(parsed.error===true||object(parsed.error)){
+  const error=upstreamError(502,JSON.stringify(parsed));
+  const status=({rate_limit_error:429,authentication_error:401,permission_error:403,invalid_request_error:400} as Record<string,number>)[error.type]??502;
+  throw new GatewayContextError(error.message,status,undefined,error.code??error.type);
+ }
+ return parsed;
 }
 const validCounter=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
 function wireUsage(value:unknown):unknown {

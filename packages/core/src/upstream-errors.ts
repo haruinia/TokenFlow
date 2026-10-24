@@ -53,6 +53,7 @@ const known:Record<string,{message:string;type:string;wireMessage?:string}>={
  a2a_server_tool_unsupported:{type:'unsupported_feature',message:'该来源支持客户端函数工具，暂不支持服务端内置工具。请关闭内置网页搜索等服务端工具，或选择支持它们的来源。',wireMessage:'This source supports client function/custom tools only; server-side or unknown tool types are not supported.'},
  upstream_context_length:{type:'invalid_request_error',message:'上游拒绝了超出模型上下文窗口的输入。请减少本轮附件或工具定义，或选择支持更长上下文的模型。'},
  upstream_rate_limited:{type:'rate_limit_error',message:'上游返回限流或容量不足，请稍后重试或选择其他模型。'},
+ upstream_daily_token_limit:{type:'rate_limit_error',message:'API 来源拒绝了本次请求：触发每日 token 使用额度限制。请在该 API 服务查看额度与重置时间，或选择其他来源；重新应用 Codex 配置不能恢复额度。'},
 };
 const workbuddyToolIssueMessages={
  unknown_name:'WorkBuddy SDK 返回未声明的工具名，工具调用未接受（unknown_name）。',
@@ -97,6 +98,7 @@ export function upstreamError(status:number,body:string):{code?:string;type:stri
  }
  const entry=code&&Object.hasOwn(known,code)?[code,known[code]] as const:Object.entries(known).find(([,value])=>message===value.wireMessage);
  if(entry)return {code:entry[0],type:entry[1].type,message:entry[1].message};
+ if(message==='超过每天令牌使用限制')return {code:'upstream_daily_token_limit',...known.upstream_daily_token_limit!};
  if(['context_length_exceeded','context_too_large'].includes(code??''))return {code:'upstream_context_length',...known.upstream_context_length!};
  if(status===429||['rate_limit_exceeded','rate_limit_error'].includes(code??'')||parsed.error?.type==='rate_limit_error')return {code:'upstream_rate_limited',...known.upstream_rate_limited!};
  if(status===400||code==='upstream_invalid_request'){
