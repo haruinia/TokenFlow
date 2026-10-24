@@ -1,5 +1,6 @@
 import {macAppIdentity,macQoderIdeProcesses} from './agent-lifecycle.js';
 import {codexDefaultModel} from './codex-runtime.js';
+import {codexRoutingMode} from './codex-routing-mode.js';
 import { readFile, writeFile, mkdir, rename, lstat, unlink, open, rm, mkdtemp, copyFile, chmod, realpath } from 'node:fs/promises';
 import { basename, dirname, join, resolve, parse as parsePath } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -527,7 +528,7 @@ export class AgentConnections {
       let current:string|null=null,error='';try{current=await readConfig(this.paths[target]);}catch(e){error=e instanceof Error?e.message:'读取失败';}
       let pids:number[]=[];try{pids=await this.processes(target);}catch(e){error=e instanceof Error?e.message:'进程检查失败';}
       const latest=records.find(r=>r.target===target&&r.state!=='restored');const applied=!!latest&&appliedConfig(latest,current);
-      return {id:target,name:targetNames[target],installation:await detectAgent(target),...((process.platform==='darwin'||process.platform==='win32'&&['pi','codex','qoder','workbuddy','workbuddy-ai','deepseek'].includes(target))?{restartSupported:true}:{}),path:this.paths[target],exists:current!==null,revision:hash(current),pids,error,connection:latest?publicRecord(latest):null,drift:!!latest&&!applied,configurationState:error?'unreadable':!latest?'unmanaged':applied?'configured':equivalentConfig(target,current,latest.before)?'missing':'changed',backups:records.filter(r=>r.target===target).map(publicRecord)};
+      return {id:target,name:targetNames[target],...(target==='codex'?{codexRoutingMode:error?'unreadable' as const:codexRoutingMode(current)}:{}),installation:await detectAgent(target),...((process.platform==='darwin'||process.platform==='win32'&&['pi','codex','qoder','workbuddy','workbuddy-ai','deepseek'].includes(target))?{restartSupported:true}:{}),path:this.paths[target],exists:current!==null,revision:hash(current),pids,error,connection:latest?publicRecord(latest):null,drift:!!latest&&!applied,configurationState:error?'unreadable':!latest?'unmanaged':applied?'configured':equivalentConfig(target,current,latest.before)?'missing':'changed',backups:records.filter(r=>r.target===target).map(publicRecord)};
     }));
   }
   async review(id:string){

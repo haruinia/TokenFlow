@@ -24,10 +24,15 @@ if(!process.env.TF_DIRECT_ROOT){
  await mkdir(home,{recursive:true});await writeFile(join(home,'auth.json'),login,{mode:0o600});await writeFile(config,'cli_auth_credentials_store="file"\n');
  const cached=JSON.parse(await readFile(join(userHome,'.codex/models_cache.json'),'utf8'));
  const officialCatalog=join(home,'official-models.json');await writeFile(officialCatalog,JSON.stringify({models:cached.models}));
+ const productSwitch=process.argv.includes('--product-switch');
  const nativeConfig={model:official,model_provider:'openai',model_catalog_json:officialCatalog,cli_auth_credentials_store:'file',features:{apps:false},analytics:{enabled:false}};
+ if(productSwitch){await writeFile(config,stringify(nativeConfig));await writeFile(join(home,'models_cache.json'),JSON.stringify(cached));}
  const local=YAML.parse(await readFile(join(userHome,'Library/Application Support/desktop-browser-agent/cliproxy/config.yaml'),'utf8'));
  const proxyIndex=process.argv.indexOf('--proxy'),networkProxy=proxyIndex>=0?process.argv[proxyIndex+1]:undefined;
  const requests:any[]=[],rounds:any[]=[];let phase='setup',officialForwardAttempts=0,serviceClosed=false,adapterClosed=false;
+ const long=process.argv.includes('--long');
+ const anchors=long?['EARLY_','MIDDLE_','LATE_'].map(p=>p+randomUUID().replaceAll('-','').slice(0,12)):[];
+ let seedBytes=0;
  const markers=['DIRECT_A_','GATEWAY_B_'].map(p=>p+randomUUID().replaceAll('-','').slice(0,12));
  const adapter=createServer(async(req,res)=>{try{let raw='';for await(const c of req)raw+=c;const body=JSON.parse(raw);assert.ok(!body.input?.some((i:any)=>i.type==='compaction'||i.type==='compaction_trigger'),'Opaque state reached gateway');requests.push({phase,summary:!!body.instructions?.startsWith('Summarize the supplied'),model:gatewayModel});const response=await fetch(`http://127.0.0.1:${local.port}/v1/responses`,{method:'POST',headers:{authorization:'Bearer '+local['api-keys'][0],'content-type':'application/json'},body:JSON.stringify({...body,model:gatewayModel}),signal:AbortSignal.timeout(120000)});res.writeHead(response.status,{'content-type':response.headers.get('content-type')??'application/json'});if(response.body)for await(const c of response.body)res.write(c);res.end();}catch{if(!res.headersSent)res.writeHead(502);res.end('Gateway verification failed');}});
  await new Promise<void>(r=>adapter.listen(0,'127.0.0.1',r));
@@ -46,7 +51,7 @@ if(!process.env.TF_DIRECT_ROOT){
   await rpc('initialize',{clientInfo:{name:'tokenflow_direct_probe',version:'1'},capabilities:{experimentalApi:true}});proc.stdin!.write('{"method":"initialized"}\n');
   const result=await rpc(threadId?'thread/resume':'thread/start',{...(threadId?{threadId}:{}),cwd:root,model,modelProvider:provider,approvalPolicy:'never',sandbox:'read-only'});threadId=result.thread.id;
   assert.equal(result.modelProvider??result.thread.modelProvider,provider,'Requested provider was not applied on load');
-  return {rpc,turn:async(name:string,text:string,expected:string[])=>{phase=name;const begin=performance.now(),before=events.length;await rpc('turn/start',{threadId,model,effort:provider==='openai'?'low':'medium',input:[{type:'text',text}]});const answer=await complete(before);for(const m of expected)assert.ok(answer.includes(m),'Lost requirement in '+phase);record({phase,provider,markersVerified:expected.length,durationMs:Math.round(performance.now()-begin)});},compact:async(name:string)=>{phase=name;const begin=performance.now(),before=events.length;await rpc('thread/compact/start',{threadId});await complete(before);record({phase,provider,durationMs:Math.round(performance.now()-begin)});}};
+  return {rpc,turn:async(name:string,text:string,expected:string[])=>{phase=name;const begin=performance.now(),before=events.length;await rpc('turn/start',{threadId,model,effort:provider==='openai'?'low':'medium',input:[{type:'text',text}]});const answer=await complete(before);const required=[...expected,...anchors];for(const m of required)assert.ok(answer.includes(m),'Lost requirement in '+phase);record({phase,provider,markersVerified:required.length,durationMs:Math.round(performance.now()-begin)});},compact:async(name:string)=>{phase=name;const begin=performance.now(),before=events.length;await rpc('thread/compact/start',{threadId});await complete(before);record({phase,provider,durationMs:Math.round(performance.now()-begin)});}};
  };
  const rows=async()=>{const result:any[]=[];const walk=async(dir:string)=>{for(const e of await readdir(dir,{withFileTypes:true})){const p=join(dir,e.name);if(e.isDirectory())await walk(p);else if(e.name.endsWith('.jsonl'))for(const line of (await readFile(p,'utf8')).split('\n')){if(line.trim())result.push(JSON.parse(line));}}};await walk(join(home,'sessions'));return result;};
  const checkpoint=async(prefix:string)=>{const data=await rows();const items=data.flatMap(row=>row.type==='compacted'?row.payload?.replacement_history??[]:row.type==='response_item'?[row.payload]:[]);assert.ok(items.some(i=>i.type==='compaction'&&typeof i.encrypted_content==='string'&&(prefix==='native'?!i.encrypted_content.startsWith('tfctx1.'):i.encrypted_content.startsWith('tfctx1.'))),'Missing '+prefix+' checkpoint');record({phase:phase+'-checkpoint',kind:prefix});};
@@ -55,32 +60,42 @@ if(!process.env.TF_DIRECT_ROOT){
   for(let n=0;!(await readFile(config,'utf8')).includes('/local-telemetry/');n++){assert.ok(n<200);await new Promise(r=>setTimeout(r,10));}
   const source=await service.app.inject({method:'POST',url:'/api/sources',headers:admin,payload:{name:'Direct test gateway',baseURL:`http://127.0.0.1:${(adapter.address() as any).port}/v1`,protocol:'responses',models:['gateway'],apiKey:'fixture-key'}});assert.equal(source.statusCode,200);
   const sourceId=source.json().id,model=`api-${sourceId}/gateway`;
-  const status=(await service.app.inject({url:'/api/a2a',headers:admin})).json().targets.find((t:any)=>t.id==='codex');
-  const applied=await service.app.inject({method:'POST',url:'/api/a2a/connect',headers:admin,payload:{target:'codex',sourceId,model,revision:status.revision,codexCoexist:true}});assert.equal(applied.statusCode,200);
-  const gatewayConfig=parse(await readFile(config,'utf8')) as any;
-  // Keep the gateway provider declared for a read-only hot-resume probe. Native
-  // OpenAI has no URL override and no TokenFlow credentials or telemetry.
-  await writeFile(config,stringify({...nativeConfig,model_providers:gatewayConfig.model_providers}));
+  const state=async()=>(await service.app.inject({url:'/api/a2a',headers:admin})).json().targets.find((t:any)=>t.id==='codex');
+  const connect=async()=>{const status=await state();const applied=await service.app.inject({method:'POST',url:'/api/a2a/connect',headers:admin,payload:{target:'codex',sourceId,model,revision:status.revision,codexCoexist:!productSwitch}});assert.equal(applied.statusCode,200,applied.body);return applied.json();};
+  let gatewayConfig:any;
+  if(!productSwitch){await connect();gatewayConfig=parse(await readFile(config,'utf8'));await writeFile(config,stringify({...nativeConfig,model_providers:gatewayConfig.model_providers}));}
+  else assert.equal((await state()).codexRoutingMode,'official');
   client=await start('openai',official);
-  await client.turn('native-official-seed',`Isolated continuity test. Do not use tools or files. Remember ${markers[0]} and reply with it.`,[markers[0]]);
+  let seed='';if(long){const lines=Array.from({length:4096},(_,n)=>'Historical audit entry '+n+': validation finished; no action required; preserve only explicit requirement identifiers.');for(const [i,position] of [0,2048,4095].entries())lines[position]+=' REQUIRED IDENTIFIER '+anchors[i]+'.';seed=lines.join('\n');seedBytes=Buffer.byteLength(seed);}
+  await client.turn('native-official-seed',`Isolated continuity test. Do not use tools or files. Remember ${markers[0]}. Read the following synthetic historical audit material, retain each REQUIRED IDENTIFIER and this initial requirement. Reply only with these exact identifiers.\n${seed}`,[markers[0]]);
   await client.compact('native-official-compact');await checkpoint('native');
   assert.equal(officialForwardAttempts,0);assert.equal(requests.length,0);
-  const hot=await client.rpc('thread/resume',{threadId,model,modelProvider:'token_flow',approvalPolicy:'never',sandbox:'read-only'});
-  record({phase:'loaded-thread-provider-switch-probe',requested:'token_flow',actual:hot.modelProvider??hot.thread.modelProvider});
-  await stop();await writeFile(config,stringify(gatewayConfig));client=await start('token_flow',model);
-  const recall='Return all exact DIRECT_A_ and GATEWAY_B_ requirement identifiers from prior context. Do not use tools or files.';
+  if(!productSwitch){const hot=await client.rpc('thread/resume',{threadId,model,modelProvider:'token_flow',approvalPolicy:'never',sandbox:'read-only'});record({phase:'loaded-thread-provider-switch-probe',requested:'token_flow',actual:hot.modelProvider??hot.thread.modelProvider});}
+  await stop();
+  if(productSwitch){await connect();gatewayConfig=parse(await readFile(config,'utf8'));assert.equal((await state()).codexRoutingMode,'gateway');assert.equal(gatewayConfig.model_providers.token_flow.requires_openai_auth,false);assert.equal(gatewayConfig.model_providers.token_flow.capabilities,undefined);record({phase:'product-connect-gateway',authPreserved:await readFile(join(home,'auth.json'),'utf8')===login});}
+  else await writeFile(config,stringify(gatewayConfig));
+  client=await start('token_flow',model);
+  const recall='Return all exact DIRECT_A_ and GATEWAY_B_ and EARLY_, MIDDLE_, LATE_ requirement identifiers from prior context. Do not use tools or files.';
   await client.turn('gateway-after-native-checkpoint',recall,[markers[0]]);
   await client.turn('gateway-add-requirement',`Also remember ${markers[1]}. ${recall}`,markers);
   await client.turn('gateway-before-summary',recall,markers);
-  await client.compact('gateway-summary');await checkpoint('gateway');assert.ok(requests.some(r=>r.summary));await stop();
+  await client.compact('gateway-summary');
+  if(productSwitch){const compacted=(await rows()).filter(row=>row.type==='compacted').at(-1);assert.ok(compacted,'Codex did not persist local compaction');assert.ok(compacted.payload?.message||compacted.payload?.replacement_history?.some((i:any)=>i.type==='message'),'Missing readable summary');record({phase:'gateway-readable-summary',clientOwned:true});}
+  else{await checkpoint('gateway');assert.ok(requests.some(r=>r.summary));}
+  await client.turn('gateway-after-summary',recall,markers);await stop();
   // Materialize the gateway-owned checkpoint while the isolated client is shut
   // down. This is required before a true direct official endpoint can read it.
-  const {GatewayContext}=await import('../packages/core/src/gateway-context.ts');const {CodexContext}=await import('../packages/core/src/codex-context.ts');
-  const context=await GatewayContext.open(join(root,'data')),migration=new CodexContext(join(root,'data'),config,context);
-  const converted=await migration.prepareOfficial([],async()=>[]);assert.ok(converted.migrated>0,'Gateway checkpoint was not materialized');record({phase:'prepare-direct-official',migrated:converted.migrated});
+  if(productSwitch){
+   const current=await state();const restored=await service.app.inject({method:'POST',url:'/api/a2a/restore',headers:admin,payload:{id:current.connection.id,revision:current.revision,restoreHistory:true}});assert.equal(restored.statusCode,200,restored.body);
+   const native=parse(await readFile(config,'utf8')) as any;assert.equal(native.model_provider,'openai');assert.equal(native.openai_base_url,undefined);assert.equal(native.model_providers?.token_flow,undefined);assert.equal(native.model_providers?.openai,undefined);assert.ok(native.otel,'Product telemetry setting must remain for offline test');assert.equal((await state()).codexRoutingMode,'official');record({phase:'product-restore-official',telemetryRetained:true});
+  }else{
+   const {GatewayContext}=await import('../packages/core/src/gateway-context.ts');const {CodexContext}=await import('../packages/core/src/codex-context.ts');
+   const context=await GatewayContext.open(join(root,'data')),migration=new CodexContext(join(root,'data'),config,context);
+   const converted=await migration.prepareOfficial([],async()=>[]);assert.ok(converted.migrated>0,'Gateway checkpoint was not materialized');record({phase:'prepare-direct-official',migrated:converted.migrated});
+  }
   await service.app.close();serviceClosed=true;adapter.closeAllConnections();await new Promise<void>(r=>adapter.close(()=>r()));adapterClosed=true;
   let portClosed=false;try{await fetch(origin,{signal:AbortSignal.timeout(1000)});}catch{portClosed=true;}assert.ok(portClosed,'Isolated TokenFlow listener must be stopped');
-  await writeFile(config,stringify(nativeConfig));client=await start('openai',official);
+  if(!productSwitch)await writeFile(config,stringify(nativeConfig));client=await start('openai',official);
   await client.turn('native-after-tokenflow-stopped',recall,markers);
   await client.compact('native-compact-tokenflow-stopped');
   await client.turn('native-continue-after-compact-tokenflow-stopped',recall,markers);await stop();
@@ -89,5 +104,5 @@ if(!process.env.TF_DIRECT_ROOT){
   record({phase:'passive-usage-without-inference-proxy',samples:usage.length,inputTokens:usage.reduce((s,r)=>s+r.inputTokens,0),outputTokens:usage.reduce((s,r)=>s+r.outputTokens,0)});
  }catch(e){error=e instanceof Error?e.message:'Verification failed';process.exitCode=1;}
  finally{await stop();if(!serviceClosed)await service.app.close();if(!adapterClosed){adapter.closeAllConnections();await new Promise<void>(r=>adapter.close(()=>r()));}}
- const report={passed:!error,scope:'Native Codex OpenAI provider, no official base URL override; isolated TokenFlow stopped before final official continuation and compaction',networkProxy:!!networkProxy,officialForwardAttempts,serviceStopped:serviceClosed,...(error?{error}:{}),rounds,requests};console.log(JSON.stringify(report));const out=process.argv.indexOf('--out');if(out>=0)await writeFile(resolve(process.argv[out+1]),JSON.stringify(report,null,2)+'\n');
+ const report={passed:!error,productSwitch,long,seedBytes,scope:'Native Codex OpenAI provider, no official base URL override; isolated TokenFlow stopped before final official continuation and compaction',networkProxy:!!networkProxy,officialForwardAttempts,serviceStopped:serviceClosed,...(error?{error}:{}),rounds,requests};console.log(JSON.stringify(report));const out=process.argv.indexOf('--out');if(out>=0)await writeFile(resolve(process.argv[out+1]),JSON.stringify(report,null,2)+'\n');
 }
