@@ -1,0 +1,123 @@
+diff --git a/codex-rs/core/src/agent/child_config.rs b/codex-rs/core/src/agent/child_config.rs
+index 3d56d7e..44ec21f 100644
+--- a/codex-rs/core/src/agent/child_config.rs
++++ b/codex-rs/core/src/agent/child_config.rs
+@@ -81,6 +81,7 @@ pub(crate) async fn prepare_agent_spawn_config(
+                 .clone_from(&turn.developer_instructions);
+         }
+     }
++    apply_test_model_provider_route(&mut config, options.full_history_fork)?;
+     apply_spawn_agent_service_tier(session, &mut config).await?;
+     apply_spawn_agent_runtime_overrides(&mut config, turn)?;
+ 
+@@ -371,3 +372,25 @@ fn validate_spawn_agent_reasoning_effort(
+         "Reasoning effort `{requested_reasoning_effort}` is not supported for model `{model}`. Supported reasoning efforts: {supported}"
+     ))
+ }
++
++// Isolated feasibility probe only. The launcher supplies an exact model allowlist.
++// Keep the native AgentControl path, parent edge, permissions and cancellation.
++fn apply_test_model_provider_route(config: &mut Config, full_history_fork: bool) -> Result<(), String> {
++    let Some(raw) = std::env::var_os("TOKENFLOW_TEST_MODEL_PROVIDER_ROUTES") else { return Ok(()); };
++    let routes: std::collections::HashMap<String, String> = serde_json::from_str(&raw.to_string_lossy())
++        .map_err(|_| "Invalid isolated provider route configuration".to_string())?;
++    let Some(model) = config.model.as_ref() else { return Ok(()); };
++    let Some(provider_id) = routes.get(model) else { return Ok(()); };
++    if provider_id != "openai" && provider_id != "token_flow" {
++        return Err("Isolated provider route is not allowed".to_string());
++    }
++    if config.model_provider_id == *provider_id { return Ok(()); }
++    if full_history_fork {
++        return Err("Cross-provider full-history forks need portable context; use a fresh child".to_string());
++    }
++    let provider = config.model_providers.get(provider_id).cloned()
++        .ok_or_else(|| "Configured child provider is missing".to_string())?;
++    config.model_provider_id = provider_id.clone();
++    config.model_provider = provider;
++    Ok(())
++}
+diff --git a/codex-rs/core/src/tools/multi_agent_tool.rs b/codex-rs/core/src/tools/multi_agent_tool.rs
+index 2b271af..2913513 100644
+--- a/codex-rs/core/src/tools/multi_agent_tool.rs
++++ b/codex-rs/core/src/tools/multi_agent_tool.rs
+@@ -131,3 +131,37 @@ impl CoreToolRuntime for MultiAgentV2ToolOverrides {
+         self.handler.create_diff_consumer()
+     }
+ }
++
++// Isolated dual-entry experiment. Execution stays in the same native handler.
++pub(super) fn test_gateway_alias(handler: Arc<dyn CoreToolRuntime>) -> Arc<dyn CoreToolRuntime> {
++    Arc::new(TestGatewayAlias { handler })
++}
++struct TestGatewayAlias { handler: Arc<dyn CoreToolRuntime> }
++impl ToolExecutor<ToolInvocation> for TestGatewayAlias {
++    fn tool_name(&self) -> ToolName { ToolName::namespaced("tokenflow_agents", self.handler.tool_name().name) }
++    fn spec(&self) -> ToolSpec {
++        let mut spec = self.handler.spec();
++        if let ToolSpec::Namespace(namespace) = &mut spec {
++            namespace.name = "tokenflow_agents".to_string();
++            namespace.description = "Native child-agent operations for configured gateway models. Uses the same native agent tree.".to_string();
++            for tool in &mut namespace.tools {
++                if let ResponsesApiNamespaceTool::Function(tool) = tool {
++                    if let Some(message) = tool.parameters.properties.as_mut().and_then(|p| p.get_mut("message")) {
++                        message.encrypted = None;
++                    }
++                }
++            }
++        }
++        spec
++    }
++    fn exposure(&self) -> ToolExposure { self.handler.exposure() }
++    fn supports_parallel_tool_calls(&self) -> bool { self.handler.supports_parallel_tool_calls() }
++    fn search_info(&self) -> Option<ToolSearchInfo> { self.handler.search_info() }
++    fn handle<'a>(&'a self, invocation: ToolInvocation) -> codex_tools::ToolExecutorFuture<'a>
++    where ToolInvocation: 'a { self.handler.handle(invocation) }
++}
++impl CoreToolRuntime for TestGatewayAlias {
++    fn wait_until_ready<'a>(&'a self, session: &'a Arc<Session>) -> Option<BoxFuture<'a, ()>> { self.handler.wait_until_ready(session) }
++    fn matches_kind(&self, payload: &crate::tools::context::ToolPayload) -> bool { self.handler.matches_kind(payload) }
++    fn create_diff_consumer(&self) -> Option<Box<dyn crate::tools::registry::ToolArgumentDiffConsumer>> { self.handler.create_diff_consumer() }
++}
+diff --git a/codex-rs/core/src/tools/registry.rs b/codex-rs/core/src/tools/registry.rs
+index c60feef..775cbde 100644
+--- a/codex-rs/core/src/tools/registry.rs
++++ b/codex-rs/core/src/tools/registry.rs
+@@ -504,6 +504,11 @@ impl ToolRegistry {
+         if !self.tool_policy.allows(&tool_name) {
+             return;
+         }
++        if std::env::var_os("TOKENFLOW_TEST_DUAL_AGENT_TOOLS").is_some()
++            && tool_name.namespace.as_deref() == Some("collaboration")
++            && matches!(tool_name.name.as_str(), "spawn_agent" | "followup_task" | "send_message") {
++            self.register_trusted_with_exposure(super::multi_agent_tool::test_gateway_alias(runtime.clone()), exposure);
++        }
+         let tool = self.prepare_tool(runtime, exposure);
+         match self.tools.entry(tool_name) {
+             Entry::Vacant(entry) => {
+diff --git a/codex-rs/core/src/tools/router.rs b/codex-rs/core/src/tools/router.rs
+index 36fbfe4..840bb2d 100644
+--- a/codex-rs/core/src/tools/router.rs
++++ b/codex-rs/core/src/tools/router.rs
+@@ -54,15 +54,17 @@ pub struct ToolCall {
+ 
+ impl ToolCall {
+     pub(crate) fn direct_source(&self) -> ToolCallSource {
+-        if self.tool_name.namespace.as_deref() == Some("collaboration")
++        if (self.tool_name.namespace.as_deref() == Some("collaboration")
++            || (std::env::var_os("TOKENFLOW_TEST_MODEL_PROVIDER_ROUTES").is_some()
++                && self.tool_name.namespace.as_deref() == Some("tokenflow_agents")))
+             && matches!(
+                 self.tool_name.name.as_str(),
+                 "spawn_agent" | "send_message" | "followup_task"
+             )
+-            && self
+-                .encrypted_function_args
+-                .as_ref()
+-                .is_some_and(Vec::is_empty)
++            && (self.encrypted_function_args.as_ref().is_some_and(Vec::is_empty)
++                || (std::env::var_os("TOKENFLOW_TEST_DUAL_AGENT_TOOLS").is_some()
++                    && self.tool_name.namespace.as_deref() == Some("tokenflow_agents")
++                    && self.encrypted_function_args.is_none()))
+         {
+             ToolCallSource::DirectPlaintextMessage
+         } else {

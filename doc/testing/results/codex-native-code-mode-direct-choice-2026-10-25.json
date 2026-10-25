@@ -1,0 +1,108 @@
+{
+  "passed": false,
+  "error": "Initial delegated task was not readable at gateway",
+  "rounds": [
+    {
+      "phase": "official-child-native",
+      "pid": 16187,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 27498
+    },
+    {
+      "phase": "gateway-child-native",
+      "pid": 16187,
+      "markersVerified": 1,
+      "gatewayCalls": 9,
+      "durationMs": 45002
+    }
+  ],
+  "observedTools": [
+    {
+      "type": "function_call",
+      "name": "spawn_agent",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "wait_agent",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "spawn_agent",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "wait_agent",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "followup_task",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "wait_agent",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "custom_tool_call",
+      "name": "exec",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "custom_tool_call",
+      "name": "exec",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "custom_tool_call",
+      "name": "exec",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "custom_tool_call",
+      "name": "exec",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "custom_tool_call",
+      "name": "exec",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "custom_tool_call",
+      "name": "exec",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "custom_tool_call",
+      "name": "exec",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    }
+  ],
+  "requestCount": 9,
+  "finding": "Host enabled, but model chose direct encrypted collaboration calls instead of code-mode. A prompt alone did not enforce plaintext delivery. Retry with code_mode_only model tool surface."
+}
