@@ -1,5 +1,5 @@
 import {afterEach,expect,it} from 'vitest';
-import {CodexGatewayWorkers} from '../packages/core/src/codex-gateway-workers';
+import {CodexGatewayWorkers,GatewayWorkerError,gatewayWorkerErrorText} from '../packages/core/src/codex-gateway-workers';
 import {CodexProviderBridge} from '../packages/core/src/codex-provider-bridge';
 const cleanup:Array<()=>void>=[];afterEach(()=>cleanup.splice(0).forEach(f=>f()));
 function fixture({mismatch=false,fail=false}:{mismatch?:boolean;fail?:boolean}={}){
@@ -47,4 +47,26 @@ it('falls back to original thread creation if an official version rejects the op
  const original={id:1,method:'thread/start',params:{model:'official',modelProvider:'openai'}};bridge.receiveClient(original);expect(engine[0].params.dynamicTools).toHaveLength(1);
  bridge.receiveEngine({id:1,error:{code:-32602,message:'dynamicTools requires experimental API support'}});expect(engine[1]).toEqual(original);expect(client).toHaveLength(0);
  bridge.receiveEngine({id:1,result:{thread:{id:'original'},model:'official',modelProvider:'openai'}});expect(client).toHaveLength(1);
+});
+
+it('preserves effective parent settings when desktop turn overrides are null',async()=>{
+ const engine:any[]=[],client:any[]=[];let bridge:CodexProviderBridge;
+ const sandbox={type:'dangerFullAccess'},result=(id:string,provider:string,model:string)=>({thread:{id,ephemeral:false,status:{type:'idle'}},modelProvider:provider,model,cwd:'/tmp',sandbox,approvalPolicy:'never',disabledPluginIds:[]});
+ bridge=new CodexProviderBridge(()=>({officialModels:['official'],gatewayModels:['gateway']}),m=>{
+  engine.push(m);if(typeof m.id==='string'&&m.id.startsWith('tf_bridge_'))queueMicrotask(()=>bridge.receiveEngine({id:m.id,result:m.method==='thread/start'?result('worker','token_flow','gateway'):m.method==='turn/start'?{turn:{id:'worker-turn'}}:{}}));
+ },m=>client.push(m),()=>{},true);cleanup.push(()=>bridge.close());
+ bridge.receiveClient({id:1,method:'thread/start',params:{model:'official',cwd:'/tmp',approvalPolicy:'never',sandbox:'danger-full-access'}});bridge.receiveEngine({id:1,result:result('parent','openai','official')});
+ bridge.receiveClient({id:2,method:'turn/start',params:{threadId:'parent',model:'official',cwd:null,approvalPolicy:null,approvalsReviewer:null,permissions:null}});await new Promise(r=>setTimeout(r,5));bridge.receiveEngine({id:2,result:{turn:{id:'parent-turn'}}});
+ bridge.receiveEngine({id:99,method:'item/tool/call',params:{threadId:'parent',namespace:'tokenflow_gateway',tool:'spawn_agent',arguments:spawn}});await new Promise(r=>setTimeout(r,10));
+ expect(engine.find(m=>m.id===99)?.result).toMatchObject({success:true});expect(engine.some(m=>m.method==='thread/start'&&m.params.modelProvider==='token_flow')).toBe(true);
+});
+
+it('returns actionable local validation errors but redacts arbitrary exceptions',async()=>{
+ expect(gatewayWorkerErrorText(new GatewayWorkerError('所选模型不在已配置的网关模型列表中。'))).toContain('所选模型不在');
+ expect(gatewayWorkerErrorText(new Error('private credential'))).not.toContain('private');
+ const f=fixture();await expect(f.workers.handle('missing','spawn_agent',spawn)).rejects.toThrow('未找到父会话');
+ try{await f.workers.handle('parent','spawn_agent',{...spawn,message:12});throw Error('Expected rejection');}catch(e){expect(gatewayWorkerErrorText(e)).toContain('参数格式无效');}
+ const engine:any[]=[];const bridge=new CodexProviderBridge(()=>({officialModels:['official'],gatewayModels:['gateway']}),m=>engine.push(m),()=>{},()=>{},true);cleanup.push(()=>bridge.close());
+ bridge.receiveEngine({id:99,method:'item/tool/call',params:{threadId:'missing',namespace:'tokenflow_gateway',tool:'spawn_agent',arguments:spawn}});await new Promise(r=>setTimeout(r,0));
+ expect(engine[0].result).toMatchObject({success:false,contentItems:[{type:'inputText',text:expect.stringContaining('未找到父会话')}]});
 });

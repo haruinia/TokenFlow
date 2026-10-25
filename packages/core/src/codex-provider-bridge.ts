@@ -1,12 +1,14 @@
 import {randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
-import {CodexGatewayWorkers} from './codex-gateway-workers.js';
+import {CodexGatewayWorkers,gatewayWorkerErrorText} from './codex-gateway-workers.js';
 
 type Message={id?:string|number;method?:string;params?:any;result?:any;error?:any};
 type ThreadState={provider:string;model:string;resume:any;settings:any;busy:boolean;gatewayDirty:boolean;persistent:boolean;sandbox:any};
 export type CodexBridgeRouting={officialModels:string[];gatewayModels:string[]};
 const error=(message:string)=>Object.assign(new Error(message),{code:-32001});
 const settingsKeys=['cwd','runtimeWorkspaceRoots','approvalPolicy','approvalsReviewer','serviceTier','permissions','sandbox','config','baseInstructions','developerInstructions'];
+// Optional request nulls inherit effective settings; only serviceTier null clears.
+const hasOverride=(params:any,key:string)=>params[key]!==undefined&&(params[key]!==null||key==='serviceTier');
 /** A stdio protocol adapter, not an inference proxy. Native OpenAI never calls TokenFlow. */
 export class CodexProviderBridge {
  private serial=0;private prefix=`tf_bridge_${randomUUID()}_`;
@@ -22,7 +24,7 @@ export class CodexProviderBridge {
  private remember(result:any,params:any={}){
   if(!result?.thread?.id||typeof result.modelProvider!=='string')return;
   const id=result.thread.id,previous=this.threads.get(id);
-  const resume={...previous?.resume,...Object.fromEntries(settingsKeys.filter(k=>params[k]!==undefined).map(k=>[k,params[k]]))};
+  const resume={...previous?.resume,...Object.fromEntries(settingsKeys.filter(k=>hasOverride(params,k)).map(k=>[k,params[k]]))};
   for(const k of ['cwd','runtimeWorkspaceRoots','approvalPolicy','approvalsReviewer','serviceTier'])if(result[k]!==undefined)resume[k]=result[k];
   if(result.activePermissionProfile?.id){resume.permissions=result.activePermissionProfile.id;delete resume.sandbox;}
   else if(result.sandbox){const type=result.sandbox.type;const modes:Record<string,string>={readOnly:'read-only',workspaceWrite:'workspace-write',dangerFullAccess:'danger-full-access'};if(modes[type]){resume.sandbox=modes[type];delete resume.permissions;}else resume.unsupportedSandbox=true;}
@@ -61,7 +63,7 @@ export class CodexProviderBridge {
   this.workers?.receive(message);
   if(this.workers?.owns(message)&&message.id!==undefined){
    this.serverRequests.set(message.id,id);
-   void this.workers.handle(id,params.tool,params.arguments).then(result=>this.toEngine({id:message.id,result:{success:true,contentItems:[{type:'inputText',text:JSON.stringify(result)}]}}),()=>this.toEngine({id:message.id,result:{success:false,contentItems:[{type:'inputText',text:'网关任务操作未完成：请确认主会话为官方 provider、模型已配置、任务属于本对话且参数有效。'}]}})).finally(()=>this.serverRequests.delete(message.id!));return;
+   void this.workers.handle(id,params.tool,params.arguments).then(result=>this.toEngine({id:message.id,result:{success:true,contentItems:[{type:'inputText',text:JSON.stringify(result)}]}}),e=>this.toEngine({id:message.id,result:{success:false,contentItems:[{type:'inputText',text:gatewayWorkerErrorText(e)}]}})).finally(()=>this.serverRequests.delete(message.id!));return;
   }
   if(message.method==='thread/closed')this.threads.delete(id);
   if(message.method&&message.id!==undefined&&typeof id==='string')this.serverRequests.set(message.id,id);
@@ -89,8 +91,8 @@ export class CodexProviderBridge {
     if(['thread/start','thread/resume','thread/fork'].includes(request.method??''))this.remember(message.result,request.params);
     const state=this.threads.get(request.params?.threadId);
     if(state&&['turn/start','thread/settings/update'].includes(request.method??'')){
-     for(const k of ['model','effort','summary','serviceTier','collaborationMode','disabledPluginIds'])if(request.params[k]!==undefined)state.settings[k]=request.params[k];
-     for(const k of settingsKeys)if(request.params[k]!==undefined)state.resume[k]=request.params[k];
+     for(const k of ['model','effort','summary','serviceTier','collaborationMode','disabledPluginIds'])if(hasOverride(request.params,k))state.settings[k]=request.params[k];
+     for(const k of settingsKeys)if(hasOverride(request.params,k))state.resume[k]=request.params[k];
      if(request.method==='turn/start')state.busy=true;
     }
    }

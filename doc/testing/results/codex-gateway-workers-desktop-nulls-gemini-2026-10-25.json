@@ -1,0 +1,66 @@
+{
+  "passed": true,
+  "desktopNulls": true,
+  "delegationOnly": true,
+  "codeModeUsed": false,
+  "itemTypes": [
+    "userMessage",
+    "agentMessage",
+    "dynamicToolCall"
+  ],
+  "samePid": true,
+  "officialForwardAttempts": 0,
+  "scope": "Production extension creates independent gateway worker on installed official engine; native tools and official inference unchanged",
+  "gatewayModel": "antigravity/gemini-3.8-flash-high",
+  "rounds": [
+    {
+      "phase": "official-dispatches-gateway",
+      "pid": 44025,
+      "markersVerified": 1,
+      "gatewayCalls": 1,
+      "durationMs": 21171
+    },
+    {
+      "phase": "official-follows-up-gateway",
+      "pid": 44025,
+      "markersVerified": 2,
+      "gatewayCalls": 1,
+      "durationMs": 18910
+    },
+    {
+      "phase": "independent-worker-verified",
+      "provider": "token_flow",
+      "permissionsMatch": true,
+      "nativeParentEdge": false
+    },
+    {
+      "phase": "parent-still-official",
+      "provider": "openai"
+    },
+    {
+      "phase": "official-after-worker-service-stopped",
+      "pid": 44025,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 2405
+    },
+    {
+      "phase": "engine-unchanged",
+      "bridgePid": 44025,
+      "enginePid": 44028,
+      "long": false
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-dispatches-gateway",
+      "model": "antigravity/gemini-3.8-flash-high",
+      "summary": false
+    },
+    {
+      "phase": "official-follows-up-gateway",
+      "model": "antigravity/gemini-3.8-flash-high",
+      "summary": false
+    }
+  ]
+}

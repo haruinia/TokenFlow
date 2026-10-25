@@ -63,3 +63,11 @@ it('does not detach or submit the official turn if the gateway summary fails',as
  const f=fixture({compactError:true});f.bridge.receiveClient({id:2,method:'turn/start',params:{threadId:'thread',model:'gateway'}});await wait();f.bridge.receiveEngine({method:'turn/completed',params:{threadId:'thread',turn:{status:'completed'}}});f.engine.length=0;
  f.bridge.receiveClient({id:3,method:'turn/start',params:{threadId:'thread',model:'official'}});await wait();expect(f.engine.some(m=>m.method==='thread/unsubscribe'||m.method==='turn/start')).toBe(false);expect(JSON.stringify(f.client)).not.toContain('private upstream details');
 });
+it('keeps inherited nullable settings while preserving an explicit service-tier clear on reload',async()=>{
+ const f=fixture();const request={id:2,method:'turn/start',params:{threadId:'thread',model:'official',cwd:null,approvalPolicy:null,permissions:null,effort:null,disabledPluginIds:null,serviceTier:null}};
+ f.bridge.receiveClient(request);await wait();expect(f.engine.at(-1)).toEqual(request);
+ f.bridge.receiveEngine({id:2,result:{turn:{id:'official-turn'}}});f.bridge.receiveEngine({method:'turn/completed',params:{threadId:'thread',turn:{status:'completed'}}});f.engine.length=0;
+ f.bridge.receiveClient({id:3,method:'turn/start',params:{threadId:'thread',model:'gateway'}});await wait();
+ expect(f.engine.find(m=>m.method==='thread/resume').params).toMatchObject({cwd:'/tmp',approvalPolicy:'never',sandbox:'read-only',serviceTier:null});
+ expect(f.engine.find(m=>m.method==='thread/settings/update').params).toMatchObject({effort:'high',serviceTier:null});
+});
