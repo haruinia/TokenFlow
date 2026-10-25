@@ -81,3 +81,13 @@ API 使用隔离 CODEX_HOME、实际已安装 Codex 引擎和不含项目内容�
 已按用户要求安装 `/Applications/TokenFlow.app`，CFBundleVersion 为 10.15.26.69。生产构建、19 项打包运行检查、ad-hoc 签名及 strict 校验通过；安装文件哈希与已验收产物一致。旧版 .68 保存在 `release/v10.15.26.69/installed-before-69.app`，新版归档在同目录的 `TokenFlow.app`。退出菜单未完成后台关闭，安装仅向旧 TokenFlow bundle 内进程发送 SIGTERM，未停止 Codex。
 
 新应用已启动，9527 首页返回 HTTP 200，Codex 页面、账号与所选网关模型正常显示。安装前后 `~/.codex/config.toml` 与 `auth.json` 哈希均一致；当前保存模式仍为官方直连，没有代用户启用混合模式。用户可在当前任务结束后应用“官方账号＋网关模型”并验收旧对话切换。首次旧历史整理可能需多次模型请求；真实原会话的上游 400 是否全部消除仍待用户复测，不能以安装成功代替该项验收。安装回执位于发布目录 `install-receipt.json`。
+
+## 2026-10-25：硅基流动长历史压缩后返回官方直连
+
+复用隔离会话 smoke，增加 --gateway-model 与 --gateway-long，使用当前生产 bridge bundle、实际安装 Codex 引擎、实际 OpenAI gpt-6-astra 和硅基流动 deepseek-ai/DeepSeek-V4.1-Flash。网关阶段输入约 463 KB 合成历史；显式执行 Codex 客户端压缩后续聊，再选择官方模型触发桥的摘要与同线程重载。网关压缩约 6.215 秒，压缩后续聊 1.895 秒；返回官方（包括桥追加的网关摘要）10.211 秒。官方阶段与网关阶段两个精确标记均保留。关闭隔离 TokenFlow 服务后，官方续聊 1.981 秒、官方原生压缩 9.748 秒、再次续聊 3.127 秒，全部成功；官方推理转发次数为零，桥与引擎 PID 保持不变，隔离登录文件未改变。结果保存于 results/codex-deepseek-roundtrip-2026-10-25.json。
+
+命令：node --import tsx scripts/codex-provider-bridge-smoke.mts --live --proxy http://127.0.0.1:7897 --gateway-long --gateway-model api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash --out doc/testing/results/codex-deepseek-roundtrip-2026-10-25.json。首次未传系统代理的隔离尝试停在官方阶段，无验证结论，终止该测试进程后使用现有本机代理重跑成功；没有修改系统代理。测试服务与桌面 TokenFlow 独立，未关闭用户应用或改写真实 Codex 配置。
+
+边界：这是合成长文本加两个标记的连续性检查，压缩由显式 compact/start 触发，不证明自动阈值触发或真实 16 MB 历史全部细节保真。桥在网关产生新内容后返回官方还会请求一次客户端摘要，因此切回并非零等待。
+
+子代理核查：官方文档 https://learn.chatgpt.com/docs/agent-configuration/subagents 明确自定义子代理继承父 provider，model_provider 不能在自定义代理文件中覆盖。现有桥只处理客户端 thread/start、fork、resume、settings/update、turn/start，未处理引擎内部 spawn 路由；旧聚合方案同 provider 的子代理测试不能证明当前分离 provider 可用。本轮本地端点探针未暴露 spawn 工具，未形成有效子代理请求，不能声称实际跨 provider 派发或子代理压缩已通过。

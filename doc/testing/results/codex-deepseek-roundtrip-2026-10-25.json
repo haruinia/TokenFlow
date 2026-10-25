@@ -1,0 +1,145 @@
+{
+  "passed": true,
+  "noRestartSwitch": true,
+  "switchMethod": "automatic-stdio-bridge",
+  "samePid": true,
+  "officialForwardAttempts": 0,
+  "scope": "Automatic stdio bridge; real official and selected gateway; synthetic history; isolated config and unchanged process",
+  "gatewayModel": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+  "gatewayLong": true,
+  "rounds": [
+    {
+      "phase": "official-with-tokenflow-running",
+      "pid": 30587,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 8791
+    },
+    {
+      "phase": "official-native-compact-with-tokenflow-running",
+      "pid": 30587,
+      "gatewayCalls": 0,
+      "durationMs": 4913
+    },
+    {
+      "phase": "tokenflow-stopped",
+      "pid": 30587,
+      "portClosed": true
+    },
+    {
+      "phase": "official-with-tokenflow-stopped",
+      "pid": 30587,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 2441
+    },
+    {
+      "phase": "official-native-compact-with-tokenflow-stopped",
+      "pid": 30587,
+      "gatewayCalls": 0,
+      "durationMs": 7239
+    },
+    {
+      "phase": "official-after-native-compact-service-stopped",
+      "pid": 30587,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 2170
+    },
+    {
+      "phase": "tokenflow-reopened",
+      "pid": 30587
+    },
+    {
+      "phase": "gateway-without-codex-restart",
+      "pid": 30587,
+      "markersVerified": 1,
+      "gatewayCalls": 1,
+      "durationMs": 2161
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "pid": 30587,
+      "markersVerified": 2,
+      "gatewayCalls": 1,
+      "durationMs": 2126
+    },
+    {
+      "phase": "gateway-history-size",
+      "syntheticLong": true
+    },
+    {
+      "phase": "gateway-local-summary-without-restart",
+      "pid": 30587,
+      "gatewayCalls": 1,
+      "durationMs": 6215
+    },
+    {
+      "phase": "gateway-after-local-summary",
+      "pid": 30587,
+      "markersVerified": 2,
+      "gatewayCalls": 1,
+      "durationMs": 1895
+    },
+    {
+      "phase": "official-return-through-bridge",
+      "pid": 30587,
+      "markersVerified": 2,
+      "gatewayCalls": 1,
+      "durationMs": 10211
+    },
+    {
+      "phase": "official-after-gateway-and-service-stop",
+      "pid": 30587,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 1981
+    },
+    {
+      "phase": "official-native-after-roundtrip-service-stop",
+      "pid": 30587,
+      "gatewayCalls": 0,
+      "durationMs": 9748
+    },
+    {
+      "phase": "official-final-continuation",
+      "pid": 30587,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 3127
+    },
+    {
+      "phase": "engine-unchanged",
+      "bridgePid": 30587,
+      "enginePid": 30590,
+      "long": false
+    }
+  ],
+  "requests": [
+    {
+      "phase": "gateway-without-codex-restart",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false
+    },
+    {
+      "phase": "gateway-local-summary-without-restart",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false
+    },
+    {
+      "phase": "gateway-after-local-summary",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false
+    },
+    {
+      "phase": "official-return-through-bridge",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false
+    }
+  ]
+}
