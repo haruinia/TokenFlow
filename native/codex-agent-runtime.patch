@@ -1,0 +1,196 @@
+diff --git a/codex-rs/core/src/agent/child_config.rs b/codex-rs/core/src/agent/child_config.rs
+index 3d56d7e..da00666 100644
+--- a/codex-rs/core/src/agent/child_config.rs
++++ b/codex-rs/core/src/agent/child_config.rs
+@@ -81,6 +81,7 @@ pub(crate) async fn prepare_agent_spawn_config(
+                 .clone_from(&turn.developer_instructions);
+         }
+     }
++    apply_gateway_model_provider_route(&mut config, options.full_history_fork)?;
+     apply_spawn_agent_service_tier(session, &mut config).await?;
+     apply_spawn_agent_runtime_overrides(&mut config, turn)?;
+ 
+@@ -371,3 +372,25 @@ fn validate_spawn_agent_reasoning_effort(
+         "Reasoning effort `{requested_reasoning_effort}` is not supported for model `{model}`. Supported reasoning efforts: {supported}"
+     ))
+ }
++
++// Read on every spawn so model-menu updates do not require another engine restart.
++fn apply_gateway_model_provider_route(config: &mut Config, full_history_fork: bool) -> Result<(), String> {
++    let Some(path) = std::env::var_os("TOKENFLOW_CODEX_AGENT_ROUTES_FILE") else { return Ok(()); };
++    let bytes = std::fs::read(path).map_err(|_| "TokenFlow agent routes are unavailable; restore or reapply the connection".to_string())?;
++    if bytes.len() > 1024 * 1024 { return Err("TokenFlow agent routes are too large".to_string()); }
++    #[derive(serde::Deserialize)]
++    #[serde(rename_all = "camelCase")]
++    struct Routes { official_models: Vec<String>, gateway_models: Vec<String> }
++    let routes: Routes = serde_json::from_slice(&bytes).map_err(|_| "Invalid TokenFlow agent routes".to_string())?;
++    let Some(model) = config.model.as_ref() else { return Ok(()); };
++    let official = routes.official_models.contains(model);
++    let gateway = routes.gateway_models.contains(model);
++    if official && gateway { return Err("Ambiguous TokenFlow model provider".to_string()); }
++    let provider_id = if gateway { "token_flow" } else if official { "openai" } else { return Err("Child model is not in the configured model selection".to_string()); };
++    if config.model_provider_id == provider_id { return Ok(()); }
++    if full_history_fork { return Err("Cross-provider full-history forks require portable context; use fork_turns=none with an explicit task".to_string()); }
++    let provider = config.model_providers.get(provider_id).cloned().ok_or_else(|| "Configured child provider is missing".to_string())?;
++    config.model_provider_id = provider_id.to_string();
++    config.model_provider = provider;
++    Ok(())
++}
+diff --git a/codex-rs/core/src/agent/control/api.rs b/codex-rs/core/src/agent/control/api.rs
+index 0426ca3..aae14f9 100644
+--- a/codex-rs/core/src/agent/control/api.rs
++++ b/codex-rs/core/src/agent/control/api.rs
+@@ -67,6 +67,9 @@ impl AgentControl for LocalAgentControl {
+                 source,
+                 options,
+             } = request;
++            if std::env::var_os("TOKENFLOW_CODEX_AGENT_ROUTES_FILE").is_some() && config.model_provider_id == "token_flow" && matches!(&input, AgentInput::Message { message: crate::agent::types::AgentMessage::Encrypted(_), .. }) {
++                return Err(CodexErr::InvalidRequest("Use tokenflow_agents.spawn_agent for a gateway child; its task message must be readable".to_string()));
++            }
+             let input = match input {
+                 AgentInput::UserInput(input) => SpawnInitialInput::UserInput(input),
+                 AgentInput::Message { message, mode } => {
+@@ -151,6 +154,17 @@ impl AgentControl for LocalAgentControl {
+                     } else {
+                         None
+                     };
++                    if std::env::var_os("TOKENFLOW_CODEX_AGENT_ROUTES_FILE").is_some() && matches!(&message, crate::agent::types::AgentMessage::Encrypted(_)) {
++                        let manager = self.runtime.upgrade()?;
++                        let provider = match manager.get_thread(target).await {
++                            Ok(thread) => thread.config_snapshot().await.model_provider_id,
++                            Err(error) if matches!(error.details(), codex_protocol::error::CodexErrorDetails::ThreadNotFound(_)) => manager.read_stored_thread(codex_thread_store::ReadThreadParams { thread_id: target, include_archived: true, include_history: false }).await?.model_provider,
++                            Err(error) => return Err(error),
++                        };
++                        if provider == "token_flow" {
++                            return Err(CodexErr::InvalidRequest("Use tokenflow_agents.followup_task or tokenflow_agents.send_message for a gateway child".to_string()));
++                        }
++                    }
+                     let communication = message.into_communication(author, receiver_path, mode);
+                     let kind = match mode {
+                         MessageDeliveryMode::QueueOnly => {
+diff --git a/codex-rs/core/src/tools/handlers/multi_agents_v2.rs b/codex-rs/core/src/tools/handlers/multi_agents_v2.rs
+index 8333a10..73fa8a7 100644
+--- a/codex-rs/core/src/tools/handlers/multi_agents_v2.rs
++++ b/codex-rs/core/src/tools/handlers/multi_agents_v2.rs
+@@ -54,8 +54,9 @@ pub(crate) async fn emit_sub_agent_activity(
+ fn agent_message_from_tool(
+     message: String,
+     source: &crate::tools::context::ToolCallSource,
++    gateway_parent: bool,
+ ) -> AgentMessage {
+-    if matches!(
++    if gateway_parent || matches!(
+         source,
+         crate::tools::context::ToolCallSource::DirectPlaintextMessage
+             | crate::tools::context::ToolCallSource::CodeMode { .. }
+diff --git a/codex-rs/core/src/tools/handlers/multi_agents_v2/message_tool.rs b/codex-rs/core/src/tools/handlers/multi_agents_v2/message_tool.rs
+index 8392960..0d79728 100644
+--- a/codex-rs/core/src/tools/handlers/multi_agents_v2/message_tool.rs
++++ b/codex-rs/core/src/tools/handlers/multi_agents_v2/message_tool.rs
+@@ -66,7 +66,7 @@ pub(super) async fn handle_message_string_tool(
+             target: AgentTarget::Id(receiver_thread_id),
+             resume_config,
+             input: AgentInput::Message {
+-                message: agent_message_from_tool(message, &source),
++                message: agent_message_from_tool(message, &source, std::env::var_os("TOKENFLOW_CODEX_AGENT_ROUTES_FILE").is_some() && turn.config.model_provider_id == "token_flow"),
+                 mode,
+             },
+             start_options: TurnStartOptions {
+diff --git a/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs b/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs
+index c23caa0..09546b2 100644
+--- a/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs
++++ b/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs
+@@ -127,7 +127,7 @@ async fn handle_spawn_agent(
+         &call_id,
+         ThreadSpawnRequest {
+             task_name: args.task_name,
+-            message: agent_message_from_tool(message, &source),
++            message: agent_message_from_tool(message, &source, std::env::var_os("TOKENFLOW_CODEX_AGENT_ROUTES_FILE").is_some() && turn.config.model_provider_id == "token_flow"),
+             fork_mode: fork_mode.clone(),
+             agent_type: args.agent_type.clone(),
+             model: args.model,
+diff --git a/codex-rs/core/src/tools/multi_agent_tool.rs b/codex-rs/core/src/tools/multi_agent_tool.rs
+index 2b271af..7726af9 100644
+--- a/codex-rs/core/src/tools/multi_agent_tool.rs
++++ b/codex-rs/core/src/tools/multi_agent_tool.rs
+@@ -131,3 +131,37 @@ impl CoreToolRuntime for MultiAgentV2ToolOverrides {
+         self.handler.create_diff_consumer()
+     }
+ }
++
++// Readable gateway task messages use the same native handler and agent tree.
++pub(super) fn gateway_agent_alias(handler: Arc<dyn CoreToolRuntime>) -> Arc<dyn CoreToolRuntime> {
++    Arc::new(GatewayAgentAlias { handler })
++}
++struct GatewayAgentAlias { handler: Arc<dyn CoreToolRuntime> }
++impl ToolExecutor<ToolInvocation> for GatewayAgentAlias {
++    fn tool_name(&self) -> ToolName { ToolName::namespaced("tokenflow_agents", self.handler.tool_name().name) }
++    fn spec(&self) -> ToolSpec {
++        let mut spec = self.handler.spec();
++        if let ToolSpec::Namespace(namespace) = &mut spec {
++            namespace.name = "tokenflow_agents".to_string();
++            namespace.description = "Use these native tools when delegating to a configured gateway model or sending a task to a gateway child. Official models keep collaboration tools. Use fork_turns=none across providers. Both namespaces share the native agent tree; collaboration list_agents, wait_agent and interrupt_agent manage all children.".to_string();
++            for tool in &mut namespace.tools {
++                if let ResponsesApiNamespaceTool::Function(tool) = tool {
++                    if let Some(message) = tool.parameters.properties.as_mut().and_then(|p| p.get_mut("message")) {
++                        message.encrypted = None;
++                    }
++                }
++            }
++        }
++        spec
++    }
++    fn exposure(&self) -> ToolExposure { self.handler.exposure() }
++    fn supports_parallel_tool_calls(&self) -> bool { self.handler.supports_parallel_tool_calls() }
++    fn search_info(&self) -> Option<ToolSearchInfo> { self.handler.search_info() }
++    fn handle<'a>(&'a self, invocation: ToolInvocation) -> codex_tools::ToolExecutorFuture<'a>
++    where ToolInvocation: 'a { self.handler.handle(invocation) }
++}
++impl CoreToolRuntime for GatewayAgentAlias {
++    fn wait_until_ready<'a>(&'a self, session: &'a Arc<Session>) -> Option<BoxFuture<'a, ()>> { self.handler.wait_until_ready(session) }
++    fn matches_kind(&self, payload: &crate::tools::context::ToolPayload) -> bool { self.handler.matches_kind(payload) }
++    fn create_diff_consumer(&self) -> Option<Box<dyn crate::tools::registry::ToolArgumentDiffConsumer>> { self.handler.create_diff_consumer() }
++}
+diff --git a/codex-rs/core/src/tools/registry.rs b/codex-rs/core/src/tools/registry.rs
+index c60feef..661231c 100644
+--- a/codex-rs/core/src/tools/registry.rs
++++ b/codex-rs/core/src/tools/registry.rs
+@@ -504,6 +504,11 @@ impl ToolRegistry {
+         if !self.tool_policy.allows(&tool_name) {
+             return;
+         }
++        if std::env::var_os("TOKENFLOW_CODEX_AGENT_ROUTES_FILE").is_some()
++            && tool_name.namespace.as_deref() == Some("collaboration")
++            && matches!(tool_name.name.as_str(), "spawn_agent" | "followup_task" | "send_message") {
++            self.register_trusted_with_exposure(super::multi_agent_tool::gateway_agent_alias(runtime.clone()), exposure);
++        }
+         let tool = self.prepare_tool(runtime, exposure);
+         match self.tools.entry(tool_name) {
+             Entry::Vacant(entry) => {
+diff --git a/codex-rs/core/src/tools/router.rs b/codex-rs/core/src/tools/router.rs
+index 36fbfe4..51fe59a 100644
+--- a/codex-rs/core/src/tools/router.rs
++++ b/codex-rs/core/src/tools/router.rs
+@@ -54,15 +54,17 @@ pub struct ToolCall {
+ 
+ impl ToolCall {
+     pub(crate) fn direct_source(&self) -> ToolCallSource {
+-        if self.tool_name.namespace.as_deref() == Some("collaboration")
++        if (self.tool_name.namespace.as_deref() == Some("collaboration")
++            || (std::env::var_os("TOKENFLOW_CODEX_AGENT_ROUTES_FILE").is_some()
++                && self.tool_name.namespace.as_deref() == Some("tokenflow_agents")))
+             && matches!(
+                 self.tool_name.name.as_str(),
+                 "spawn_agent" | "send_message" | "followup_task"
+             )
+-            && self
+-                .encrypted_function_args
+-                .as_ref()
+-                .is_some_and(Vec::is_empty)
++            && (self.encrypted_function_args.as_ref().is_some_and(Vec::is_empty)
++                || (std::env::var_os("TOKENFLOW_CODEX_AGENT_ROUTES_FILE").is_some()
++                    && self.tool_name.namespace.as_deref() == Some("tokenflow_agents")
++                    && self.encrypted_function_args.is_none()))
+         {
+             ToolCallSource::DirectPlaintextMessage
+         } else {

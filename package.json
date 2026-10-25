@@ -27,7 +27,8 @@
     "test:sidecar-codex-claude": "node scripts/test-sidecar-codex-claude.mjs",
     "package:mac:arm64": "npm run clean:package && node scripts/build-sidecar.mjs darwin-arm64 && npm run build && electron-builder --mac --arm64 --dir --publish never",
     "package:mac:intel": "npm run clean:package && node scripts/build-sidecar.mjs darwin-x64 && npm run build && electron-builder --mac --x64 --dir --publish never",
-    "clean:package": "node scripts/clean-package.mjs"
+    "clean:package": "node scripts/clean-package.mjs",
+    "codex-agents:build": "node scripts/build-codex-agent-runtime.mjs"
   },
   "dependencies": {
     "@cursor/sdk": "1.0.31",
@@ -61,7 +62,7 @@
     "zod": "^3.24.2"
   },
   "build": {
-    "buildVersion": "10.15.26.69",
+    "buildVersion": "10.15.26.70",
     "appId": "local.browseragent.desktop",
     "productName": "TokenFlow",
     "files": [
@@ -112,7 +113,8 @@
           "from": "sidecars/darwin-${arch}",
           "to": "sidecars/darwin-${arch}",
           "filter": [
-            "cliproxyapi"
+            "cliproxyapi",
+            "codex-native-agents/**"
           ]
         }
       ]

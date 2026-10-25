@@ -3,7 +3,7 @@ import type { GatewayCall } from '../../../packages/core/src/gateway-activity';
 import { isSourceSelectionAvailable, sourceSelectionState, sourceSelectionNotice, type AvailableSourceModels } from './source-options';
 import type { LocalAgentSnapshot } from '../../../packages/core/src/cliproxy';
 
-export type AgentTarget = Awaited<ReturnType<AgentConnections['status']>>[number]&{codexBridge?:{supported:boolean;connected:boolean;stage?:string;launchRequired:boolean};threadMigration?:import('../../../packages/core/src/codex-thread-migration').MigrationStatus};
+export type AgentTarget = Awaited<ReturnType<AgentConnections['status']>>[number]&{codexBridge?:{supported:boolean;connected:boolean;nativeAgentsSupported?:boolean;nativeAgentsConnected?:boolean;stage?:string;launchRequired:boolean};threadMigration?:import('../../../packages/core/src/codex-thread-migration').MigrationStatus};
 
 export function connectionEvidence(target: AgentTarget, calls: GatewayCall[], sources: AvailableSourceModels,local?:LocalAgentSnapshot) {
   if (target.error) return {tone:'attention',label:'配置检查失败',detail:target.error};

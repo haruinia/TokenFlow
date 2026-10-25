@@ -82,7 +82,7 @@ async function start() {
   const claudeKeychainStore=process.platform==='darwin'?claudeKeychain(dirname(agentPaths().claude)):undefined;
   const claudeCredentialStore=claudeKeychainStore?{read:guardCredentialAccess(allowCredentials,(options?:{fresh?:boolean})=>claudeKeychainStore.read(options)),write:guardCredentialAccess(allowCredentials,(value:string|null)=>claudeKeychainStore.write(value))}:undefined;
   await startup.update('正在启动本地服务…');
-  const service=await createDesktopService({codexBridgeRuntime:join(here,'codex-provider-bridge.js'),root,token,localKey,secrets,outboundProxyURL:network.url,networkSnapshot:network.snapshot,fileCleanup:{
+  const service=await createDesktopService({codexNativeAssets:process.platform==='darwin'?join(base,'sidecars',`darwin-${process.arch}`,'codex-native-agents'):undefined,codexBridgeRuntime:join(here,'codex-provider-bridge.js'),root,token,localKey,secrets,outboundProxyURL:network.url,networkSnapshot:network.snapshot,fileCleanup:{
     ...desktopCleanupFiles(app,shell),
     pickDirectory:async()=>{
       const picker={title:'选择扫描位置，可选择文件夹或磁盘',properties:['openDirectory'] as ('openDirectory')[]};

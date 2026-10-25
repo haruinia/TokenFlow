@@ -70,7 +70,7 @@ import { isLoginProvider, loginProviderIds } from './login/index.js';
 import { RunnerCoreError } from './errors.js';
 
 export type Secrets = {canEncrypt?:()=>boolean;persistent?:boolean;get:(name:string,options?:{retry?:boolean})=>Promise<string>; set:(name:string,value:string)=>Promise<void>;remove?:(name:string)=>Promise<void>};
-export type ServiceOptions = {codexBridgeRuntime?:string;codexOfficialFetch?:CodexOfficialFetch;outboundProxyURL?:string;networkSnapshot?:()=>import('./network-proxy.js').NetworkSnapshot;fileCleanup?:FileCleanupOptions;qoderIde?:QoderIdeOptions;claudeDesktop?:ClaudeDesktopOptions;claudeDesktopChange?:(work:()=>Promise<unknown>)=>Promise<unknown>;claudeTerminalChange?:(work:()=>Promise<unknown>)=>Promise<unknown>;desktopAccounts?:DesktopAccountOptions;desktopProcesses?:(target:DesktopProvider|'qoder-ide')=>Promise<number[]>;desktopAccountChange?:(target:DesktopProvider|'qoder-ide',work:()=>Promise<unknown>)=>Promise<unknown>;workbuddySDKFactory?:(proxy:CLIProxyManager)=>Pick<WorkBuddySDKProvider,'response'|'close'>;antigravityPath?:string;cursorLocalPath?:string;claudeCredentialStore?:CredentialStore|null;nativeProcesses?:(target:NativeProvider)=>Promise<number[]>;agentPaths?:Partial<AgentPaths>;agentProcesses?:(target:Target)=>Promise<number[]>;root:string;binary:string;token:string;localKey:string;secrets:Secrets;credentialWarnings?:()=>string[];uiRoot?:string;proxyPort?:number;openExternal?:(url:string)=>Promise<void>};
+export type ServiceOptions = {codexNativeAssets?:string;codexBridgeRuntime?:string;codexOfficialFetch?:CodexOfficialFetch;outboundProxyURL?:string;networkSnapshot?:()=>import('./network-proxy.js').NetworkSnapshot;fileCleanup?:FileCleanupOptions;qoderIde?:QoderIdeOptions;claudeDesktop?:ClaudeDesktopOptions;claudeDesktopChange?:(work:()=>Promise<unknown>)=>Promise<unknown>;claudeTerminalChange?:(work:()=>Promise<unknown>)=>Promise<unknown>;desktopAccounts?:DesktopAccountOptions;desktopProcesses?:(target:DesktopProvider|'qoder-ide')=>Promise<number[]>;desktopAccountChange?:(target:DesktopProvider|'qoder-ide',work:()=>Promise<unknown>)=>Promise<unknown>;workbuddySDKFactory?:(proxy:CLIProxyManager)=>Pick<WorkBuddySDKProvider,'response'|'close'>;antigravityPath?:string;cursorLocalPath?:string;claudeCredentialStore?:CredentialStore|null;nativeProcesses?:(target:NativeProvider)=>Promise<number[]>;agentPaths?:Partial<AgentPaths>;agentProcesses?:(target:Target)=>Promise<number[]>;root:string;binary:string;token:string;localKey:string;secrets:Secrets;credentialWarnings?:()=>string[];uiRoot?:string;proxyPort?:number;openExternal?:(url:string)=>Promise<void>};
 const clientCredential=(headers:{authorization?:string;'x-api-key'?:string|string[]})=>{
   const bearer=headers.authorization?.replace(/^Bearer /i,'')??'';
   const apiKey=typeof headers['x-api-key']==='string'?headers['x-api-key']:'';
@@ -267,9 +267,9 @@ export async function createDesktopService(options:ServiceOptions) {
   const desktopRoute=await claudeDesktop.route().catch(()=>null);if(desktopRoute?.keyId&&desktopRoute.selections[0])fixedRoutes.set(desktopRoute.keyId,{target:'claude-desktop',...desktopRoute.selections[0],fastModel:desktopRoute.fastModel,selections:desktopRoute.selections,modelAliases:desktopRoute.modelAliases});
   const codexContext=new CodexContext(root,connections.paths.codex,gatewayContext);
   const codexContextScopes=async()=>((await connections.status()).find(t=>t.id==='codex')?.backups??[]).flatMap(record=>(record.selections??[record]).map(item=>({owner:record.keyId,source:item.sourceId,model:item.model})));
-  const codexBridge=new CodexBridgeInstallation(root,options.codexBridgeRuntime);
+  const codexBridge=new CodexBridgeInstallation(root,options.codexBridgeRuntime,options.codexNativeAssets);
   const codexLifecycle=new CodexSwitchLifecycle(()=>options.agentProcesses?options.agentProcesses('codex'):agentProcesses('codex'));
-  const codexChange=<T>(restart:boolean,work:()=>Promise<T>,hybrid?:boolean)=>restart?codexLifecycle.change(work,async()=>{const enabled=hybrid??(await connections.status()).find(t=>t.id==='codex')?.connection?.codexDirectHybrid;return enabled?codexBridge.launch():new QoderLifecycle().restart('codex');}):work();
+  const codexChange=async<T>(restart:boolean,work:()=>Promise<T>,hybrid?:boolean)=>{if(!restart)return work();const enabled=hybrid??(await connections.status()).find(t=>t.id==='codex')?.connection?.codexDirectHybrid;if(enabled)await codexBridge.preflight();return codexLifecycle.change(work,()=>enabled?codexBridge.launch():new QoderLifecycle().restart('codex'));};
   const codexThreads=new CodexThreadMigration(root,connections.paths.codex,()=>options.agentProcesses?options.agentProcesses('codex'):agentProcesses('codex'));
   const prepareCodexOfficial=async()=>codexContext.prepareOfficial(await codexContextScopes(),async()=>options.agentProcesses?options.agentProcesses('codex'):agentProcesses('codex'));
   const restoreCodexHistory=async(compatibility:boolean,model?:string|(()=>Promise<string|undefined>))=>{
@@ -460,7 +460,7 @@ export async function createDesktopService(options:ServiceOptions) {
     if(coexist&&input.target!=='codex')throw new RunnerCoreError('官方模型共存仅适用于 Codex。',{statusCode:400,code:'codex_coexist_invalid'});
     const officialCatalog=(coexist||hybrid)?(preloadedOfficial??await loadOfficialCodexCatalog(connections.paths.codex,options.codexOfficialFetch)):undefined;
     const allowedModels=[...selections.map(item=>item.model),...(officialCatalog?.models.map(model=>model.slug)??[])];
-    if(input.target==='codex'&&hybrid)await prepareCodexOfficial();
+    if(input.target==='codex'&&hybrid){await codexBridge.prepare();await prepareCodexOfficial();}
     if(input.target==='codex'&&!hybrid){await codexContext.repairLineage(async()=>options.agentProcesses?options.agentProcesses('codex'):agentProcesses('codex'));await codexThreads.prepare(input.model,allowedModels);}
     const created=await gatewayKeys.create(gatewayKeyInput.parse({name:`A2A · ${input.target}`,models:selections.map(item=>item.model),agents:[['workbuddy','workbuddy-ai','qoder','pi','deepseek'].includes(input.target)?'openai':input.target],...(input.selections?{modelSources:Object.fromEntries(selections.map(item=>[item.model,item.sourceId]))}:{sourceId:input.sourceId}),tokenLimit:input.tokenLimit}));
     try{
@@ -683,7 +683,7 @@ export async function createDesktopService(options:ServiceOptions) {
       const target=(await connections.status()).find(t=>t.id==='codex')!;
       if(target.connection)return restoreConnection(target.connection.id,{revision:target.revision,allowRunning:false},undefined,input.restoreHistory);
       return restoreCodexHistory(input.restoreHistory,()=>connections.currentOfficialModel());
-    });
+    },false);
   });
   const agentInstallation=new AgentInstallationManager(options.agentProcesses??agentProcesses,options.openExternal);
   const agentUpdates=new AgentUpdates();
@@ -759,7 +759,7 @@ export async function createDesktopService(options:ServiceOptions) {
     if(input.revision&&preview.revision!==input.revision)throw Object.assign(new Error('配置已变化，请重新检查恢复目标。'),{statusCode:409});
     if(!preview.canRestore)throw new RunnerCoreError(preview.reason,{statusCode:409,code:'configuration_conflict'});
     if(input.restartCodex){const target=(await connections.status()).find(t=>t.backups.some(b=>b.id===input.id));if(target?.id!=='codex'||target.revision!==input.revision)throw Object.assign(new Error('Codex 配置已变化，请刷新后重试。'),{statusCode:409});}
-    return codexChange(input.restartCodex,()=>restoreConnection(input.id,input.revision?{revision:input.revision,allowRunning:input.allowRunning}:undefined,undefined,input.restoreHistory));
+    return codexChange(input.restartCodex,()=>restoreConnection(input.id,input.revision?{revision:input.revision,allowRunning:input.allowRunning}:undefined,undefined,input.restoreHistory),false);
   });
   app.post('/api/a2a/delete',async req=>{
 

@@ -1,0 +1,283 @@
+{
+  "passed": true,
+  "observedTools": [
+    {
+      "type": "function_call",
+      "name": "spawn_agent",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "wait_agent",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "spawn_agent",
+      "namespace": "tokenflow_agents",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "wait_agent",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "followup_task",
+      "namespace": "tokenflow_agents",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "wait_agent",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    },
+    {
+      "type": "function_call",
+      "name": "list_agents",
+      "namespace": "collaboration",
+      "codeModeSpawn": false,
+      "codeModeFollowup": false
+    }
+  ],
+  "samePid": true,
+  "officialForwardAttempts": 0,
+  "scope": "Product service installer and bundled protocol bridge; verified versioned native runtime; real official and DeepSeek siblings",
+  "entrypoint": "dual",
+  "explicitToolHints": false,
+  "sourceCommit": "970111f6cb62cc02fe36a82ea7d71b37a2889c97",
+  "gatewayModel": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+  "rounds": [
+    {
+      "phase": "official-child-native",
+      "pid": 70540,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 38603
+    },
+    {
+      "phase": "gateway-child-native",
+      "pid": 70540,
+      "markersVerified": 1,
+      "gatewayCalls": 1,
+      "durationMs": 15940
+    },
+    {
+      "phase": "native-mixed-sibling-tree",
+      "providers": [
+        "openai",
+        "token_flow"
+      ],
+      "parentEdgesVerified": true,
+      "permissionsMatch": true
+    },
+    {
+      "phase": "gateway-child-followup",
+      "pid": 70540,
+      "markersVerified": 1,
+      "gatewayCalls": 1,
+      "durationMs": 9755
+    },
+    {
+      "phase": "native-shared-agent-list",
+      "pid": 70540,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 4650
+    },
+    {
+      "phase": "native-parent-remains-official",
+      "provider": "openai"
+    },
+    {
+      "phase": "official-native-compact-service-stopped",
+      "durationMs": 17437
+    },
+    {
+      "phase": "official-after-service-stopped",
+      "pid": 70540,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 3560
+    },
+    {
+      "phase": "native-engine-unchanged",
+      "enginePid": 70545
+    }
+  ],
+  "requests": [
+    {
+      "phase": "gateway-child-native",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false,
+      "items": [
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text",
+            "input_text",
+            "input_text",
+            "input_text",
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        }
+      ]
+    },
+    {
+      "phase": "gateway-child-followup",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false,
+      "items": [
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text",
+            "input_text",
+            "input_text",
+            "input_text",
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": true,
+          "longTask": false
+        }
+      ]
+    }
+  ]
+}

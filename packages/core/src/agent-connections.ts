@@ -587,6 +587,7 @@ export class AgentConnections {
       // Include display metadata so a renamed menu does not reuse the legacy cached path.
       if(input.officialCatalog&&input.target!=='codex')throw conflict('官方模型共存仅支持 Codex。');
       const gatewayCatalog=input.target==='codex'?codexModelCatalog(selectedModels??input.model,input.modelLabels,input.modelContextWindows):undefined;
+      if(input.codexDirectHybrid&&gatewayCatalog)for(const model of gatewayCatalog.models)Object.assign(model,{multi_agent_version:'v2'});
       const catalog=gatewayCatalog&&input.officialCatalog?mergeCodexCatalog(gatewayCatalog,input.officialCatalog):gatewayCatalog;
       const catalogPath=catalog?this.catalogPath(JSON.stringify(catalog)):undefined;
       let after:string;try{after=connectedConfig(input.target,original,input.origin,input.model,input.key,catalogPath,selectedModels,input.modelLabels,input.fastModel,!!input.officialCatalog&&!input.codexDirectHybrid);}catch{throw conflict('配置格式无法安全解析，未修改原文件。');}

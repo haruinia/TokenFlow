@@ -126,3 +126,19 @@ it('keeps native routing, gateway key and bridge model routing together during a
  const current=(await f.get('/api/a2a')).targets.find((t:any)=>t.id==='codex');expect(current.connection).toMatchObject({id:initial.id,keyId:initial.keyId,codexDirectHybrid:true,codexCoexist:false});
  const restored=await f.post('/api/codex-accounts/restore',{revision:(await f.get('/api/codex-accounts')).revision,restoreHistory:false});expect(restored.statusCode,restored.body).toBe(200);expect(await readFile(f.auth,'utf8')).toBe(f.originalAuth);expect(JSON.parse(await readFile(routePath,'utf8')).officialModels).toEqual(['official-original']);expect(parse(await readFile(f.config,'utf8')).model_provider).toBe('openai');
 });
+
+it('rejects an incompatible hybrid engine before stopping the current Codex process',async()=>{
+ const f=await setup(true),config=await readFile(f.config,'utf8'),auth=await readFile(f.auth,'utf8');
+ vi.mocked(CodexBridgeInstallation.prototype.preflight).mockRejectedValue(Object.assign(new Error('Codex 已更新，当前兼容引擎尚未验证此版本'),{statusCode:409}));
+ const lifecycle=vi.spyOn(CodexSwitchLifecycle.prototype,'change');
+ const response=await f.post('/api/a2a/restart',{target:'codex'});
+ expect(response.statusCode).toBe(409);expect(lifecycle).not.toHaveBeenCalled();expect(await readFile(f.config,'utf8')).toBe(config);expect(await readFile(f.auth,'utf8')).toBe(auth);
+});
+
+it('can restore official routing even when the compatibility engine is no longer supported',async()=>{
+ const f=await setup(true),auth=await readFile(f.auth,'utf8');
+ const preflight=vi.mocked(CodexBridgeInstallation.prototype.preflight).mockRejectedValue(Object.assign(new Error('incompatible runtime'),{statusCode:409}));preflight.mockClear();
+ const lifecycle=vi.spyOn(CodexSwitchLifecycle.prototype,'change').mockImplementation(async(work)=>work());
+ const response=await f.post('/api/a2a/codex-migration/restore',{restartCodex:true,restoreHistory:false});
+ expect(response.statusCode,response.body).toBe(200);expect(preflight).not.toHaveBeenCalled();expect(lifecycle).toHaveBeenCalledOnce();expect(await readFile(f.auth,'utf8')).toBe(auth);expect((parse(await readFile(f.config,'utf8')) as any).model_provider).not.toBe('token_flow');
+});
