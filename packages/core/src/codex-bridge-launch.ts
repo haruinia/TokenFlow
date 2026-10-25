@@ -5,7 +5,10 @@ import {verifyNativeAgentRuntime,type NativeAgentRuntime} from './codex-native-a
 export type CodexBridgeSettings=CodexBridgeRouting&{binary:string;nativeAgents?:NativeAgentRuntime};
 export async function codexBridgeLaunch(settings:CodexBridgeSettings,args:string[],directory:string,environment:NodeJS.ProcessEnv=process.env){
  const index=args.indexOf('app-server');
- const protocol=index>=0&&!['daemon','proxy','generate-ts','generate-json-schema','help'].includes(args[index+1])&&!args.some(a=>a.startsWith('ws://')||a.startsWith('unix://'));
+ // Desktop policy discovery is a one-shot CLI command, not an app-server stream.
+ // Keep its validation and sign-out recovery on the official executable.
+ const oneShot=args.some(a=>['--print-startup-config','--startup-sign-out','--help','-h','--version','-V'].includes(a));
+ const protocol=index>=0&&!oneShot&&!['daemon','proxy','generate-ts','generate-json-schema','help'].includes(args[index+1])&&!args.some(a=>a.startsWith('ws://')||a.startsWith('unix://'));
  const env:NodeJS.ProcessEnv={...environment,CODEX_APP_RUNTIME_CLI_PATH:settings.binary};delete env.CODEX_CLI_PATH;delete env.TOKENFLOW_CODEX_AGENT_ROUTES_FILE;
  if(!protocol||!settings.nativeAgents)return {binary:settings.binary,args,env,protocol};
  await verifyNativeAgentRuntime(settings.nativeAgents,settings.binary);

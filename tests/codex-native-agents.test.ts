@@ -39,3 +39,12 @@ it('does not replace the launcher or routes if the backup cannot be created',asy
  await installation.install({officialModels:['official'],gatewayModels:['one']});const before=await readFile(join(installation.directory,'settings.json'),'utf8');await rm(join(installation.directory,'backups'),{recursive:true});await writeFile(join(installation.directory,'backups'),'blocked');await writeFile(runtime,'// new\n');
  await expect(installation.install({officialModels:['official'],gatewayModels:['two']})).rejects.toThrow();expect(await readFile(join(installation.directory,'settings.json'),'utf8')).toBe(before);expect(await readFile(join(installation.directory,'bridge.mjs'),'utf8')).toBe('// original\n');
 });
+
+it('keeps the desktop organization-settings startup check and recovery on the official one-shot CLI',async()=>{
+ const f=await fixture(),nativeAgents=await f.manager.install(f.official),settings={binary:f.official,nativeAgents,officialModels:['official'],gatewayModels:['gateway']};
+ for(const suffix of [[],['--startup-sign-out']]){
+  const args=['app-server','--print-startup-config','--startup-client-info',JSON.stringify({name:'codex_desktop',title:'Codex Desktop',version:'fixture'}),...suffix];
+  const launch=await codexBridgeLaunch(settings,args,f.root,{TOKENFLOW_CODEX_AGENT_ROUTES_FILE:'inherited'});
+  expect(launch.binary).toBe(f.official);expect(launch.args).toEqual(args);expect(launch.protocol).toBe(false);expect(launch.env.TOKENFLOW_CODEX_AGENT_ROUTES_FILE).toBeUndefined();
+ }
+});
