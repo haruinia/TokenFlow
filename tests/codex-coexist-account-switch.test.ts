@@ -11,6 +11,7 @@ import {AgentConnections} from '../packages/core/src/agent-connections.js';
 import {CodexContext} from '../packages/core/src/codex-context.js';
 import {CodexThreadMigration} from '../packages/core/src/codex-thread-migration.js';
 import {CodexSwitchLifecycle} from '../packages/core/src/codex-switch-lifecycle.js';
+import {GatewayContext} from '../packages/core/src/gateway-context.js';
 const clean:Array<()=>Promise<unknown>>=[];
 afterEach(async()=>{vi.restoreAllMocks();for(const fn of clean.splice(0).reverse())await fn();});
 const oauth=(id:string)=>({account_id:id,access_token:`fixture-access-${id}`,refresh_token:`fixture-refresh-${id}`,id_token:`x.${Buffer.from(JSON.stringify({email:`${id}@example.test`})).toString('base64url')}.x`});
@@ -43,6 +44,15 @@ it('keeps the existing hybrid connection intact and never stops Codex when repea
  expect(await readFile(catalogPath,'utf8')).toBe(catalogBefore);expect(await readFile(bridgePath,'utf8')).toBe(bridgeBefore);
  expect(await f.get('/api/gateway-keys')).toEqual(keys);
  const after=(await f.get('/api/a2a')).targets.find((t:any)=>t.id==='codex');expect(after.connection).toEqual(record);expect(after.backups).toEqual(target.backups);expect(after.configurationState).toBe('configured');
+});
+it('enables inherited history preparation only on the managed hybrid route and retains it after service restart',async()=>{
+ const f=await setup(true),config=parse(await readFile(f.config,'utf8')) as any;
+ const context=vi.spyOn(GatewayContext.prototype,'response').mockImplementation(async()=>Response.json({id:'fixture',status:'completed',output:[],usage:{input_tokens:1,output_tokens:0}}));
+ for(let n=0;n<2;n++){
+  const result=await f.service.app.inject({method:'POST',url:'/v1/responses',headers:{host:'127.0.0.1:9527',authorization:'Bearer '+config.model_providers.token_flow.experimental_bearer_token,session_id:'hybrid-thread'},payload:{model:'codex/model-a',input:'fixture'}});
+  expect(result.statusCode,result.body).toBe(200);expect(context.mock.calls.at(-1)?.[5]).toMatchObject({prepareHybridHistory:true,threadId:'hybrid-thread'});
+  if(n===0)await f.restart();
+ }
 });
 it('preserves gateway routing and its key while switching and restoring official identities and refreshes account-scoped models',async()=>{
  const f=await setup();const initial=(await f.get('/api/a2a')).targets.find((t:any)=>t.id==='codex').connection;const initialConfig=parse(await readFile(f.config,'utf8')) as any;const key=initialConfig.model_providers.token_flow.http_headers['x-tokenflow-client-key'];

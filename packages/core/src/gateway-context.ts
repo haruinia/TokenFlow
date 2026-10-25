@@ -16,9 +16,9 @@ type RequestBody = Item & {model:string};
 export type ContextScope = {owner:string; model:string; source:string};
 export type CompactionReport={inputBytes:number;outputBytes:number;calls:number;reused:number;durationMs:number;inputTokens:number|null;outputTokens:number|null;cachedTokens:number|null;cacheWriteTokens:number|null;reasoningTokens:number|null;failed:boolean;unmetered:boolean;cacheWriteFailed?:boolean};
 export type ContextOptions={onContextObservation?:(report:ContextObservation)=>void;onCompaction?:(report:CompactionReport)=>void;onBillingUsage?:(usage:unknown)=>void;onUsageIncomplete?:()=>void;onCompactionStart?:()=>void;onError?:(error:GatewayContextError)=>void;onInitialCompaction?:(active:boolean)=>void;onCancel?:()=>void;signal?:AbortSignal};
-export type ContextMigration = {bootstrapHistory?:string;bootstrapRecordedAt?:number;contextWindowTokens?:number;scope:ContextScope;threadId?:string;recover:(item:Item)=>Promise<Item[]>;normalize?:(item:Item)=>Item[]};
+export type ContextMigration = {bootstrapHistory?:string;bootstrapRecordedAt?:number;prepareHybridHistory?:boolean;contextWindowTokens?:number;scope:ContextScope;threadId?:string;recover:(item:Item)=>Promise<Item[]>;normalize?:(item:Item)=>Item[]};
 type ManagedWindow={hash:string;input:Item[];coveredUsers:string[]};
-type ManagedSession={initialized:boolean;bootstrapHistory?:string;foreign:string[];windows:ManagedWindow[]};
+type ManagedSession={initialized:boolean;bootstrapHistory?:string;hybridPrepared?:boolean;foreign:string[];windows:ManagedWindow[]};
 type Send = (path:string, body:Item) => Promise<Response>;
 const PREFIX = 'tfctx1.';
 // Existing first-contact history organization target, independent of Codex's
@@ -349,15 +349,19 @@ export class GatewayContext {
   }
   const remember=async()=>{
    if(!session)return;session.state.initialized=true;if(migration?.bootstrapHistory)session.state.bootstrapHistory=migration.bootstrapHistory;
+   if(migration?.prepareHybridHistory)session.state.hybridPrepared=true;
    session.state.foreign=[...new Set([...session.state.foreign,...expanded.foreign])];
    await session.persist().catch(()=>{});
   };
-  // Only a recorded import of existing official history may bootstrap. A new
-  // key, model selection, gateway restart or gateway-born chat is not an import.
+  // Legacy imports use their journal revision. Direct hybrid sessions can
+  // inherit a saved/forked history without that journal. Prepare it once, or
+  // when a newly seen official checkpoint expands into foreign history.
+  // A key/model change or restart does not reset this thread-scoped state.
   // Old sessions tracked only a key. Adopt an import that predates their last
   // saved work without running bootstrap again merely because of this upgrade.
   const alreadyHandledLegacy=session?.legacy&&session.state.initialized&&migration?.bootstrapRecordedAt!==undefined&&migration.bootstrapRecordedAt<=session.modifiedAt;
-  const firstRequest=!!(migration?.bootstrapHistory&&session&&session.state.bootstrapHistory!==migration.bootstrapHistory&&!alreadyHandledLegacy);
+  const hybridImport=!!(migration?.prepareHybridHistory&&session&&(!session.state.hybridPrepared||expanded.foreign.some(token=>!session.state.foreign.includes(token))));
+  const firstRequest=hybridImport||!!(migration?.bootstrapHistory&&session&&session.state.bootstrapHistory!==migration.bootstrapHistory&&!alreadyHandledLegacy);
   const compact=async(history:Item[],initial=false,reuseSummaries=false)=>{
    const started=Date.now();const report:CompactionReport={inputBytes:size(history),outputBytes:0,calls:0,reused:0,durationMs:0,inputTokens:0,outputTokens:0,cachedTokens:0,cacheWriteTokens:0,reasoningTokens:0,failed:true,unmetered:false};
    options.onCompactionStart?.();
