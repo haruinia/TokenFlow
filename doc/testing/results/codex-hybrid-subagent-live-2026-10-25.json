@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-25T10:12:40.006Z",
+  "test": "Actual official parent requested fresh DeepSeek child, no tools or inherited conversation",
+  "childThreadId": "01a1728a-930c-70a2-883f-14060274516b",
+  "requestedModel": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+  "persistedProvider": "openai",
+  "gatewayCallsSinceStart": 0,
+  "completed": false,
+  "stopped": true,
+  "desktopObservation": {
+    "resumeErrorCode": -32001,
+    "message": "请等待当前回复、工具操作或审批结束，再切换模型。"
+  },
+  "conclusion": "Child spawn bypassed client provider switching; no successful gateway inference, compaction not reached"
+}

@@ -91,3 +91,9 @@ API 使用隔离 CODEX_HOME、实际已安装 Codex 引擎和不含项目内容�
 边界：这是合成长文本加两个标记的连续性检查，压缩由显式 compact/start 触发，不证明自动阈值触发或真实 16 MB 历史全部细节保真。桥在网关产生新内容后返回官方还会请求一次客户端摘要，因此切回并非零等待。
 
 子代理核查：官方文档 https://learn.chatgpt.com/docs/agent-configuration/subagents 明确自定义子代理继承父 provider，model_provider 不能在自定义代理文件中覆盖。现有桥只处理客户端 thread/start、fork、resume、settings/update、turn/start，未处理引擎内部 spawn 路由；旧聚合方案同 provider 的子代理测试不能证明当前分离 provider 可用。本轮本地端点探针未暴露 spawn 工具，未形成有效子代理请求，不能声称实际跨 provider 派发或子代理压缩已通过。
+
+## 2026-10-25：当前桌面真实跨 provider 子代理测试
+
+用户明确要求测试后，从当前官方主代理通过原生 collaboration.spawn_agent 派发 fresh-context 子代理，显式选择硅基流动 DeepSeek、medium；只要求返回固定标记，禁止工具、文件操作和继续派发。子线程 01a1728a-930c-70a2-883f-14060274516b 的 turn_context 模型正确，但 session_meta.model_provider 仍为 openai。03:10:46 至 03:12:40（America/Los_Angeles）未出现对应硅基流动网关请求，也没有完成回复。桌面尝试读取/重载该子线程时，桥返回 -32001「请等待当前回复、工具操作或审批结束，再切换模型。」本次是运行中的内部子代理，不能通过客户端的空闲会话重载补救其首次路由。已 interrupt 该测试子代理，未修改主会话配置或用户文件。
+
+结论：当前官方直连父代理直接派发网关模型子代理未成功；子代理创建成功不等于推理路由正确。此测试尚未进入网关推理，因此也未进入子代理压缩，不能宣称其压缩可用。应在首次推理前解决子代理 provider 选择，而不是放松忙碌会话重载保护。记录：results/codex-hybrid-subagent-live-2026-10-25.json。
