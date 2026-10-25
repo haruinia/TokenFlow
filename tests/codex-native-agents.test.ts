@@ -48,3 +48,10 @@ it('keeps the desktop organization-settings startup check and recovery on the of
   expect(launch.binary).toBe(f.official);expect(launch.args).toEqual(args);expect(launch.protocol).toBe(false);expect(launch.env.TOKENFLOW_CODEX_AGENT_ROUTES_FILE).toBeUndefined();
  }
 });
+
+it('preserves desktop analytics defaults, explicit config and stdio arguments for the compatible engine',async()=>{
+ const f=await fixture(),nativeAgents=await f.manager.install(f.official);
+ const args=['-c','features.code_mode_host=true','app-server','--analytics-default-enabled','--stdio','-c','analytics.enabled=false'];
+ const launch=await codexBridgeLaunch({binary:f.official,nativeAgents,officialModels:[],gatewayModels:[]},args,f.root,{});
+ expect(launch.binary).toBe(nativeAgents.binary);expect(launch.protocol).toBe(true);expect(launch.args.slice(0,7)).toEqual(['-c','features.code_mode_host=true','--analytics-default-enabled','--stdio','-c','analytics.enabled=false','-c']);expect(launch.args).not.toContain('analytics.enabled=true');
+});

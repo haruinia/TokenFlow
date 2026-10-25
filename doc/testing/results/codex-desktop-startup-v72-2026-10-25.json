@@ -1,0 +1,29 @@
+{
+  "passed": true,
+  "nativeRevision": "8eab60cdfd6c1cb991121e47a2eaad5fd16a573dbe43323574653d0e77e113a4",
+  "checks": [
+    {
+      "name": "desktop-explicit-opt-out",
+      "initialized": true,
+      "explicitAnalyticsSetting": false,
+      "requirementsRead": true,
+      "threadStarted": true
+    },
+    {
+      "name": "desktop-default",
+      "initialized": true,
+      "explicitAnalyticsSetting": null,
+      "requirementsRead": true,
+      "threadStarted": true
+    },
+    {
+      "name": "desktop-stdio",
+      "initialized": true,
+      "explicitAnalyticsSetting": false,
+      "requirementsRead": true,
+      "threadStarted": true
+    }
+  ],
+  "credentialsUsed": false,
+  "inferenceRequests": 0
+}

@@ -1,3 +1,49 @@
+diff --git a/codex-rs/app-server/src/main.rs b/codex-rs/app-server/src/main.rs
+index 9e527de..773a9d6 100644
+--- a/codex-rs/app-server/src/main.rs
++++ b/codex-rs/app-server/src/main.rs
+@@ -48,6 +48,14 @@ struct AppServerArgs {
+     )]
+     listen: AppServerTransport,
+ 
++    /// Match the official CLI's stdio shorthand and transport conflict check.
++    #[arg(long = "stdio", conflicts_with = "listen")]
++    stdio: bool,
++
++    /// Default only: an explicit analytics.enabled setting still takes precedence.
++    #[arg(long = "analytics-default-enabled")]
++    analytics_default_enabled: bool,
++
+     /// Session source used to derive product restrictions and metadata.
+     #[arg(
+         long = "session-source",
+@@ -87,6 +95,8 @@ fn main() -> anyhow::Result<()> {
+             config_overrides,
+             code_mode_host,
+             listen,
++            stdio,
++            analytics_default_enabled,
+             session_source,
+             auth,
+             strict_config,
+@@ -102,7 +112,7 @@ fn main() -> anyhow::Result<()> {
+                 .map(LoaderOverrides::with_managed_config_path_for_tests)
+                 .unwrap_or_default()
+         };
+-        let transport = listen;
++        let transport = if stdio { AppServerTransport::Stdio } else { listen };
+         let auth = auth.try_into_settings()?;
+         let mut runtime_options = AppServerRuntimeOptions {
+             cloud_skills_snapshot,
+@@ -126,7 +136,7 @@ fn main() -> anyhow::Result<()> {
+             config_overrides,
+             loader_overrides,
+             strict_config,
+-            /*default_analytics_enabled*/ false,
++            analytics_default_enabled,
+             transport,
+             session_source,
+             auth,
 diff --git a/codex-rs/core/src/agent/child_config.rs b/codex-rs/core/src/agent/child_config.rs
 index 3d56d7e..da00666 100644
 --- a/codex-rs/core/src/agent/child_config.rs
