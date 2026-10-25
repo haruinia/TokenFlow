@@ -1,0 +1,689 @@
+{
+  "passed": true,
+  "samePid": true,
+  "officialForwardAttempts": 0,
+  "scope": "Patched source-built engine; native AgentControl via tokenflow_agents namespace; real OpenAI and SiliconFlow DeepSeek; synthetic child history",
+  "sourceCommit": "970111f6cb62cc02fe36a82ea7d71b37a2889c97",
+  "toolNamespace": "tokenflow_agents",
+  "childAutoCompactThreshold": 18000,
+  "gatewayModel": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+  "rounds": [
+    {
+      "phase": "official-native-spawn",
+      "pid": 82381,
+      "markersVerified": 1,
+      "gatewayCalls": 1,
+      "durationMs": 14904
+    },
+    {
+      "phase": "native-child-identity",
+      "provider": "token_flow",
+      "parentEdgeVerified": true,
+      "permissionsMatch": true
+    },
+    {
+      "phase": "native-child-second-task",
+      "pid": 82381,
+      "markersVerified": 1,
+      "gatewayCalls": 1,
+      "durationMs": 7938
+    },
+    {
+      "phase": "native-child-long-auto-compact",
+      "pid": 82381,
+      "markersVerified": 2,
+      "gatewayCalls": 3,
+      "durationMs": 19295
+    },
+    {
+      "phase": "native-child-auto-compact-observed",
+      "inputBytes": 172778,
+      "eventKinds": [
+        "contextCompaction",
+        "contextCompaction"
+      ],
+      "durationMs": 19296
+    },
+    {
+      "phase": "official-native-followup-after-child-compact",
+      "pid": 82381,
+      "markersVerified": 2,
+      "gatewayCalls": 1,
+      "durationMs": 8943
+    },
+    {
+      "phase": "native-parent-remains-official",
+      "provider": "openai"
+    },
+    {
+      "phase": "official-native-compact-service-stopped",
+      "durationMs": 21740,
+      "gatewayCalls": 0
+    },
+    {
+      "phase": "official-with-gateway-service-stopped",
+      "pid": 82381,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 2241
+    },
+    {
+      "phase": "native-engine-unchanged",
+      "enginePid": 82381
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-native-spawn",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false,
+      "items": [
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        }
+      ]
+    },
+    {
+      "phase": "native-child-second-task",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false,
+      "items": [
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": true,
+          "longTask": false
+        }
+      ]
+    },
+    {
+      "phase": "native-child-long-auto-compact",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false,
+      "items": [
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": true,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": false,
+          "secondTask": true,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": true
+        }
+      ]
+    },
+    {
+      "phase": "native-child-long-auto-compact",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false,
+      "items": [
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": true,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": false,
+          "secondTask": true,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": true
+        },
+        {
+          "type": "function_call",
+          "contentTypes": "undefined",
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": true
+        },
+        {
+          "type": "function_call_output",
+          "contentTypes": "undefined",
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        }
+      ]
+    },
+    {
+      "phase": "native-child-long-auto-compact",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false,
+      "items": [
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": true
+        }
+      ]
+    },
+    {
+      "phase": "official-native-followup-after-child-compact",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false,
+      "items": [
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": true
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        }
+      ]
+    }
+  ]
+}

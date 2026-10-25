@@ -1,0 +1,260 @@
+{
+  "nativeLifecyclePassed": true,
+  "parentProvider": "token_flow",
+  "requestedReloadProviderMatched": false,
+  "scope": "Real engine, native agent operations, synthetic local provider endpoints",
+  "engineVariant": "patched-source",
+  "firstRequestRoutingEnabled": true,
+  "desiredChildProvider": "openai",
+  "toolNames": [
+    "exec_command",
+    "write_stdin",
+    "request_user_input",
+    "apply_patch",
+    "view_image",
+    "followup_task",
+    "interrupt_agent",
+    "list_agents",
+    "send_message",
+    "spawn_agent",
+    "wait_agent",
+    "get_goal",
+    "create_goal",
+    "update_goal"
+  ],
+  "toolResults": [
+    {
+      "mode": "spawn",
+      "callId": "call_spawn_1",
+      "output": {
+        "task_name": "/root/provider_child"
+      }
+    },
+    {
+      "mode": "followup",
+      "callId": "call_followup_4",
+      "output": ""
+    },
+    {
+      "mode": "status",
+      "callId": "call_status_7",
+      "output": {
+        "agents": [
+          {
+            "agent_name": "/root",
+            "agent_status": "running"
+          },
+          {
+            "agent_name": "/root/provider_child",
+            "agent_status": {
+              "completed": "CHILD_NATIVE_OK"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "mode": "hold",
+      "callId": "call_hold_9",
+      "output": ""
+    },
+    {
+      "mode": "interrupt",
+      "callId": "call_interrupt_12",
+      "output": {
+        "previous_status": "running"
+      }
+    },
+    {
+      "mode": "fail",
+      "callId": "call_fail_14",
+      "output": ""
+    },
+    {
+      "mode": "status",
+      "callId": "call_status_17",
+      "output": {
+        "agents": [
+          {
+            "agent_name": "/root",
+            "agent_status": "running"
+          },
+          {
+            "agent_name": "/root/provider_child",
+            "agent_status": {
+              "errored": "{\"error\":{\"message\":\"Synthetic child failure\",\"type\":\"invalid_request_error\"}}"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "checks": [
+    {
+      "check": "native-spawn-initial-provider",
+      "provider": "openai",
+      "parentRelation": "01a172b7-3445-7303-96b6-ac135995c08c"
+    },
+    {
+      "check": "native-child-unsubscribe",
+      "result": {
+        "status": "unsubscribed"
+      }
+    },
+    {
+      "check": "requested-provider-change",
+      "requested": "token_flow",
+      "actual": "openai",
+      "applied": false
+    },
+    {
+      "check": "reload-same-native-child",
+      "provider": "openai",
+      "sameId": true,
+      "permissionsMatch": true
+    },
+    {
+      "check": "native-followup-uses-actual-child-provider",
+      "provider": "openai",
+      "passed": true
+    },
+    {
+      "check": "native-status",
+      "passed": true
+    },
+    {
+      "check": "native-interrupt-aborts-child-HTTP",
+      "passed": true
+    },
+    {
+      "check": "native-failure-event",
+      "passed": true
+    },
+    {
+      "check": "native-failure-visible-to-parent",
+      "status": {
+        "errored": "{\"error\":{\"message\":\"Synthetic child failure\",\"type\":\"invalid_request_error\"}}"
+      },
+      "passed": true
+    },
+    {
+      "check": "parent-provider-unchanged",
+      "passed": true
+    },
+    {
+      "check": "provider-credential-separation",
+      "passed": true
+    }
+  ],
+  "calls": [
+    {
+      "mode": "spawn",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "spawn",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "spawn",
+      "path": "/parent/v1/responses",
+      "model": "fixture-child",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "followup",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "followup",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "followup",
+      "path": "/parent/v1/responses",
+      "model": "fixture-child",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "status",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "status",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "hold",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "hold",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "hold",
+      "path": "/parent/v1/responses",
+      "model": "fixture-child",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "interrupt",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "interrupt",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "fail",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "fail",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "fail",
+      "path": "/parent/v1/responses",
+      "model": "fixture-child",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "status",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    },
+    {
+      "mode": "status",
+      "path": "/gateway/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "gateway"
+    }
+  ],
+  "toolNamespace": "tokenflow_agents"
+}
