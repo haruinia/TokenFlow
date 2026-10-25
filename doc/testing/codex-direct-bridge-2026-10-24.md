@@ -97,3 +97,17 @@ API 使用隔离 CODEX_HOME、实际已安装 Codex 引擎和不含项目内容�
 用户明确要求测试后，从当前官方主代理通过原生 collaboration.spawn_agent 派发 fresh-context 子代理，显式选择硅基流动 DeepSeek、medium；只要求返回固定标记，禁止工具、文件操作和继续派发。子线程 01a1728a-930c-70a2-883f-14060274516b 的 turn_context 模型正确，但 session_meta.model_provider 仍为 openai。03:10:46 至 03:12:40（America/Los_Angeles）未出现对应硅基流动网关请求，也没有完成回复。桌面尝试读取/重载该子线程时，桥返回 -32001「请等待当前回复、工具操作或审批结束，再切换模型。」本次是运行中的内部子代理，不能通过客户端的空闲会话重载补救其首次路由。已 interrupt 该测试子代理，未修改主会话配置或用户文件。
 
 结论：当前官方直连父代理直接派发网关模型子代理未成功；子代理创建成功不等于推理路由正确。此测试尚未进入网关推理，因此也未进入子代理压缩，不能宣称其压缩可用。应在首次推理前解决子代理 provider 选择，而不是放松忙碌会话重载保护。记录：results/codex-hybrid-subagent-live-2026-10-25.json。
+
+## 2026-10-25：官方直连通过专用工具派发网关工作代理原型
+
+在不改动当前应用、真实 Codex 配置或原生 spawn_agent 的前提下，新增 scripts/codex-direct-delegation-prototype.mts。它在隔离官方父会话注册动态工具 delegate_deepseek，由实际 OpenAI gpt-6-astra 选择调用；工具处理器通过同一个 app-server 创建独立 thread/start(modelProvider=token_flow) 工作会话，初始权限与父会话相同（read-only、never）。这是真实 Codex 网关工作会话，但不是引擎原生父子代理关系，不会自动获得原生 collaboration 管理与 UI。
+
+使用实际硅基流动 deepseek-ai/DeepSeek-V4.1-Flash、当前生产 bridge bundle 和实际安装的 Codex 引擎通过测试。工作会话收到约 450235 字节合成长文本及两个精确标记；首次回复、显式 thread/compact/start、压缩后续聊三次网关推理均成功。子会话压缩 30.906 秒，整个子任务 38.884 秒；官方主代理调用工具并复述结果的总耗时 58.939 秒。工具结果中的两个标记均被主代理正确接收。主会话读取仍为 provider=openai，官方推理转发计数为零。
+
+随后关闭隔离 TokenFlow 服务并确认端口关闭：官方父会话续聊 9.943 秒，原生压缩 13.720 秒，压缩后续聊 10.624 秒，两个标记仍保留且网关请求均为零。桥与引擎 PID 不变，隔离登录文件不变，临时会话/凭据副本在结束时清理。用户正在运行的 TokenFlow 和 Codex 均未关闭。
+
+复现命令：node --import tsx scripts/codex-direct-delegation-prototype.mts --live --proxy http://127.0.0.1:7897 --gateway-model api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash --out doc/testing/results/codex-direct-delegation-prototype-2026-10-25.json。
+
+推荐产品接入方向：给官方会话提供显式网关派发工具，服务在创建工作会话时选定 provider，主代理只接收任务结果；各会话分别由 Codex 调度压缩，DeepSeek 生成可读摘要、官方继续原生压缩。初期传递明确任务/必要摘要，不能将官方 opaque checkpoint 直接交给第三方。需要补齐任务生命周期（状态、取消、超时、失败）、并发限制、权限/工作目录/工具授权继承和恢复、结果长度控制，避免工具替调用方扩大权限。不能把它称为原生 spawn_agent 已修好，也不能据此承诺原生子代理 UI 或所有工具已验证。
+
+测试边界：合成历史、单工作会话、无文件读写/外部工具调用；使用显式压缩而非等待自动阈值。当前为可重复执行的原型，没有注入用户现有会话，没有修改安装版。
