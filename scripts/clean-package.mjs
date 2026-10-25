@@ -1,11 +1,14 @@
 import { rm } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 // Fixed project-local generated directories only; never remove source or profiles.
-export async function cleanPackage() {
-  for (const name of ['release', 'artifacts', '.tmp', 'output']) {
-    await rm(new URL(`../${name}`, import.meta.url), { recursive: true, force: true });
+// artifacts/ also contains live reconciliation journals and retained audit evidence.
+// It is not a disposable packaging output and is excluded from desktop bundles.
+export async function cleanPackage(root = fileURLToPath(new URL('../', import.meta.url))) {
+  for (const name of ['release', '.tmp', 'output']) {
+    await rm(join(root, name), { recursive: true, force: true });
     console.log(`Cleaned ${name}/`);
   }
 }
