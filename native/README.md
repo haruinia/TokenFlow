@@ -17,3 +17,7 @@ The launcher sets `TOKENFLOW_CODEX_AGENT_ROUTES_FILE` only for the compatibility
 Configuration records save the original config before replacement. Launcher/routing changes save exact previous bridge files in `codex-direct-bridge/backups/` first. Identical launches create no extra snapshot. Restoring official routing uses the existing config recovery path and launches the untouched official app. No global launch environment or login file is changed by this integration. A Codex update outside the pinned version requires a validated runtime update, rather than silently running an untested engine against the new client.
 
 Desktop startup has two distinct paths: one-shot `--print-startup-config` stays on the official CLI; the long-lived stdio engine accepts the desktop `--analytics-default-enabled` default (without overriding explicit analytics settings) and `--stdio`. Run both `scripts/codex-startup-config-probe.mts` and `scripts/codex-desktop-startup-probe.mts` when validating a runtime update.
+
+## Desktop scope withdrawn in .73
+
+The patched app-server is now research-only. The desktop does not select or package it. Production cross-provider delegation uses additive dynamic tools and independent gateway sessions on the installed official engine; see `doc/testing/codex-gateway-workers-2026-10-25.md`. Do not restore global backend substitution to enable gateway children.

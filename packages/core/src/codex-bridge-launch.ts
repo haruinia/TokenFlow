@@ -2,7 +2,7 @@ import {join} from 'node:path';
 import type {CodexBridgeRouting} from './codex-provider-bridge.js';
 import {verifyNativeAgentRuntime,type NativeAgentRuntime} from './codex-native-agents.js';
 
-export type CodexBridgeSettings=CodexBridgeRouting&{binary:string;nativeAgents?:NativeAgentRuntime};
+export type CodexBridgeSettings=CodexBridgeRouting&{binary:string;nativeAgents?:NativeAgentRuntime;gatewayWorkers?:boolean};
 export async function codexBridgeLaunch(settings:CodexBridgeSettings,args:string[],directory:string,environment:NodeJS.ProcessEnv=process.env){
  const index=args.indexOf('app-server');
  // Desktop policy discovery is a one-shot CLI command, not an app-server stream.

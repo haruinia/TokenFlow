@@ -1,0 +1,71 @@
+{
+  "passed": true,
+  "samePid": true,
+  "officialForwardAttempts": 0,
+  "scope": "Production extension creates independent gateway worker on installed official engine; native tools and official inference unchanged",
+  "gatewayModel": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+  "rounds": [
+    {
+      "phase": "official-dispatches-gateway",
+      "pid": 8672,
+      "markersVerified": 1,
+      "gatewayCalls": 1,
+      "durationMs": 18927
+    },
+    {
+      "phase": "official-follows-up-gateway",
+      "pid": 8672,
+      "markersVerified": 2,
+      "gatewayCalls": 1,
+      "durationMs": 11660
+    },
+    {
+      "phase": "independent-worker-verified",
+      "provider": "token_flow",
+      "permissionsMatch": true,
+      "nativeParentEdge": false
+    },
+    {
+      "phase": "parent-still-official",
+      "provider": "openai"
+    },
+    {
+      "phase": "official-after-worker-service-stopped",
+      "pid": 8672,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 4581
+    },
+    {
+      "phase": "official-native-compact-after-worker",
+      "pid": 8672,
+      "gatewayCalls": 0,
+      "durationMs": 14577
+    },
+    {
+      "phase": "official-after-native-compaction",
+      "pid": 8672,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 246370
+    },
+    {
+      "phase": "engine-unchanged",
+      "bridgePid": 8672,
+      "enginePid": 8673,
+      "long": false
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-dispatches-gateway",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false
+    },
+    {
+      "phase": "official-follows-up-gateway",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false
+    }
+  ]
+}

@@ -55,3 +55,16 @@ it('preserves desktop analytics defaults, explicit config and stdio arguments fo
  const launch=await codexBridgeLaunch({binary:f.official,nativeAgents,officialModels:[],gatewayModels:[]},args,f.root,{});
  expect(launch.binary).toBe(nativeAgents.binary);expect(launch.protocol).toBe(true);expect(launch.args.slice(0,7)).toEqual(['-c','features.code_mode_host=true','--analytics-default-enabled','--stdio','-c','analytics.enabled=false','-c']);expect(launch.args).not.toContain('analytics.enabled=true');
 });
+
+it('withdraws a previously installed native engine while preserving routes and backing up its settings',async()=>{
+ const f=await fixture(),runtime=join(f.root,'bridge-source.mjs');await writeFile(runtime,'// bridge\n');
+ const experimental=new CodexBridgeInstallation(f.root,runtime,f.assets);
+ const preflight={app:'/fixture/Codex.app',binary:f.official,node:'/fixture/node'};
+ vi.spyOn(experimental,'preflight').mockResolvedValue(preflight);
+ const routing={officialModels:['official'],gatewayModels:['gateway']};await experimental.install(routing);
+ const settingsPath=join(experimental.directory,'settings.json'),before=await readFile(settingsPath,'utf8');expect(JSON.parse(before).nativeAgents).toBeDefined();
+ const standard=new CodexBridgeInstallation(f.root,runtime);vi.spyOn(standard,'preflight').mockResolvedValue(preflight);await standard.install(routing);
+ const after=JSON.parse(await readFile(settingsPath,'utf8'));expect(after.nativeAgents).toBeUndefined();expect(after.officialModels).toEqual(routing.officialModels);expect(after.gatewayModels).toEqual(routing.gatewayModels);
+ const backups=await Promise.all((await readdir(join(standard.directory,'backups'))).map(async n=>JSON.parse(await readFile(join(standard.directory,'backups',n),'utf8'))));expect(backups.some(b=>b.before['settings.json']===before)).toBe(true);
+ const args=['app-server','--analytics-default-enabled'];const launch=await codexBridgeLaunch(after,args,standard.directory,{});expect(launch.binary).toBe(f.official);expect(launch.args).toEqual(args);expect(launch.env.TOKENFLOW_CODEX_AGENT_ROUTES_FILE).toBeUndefined();
+});

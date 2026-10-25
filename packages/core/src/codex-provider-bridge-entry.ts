@@ -15,8 +15,8 @@ const child=spawn(launch.binary,launch.args,{env:launch.env,stdio:protocol?['pip
 let bridge:CodexProviderBridge|undefined;
 if(protocol){
  const send=(stream:NodeJS.WritableStream,message:unknown)=>stream.write(JSON.stringify(message)+'\n');
- const report=(event:{stage:string;provider?:string})=>{try{const path=join(directory,`status-${process.pid}.json`);writeFileSync(path+'.tmp',JSON.stringify({...event,pid:process.pid,enginePid:child.pid,nativeAgentsRevision:launch.nativeAgentsRevision,updatedAt:new Date().toISOString()}),{mode:0o600});renameSync(path+'.tmp',path);}catch{}};
- bridge=new CodexProviderBridge(settings,m=>send(child.stdin!,m),m=>send(process.stdout,m),report);
+ const report=(event:{stage:string;provider?:string})=>{try{const path=join(directory,`status-${process.pid}.json`);writeFileSync(path+'.tmp',JSON.stringify({...event,pid:process.pid,enginePid:child.pid,nativeAgentsRevision:launch.nativeAgentsRevision,gatewayWorkers:initial.gatewayWorkers===true&&!launch.nativeAgentsRevision,updatedAt:new Date().toISOString()}),{mode:0o600});renameSync(path+'.tmp',path);}catch{}};
+ bridge=new CodexProviderBridge(settings,m=>send(child.stdin!,m),m=>send(process.stdout,m),report,initial.gatewayWorkers===true&&!launch.nativeAgentsRevision);
  const lines=(stream:NodeJS.ReadableStream,receive:(message:any)=>void)=>{let buffer='';stream.on('data',chunk=>{buffer+=String(chunk);if(buffer.length>128*1024*1024){child.kill();return;}let end;while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);if(!line.trim())continue;try{receive(JSON.parse(line));}catch{process.stderr.write('TokenFlow bridge: invalid protocol message\n');child.kill();}}});};
  child.stdout!.setEncoding('utf8');process.stdin.setEncoding('utf8');
  lines(child.stdout!,m=>bridge!.receiveEngine(m));lines(process.stdin,m=>bridge!.receiveClient(m));

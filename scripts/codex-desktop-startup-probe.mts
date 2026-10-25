@@ -11,9 +11,9 @@ const assets=resolve('sidecars/darwin-arm64/codex-native-agents');
 const bridge=process.argv.includes('--bridge')?resolve(process.argv[process.argv.indexOf('--bridge')+1]):resolve('dist/codex-provider-bridge.js');
 const checks:any[]=[];
 try{
- const runtime=await new CodexNativeAgents(assets,root).install(official);
+ const runtime=process.argv.includes('--official')?undefined:await new CodexNativeAgents(assets,root).install(official);
  await copyFile(bridge,join(root,'bridge.mjs'));
- await writeFile(join(root,'settings.json'),JSON.stringify({binary:official,nativeAgents:runtime,officialModels:['gpt-6-astra'],gatewayModels:[]}));
+ await writeFile(join(root,'settings.json'),JSON.stringify({binary:official,nativeAgents:runtime,gatewayWorkers:!runtime,officialModels:['gpt-6-astra'],gatewayModels:[]}));
  for(const [name,analyticsConfig,expected,transport] of [['desktop-explicit-opt-out','[analytics]\nenabled=false\n',false,[]],['desktop-default','',undefined,[]],['desktop-stdio','[analytics]\nenabled=false\n',false,['--stdio']]] as const){
   const home=join(root,name);await mkdir(home);await writeFile(join(home,'config.toml'),'cli_auth_credentials_store="file"\n'+analyticsConfig);
   const args=['-c','features.code_mode_host=true','app-server','--analytics-default-enabled',...transport];
@@ -25,12 +25,12 @@ try{
   const rpc=(method:string,params:any)=>new Promise<any>((res,rej)=>{const id=++seq,t=setTimeout(()=>{pending.delete(id);rej(Error('Timeout '+method+': '+stderr))},20000);pending.set(id,{resolve:(v:any)=>{clearTimeout(t);res(v)},reject:(e:any)=>{clearTimeout(t);rej(e)}});proc.stdin.write(JSON.stringify({id,method,params})+'\n')});
   try{
    await rpc('initialize',{clientInfo:{name:'codex_desktop',title:'Codex Desktop',version:'startup-regression'},capabilities:{experimentalApi:true}});proc.stdin.write('{"method":"initialized"}\n');
-   const status=JSON.parse(await readFile(join(root,'status-'+proc.pid+'.json'),'utf8'));assert.equal(status.nativeAgentsRevision,runtime.revision);assert.notEqual(status.enginePid,proc.pid);
+   const status=JSON.parse(await readFile(join(root,'status-'+proc.pid+'.json'),'utf8'));assert.equal(status.nativeAgentsRevision,runtime?.revision);assert.notEqual(status.enginePid,proc.pid);
    const read=await rpc('config/read',{includeLayers:false});assert.equal(read.config.analytics?.enabled,expected,'Analytics default must not override explicit opt-out');
    const requirements=await rpc('configRequirements/read',{});assert.ok('requirements' in requirements);
    const thread=await rpc('thread/start',{cwd:home,model:'gpt-6-astra',modelProvider:'openai',approvalPolicy:'never',sandbox:'read-only'});assert.ok(thread.thread.id);
    checks.push({name,initialized:true,explicitAnalyticsSetting:read.config.analytics?.enabled??null,requirementsRead:true,threadStarted:true});
   }finally{if(proc.exitCode===null&&proc.signalCode===null){proc.kill();await new Promise<void>(r=>proc.once('exit',()=>r()))}}
  }
- console.log(JSON.stringify({passed:true,nativeRevision:runtime.revision,checks,credentialsUsed:false,inferenceRequests:0}));
+ console.log(JSON.stringify({passed:true,nativeRevision:runtime?.revision,officialEngine:!runtime,checks,credentialsUsed:false,inferenceRequests:0}));
 }finally{await rm(root,{recursive:true,force:true})}

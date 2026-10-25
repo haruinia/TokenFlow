@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
+import {CodexGatewayWorkers} from './codex-gateway-workers.js';
 
 type Message={id?:string|number;method?:string;params?:any;result?:any;error?:any};
 type ThreadState={provider:string;model:string;resume:any;settings:any;busy:boolean;gatewayDirty:boolean;persistent:boolean;sandbox:any};
@@ -13,7 +14,9 @@ export class CodexProviderBridge {
  private requests=new Map<string|number,Message>();private threads=new Map<string,ThreadState>();
  private queues=new Map<string,Promise<void>>();private compactions=new Map<string,{resolve:()=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>}>();
  private serverRequests=new Map<string|number,string>();
- constructor(private routing:()=>CodexBridgeRouting,private toEngine:(message:Message)=>void,private toClient:(message:Message)=>void,private report:(event:{stage:string;provider?:string})=>void=()=>{}){}
+ private workers?:CodexGatewayWorkers;
+ private workerToolRequests=new Map<string|number,Message>();
+ constructor(private routing:()=>CodexBridgeRouting,private toEngine:(message:Message)=>void,private toClient:(message:Message)=>void,private report:(event:{stage:string;provider?:string})=>void=()=>{},gatewayWorkers=false){if(gatewayWorkers)this.workers=new CodexGatewayWorkers((m,p)=>this.rpc(m,p),id=>this.threads.get(id),()=>this.routing().gatewayModels);}
  private route(model:unknown){if(typeof model!=='string')return undefined;const r=this.routing();return r.gatewayModels.includes(model)?'token_flow':r.officialModels.includes(model)?'openai':undefined;}
  private rpc(method:string,params:any){return new Promise<any>((resolve,reject)=>{const id=this.prefix+(++this.serial),timer=setTimeout(()=>{this.internal.delete(id);reject(error('会话切换超时，请重试；原对话保留。'));},60000);this.internal.set(id,{resolve,reject,timer});this.toEngine({id,method,params});});}
  private remember(result:any,params:any={}){
@@ -28,6 +31,7 @@ export class CodexProviderBridge {
  }
  private forward(message:Message){if(message.id!==undefined&&message.method)this.requests.set(message.id,message);if(message.method==='turn/start'){const state=this.threads.get(message.params?.threadId);if(state)state.busy=true;}this.toEngine(message);}
  receiveClient(message:Message){
+  if(message.method==='turn/interrupt')void this.workers?.cancelParent(message.params?.threadId);
   if(message.id!==undefined&&!message.method)this.serverRequests.delete(message.id);
   const params=message.params??{},id=params.threadId;
   const changes=['turn/start','thread/settings/update','thread/resume'].includes(message.method??'');
@@ -45,22 +49,37 @@ export class CodexProviderBridge {
   }
   if(message.method==='thread/start'||message.method==='thread/fork'){
    const route=this.route(params.model);if(route)message={...message,params:{...params,modelProvider:route}};
+   if(message.method==='thread/start'&&this.workers&&this.routing().gatewayModels.length&&(route==='openai'||(!params.model&&(!params.modelProvider||params.modelProvider==='openai')))){
+    const augmented=this.workers.augment(message.params??{});
+    if(augmented!==message.params&&message.id!==undefined){this.workerToolRequests.set(message.id,message);message={...message,params:augmented};}
+   }
   }
   this.forward(message);
  }
  receiveEngine(message:Message){
   const params=message.params??{},id=params.threadId??params.thread?.id;
+  this.workers?.receive(message);
+  if(this.workers?.owns(message)&&message.id!==undefined){
+   this.serverRequests.set(message.id,id);
+   void this.workers.handle(id,params.tool,params.arguments).then(result=>this.toEngine({id:message.id,result:{success:true,contentItems:[{type:'inputText',text:JSON.stringify(result)}]}}),()=>this.toEngine({id:message.id,result:{success:false,contentItems:[{type:'inputText',text:'网关任务操作未完成：请确认主会话为官方 provider、模型已配置、任务属于本对话且参数有效。'}]}})).finally(()=>this.serverRequests.delete(message.id!));return;
+  }
   if(message.method==='thread/closed')this.threads.delete(id);
   if(message.method&&message.id!==undefined&&typeof id==='string')this.serverRequests.set(message.id,id);
   if(message.method==='turn/started'&&this.threads.has(id))this.threads.get(id)!.busy=true;
   if(message.method==='turn/completed'){
+   if(params.turn?.status!=='completed')void this.workers?.cancelParent(id);
    const state=this.threads.get(id);if(state){state.busy=false;if(state.provider==='token_flow')state.gatewayDirty=true;}
    const waiting=this.compactions.get(id);if(waiting){clearTimeout(waiting.timer);this.compactions.delete(id);params.turn?.status==='completed'?waiting.resolve():waiting.reject(error('网关摘要未完成，尚未切到官方直连。'));}
   }
   if(message.method==='thread/settings/updated'){
+   void this.workers?.cancelParent(id);
    const s=this.threads.get(id),v=params.threadSettings;if(s&&v){s.provider=v.modelProvider;s.model=v.model;s.sandbox=v.sandboxPolicy;s.settings={...s.settings,...v};for(const k of ['cwd','approvalPolicy','approvalsReviewer','serviceTier'])if(v[k]!==undefined)s.resume[k]=v[k];if(v.activePermissionProfile?.id){s.resume.permissions=v.activePermissionProfile.id;delete s.resume.sandbox;}}
   }
   if(message.id!==undefined&&!message.method){
+   const withoutWorkerTools=this.workerToolRequests.get(message.id);this.workerToolRequests.delete(message.id);
+   // An older official engine may not support the optional extension schema.
+   // Fall back to its untouched thread creation; never substitute an engine.
+   if(withoutWorkerTools&&[-32600,-32602].includes(message.error?.code)&&/dynamic.?tools|experimental|namespace/i.test(message.error?.message??'')){this.forward(withoutWorkerTools);return;}
    const internal=typeof message.id==='string'?this.internal.get(message.id):undefined;
    if(internal){clearTimeout(internal.timer);this.internal.delete(message.id as string);if(message.error)internal.reject(error('Codex 拒绝了会话重载，原对话保留。'));else internal.resolve(message.result);return;}
    const request=this.requests.get(message.id);this.requests.delete(message.id);
@@ -112,5 +131,5 @@ export class CodexProviderBridge {
    this.report({stage:'failed',provider});throw e;
   }
  }
- close(){for(const p of this.internal.values()){clearTimeout(p.timer);p.reject(error('Codex 会话连接已关闭。'));}this.internal.clear();for(const p of this.compactions.values()){clearTimeout(p.timer);p.reject(error('Codex 会话连接已关闭。'));}this.compactions.clear();}
+ close(){this.workers?.close();for(const p of this.internal.values()){clearTimeout(p.timer);p.reject(error('Codex 会话连接已关闭。'));}this.internal.clear();for(const p of this.compactions.values()){clearTimeout(p.timer);p.reject(error('Codex 会话连接已关闭。'));}this.compactions.clear();}
 }

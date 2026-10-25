@@ -9,7 +9,7 @@ const descriptions:Record<Mode,string>={
  unreadable:'暂时无法判断连接方式，请先检查配置。'
 };
 
-export function CodexRoutingMode({mode='unreadable',busy,canRestore,canGateway,dirty,onOfficial,onGateway,onHybrid,hybrid=false,configurationMatches=false,bridge}:{mode?:Mode;busy:boolean;canRestore:boolean;canGateway:boolean;dirty:boolean;onOfficial:()=>void;onGateway:()=>void;onHybrid?:()=>void;hybrid?:boolean;configurationMatches?:boolean;bridge?:{supported:boolean;connected:boolean;nativeAgentsSupported?:boolean;nativeAgentsConnected?:boolean;stage?:string}}){
+export function CodexRoutingMode({mode='unreadable',busy,canRestore,canGateway,dirty,onOfficial,onGateway,onHybrid,hybrid=false,configurationMatches=false,bridge}:{mode?:Mode;busy:boolean;canRestore:boolean;canGateway:boolean;dirty:boolean;onOfficial:()=>void;onGateway:()=>void;onHybrid?:()=>void;hybrid?:boolean;configurationMatches?:boolean;bridge?:{supported:boolean;connected:boolean;nativeAgentsSupported?:boolean;nativeAgentsConnected?:boolean;compatibilityEngineActive?:boolean;gatewayWorkersSupported?:boolean;gatewayWorkersConnected?:boolean;stage?:string}}){
  const hybridSaved=hybrid&&configurationMatches&&!dirty;
  return <section className="tfCodexRouting" aria-label="Codex 连接方式">
   <div className="tfCodexRoutingHead"><strong>连接方式</strong><span>已保存配置：{hybrid?'官方直连＋网关（实验）':labels[mode]}</span><div className="tfRow">
@@ -19,6 +19,7 @@ export function CodexRoutingMode({mode='unreadable',busy,canRestore,canGateway,d
   </div></div>
   <p className="tfHint">{hybrid?'官方模型及压缩直连 OpenAI；网关模型通过 TokenFlow。官方登录保留。':descriptions[mode]}</p>
   {hybrid?<p className="tfHint" role="status">{bridge?.connected?(bridge.stage==='summarizing'?'正在生成网关摘要，请稍候…':bridge.stage==='reloading'?'正在重载当前会话…':bridge.stage==='failed'?'上次会话切换未完成，请在 Codex 查看提示后重试。':'会话桥已连接。可在 Codex 模型菜单切换；等待当前回复和工具结束。'):'会话桥未连接。请从本页「重启」入口启动 Codex；普通图标启动不保证加载。'} 返回官方前可能需要网关生成摘要，完成后可退出 TokenFlow。</p>:<p className="tfHint">切换前请结束正在进行的任务。应用连接方式会备份并转换所需上下文，重新打开 Codex 后继续原对话；已打开的会话不会热切换。</p>}
-  {hybrid&&bridge?.nativeAgentsSupported&&<p className="tfHint" role="status">{bridge.nativeAgentsConnected?'子代理双入口已加载：官方派发保持原方式，网关派发复用原生任务管理。':'子代理双入口将在从本页重启 Codex 后加载。'} 配置修改前自动备份；官方程序不替换，启动时使用独立兼容引擎。</p>}
+  {hybrid&&bridge?.compatibilityEngineActive&&<p className="tfHint" role="status">当前 Codex 仍在使用旧兼容后台。从本页重启后将恢复官方后台；配置修改前自动备份。</p>}
+  {hybrid&&bridge?.gatewayWorkersSupported&&<p className="tfHint" role="status">{bridge.gatewayWorkersConnected?'网关任务入口已连接。新建官方对话可派发独立网关工作会话；状态、等待和取消使用专用工具。':'从本页重启 Codex 后，新建官方对话可使用网关任务入口。'} 官方子代理及网关内的原生派发保持原方式。旧对话不补写工具，独立任务不显示为原生子代理。</p>}
  </section>;
 }

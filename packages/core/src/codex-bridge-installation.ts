@@ -33,7 +33,7 @@ export class CodexBridgeInstallation {
   const installation=await this.preflight();
   await mkdir(this.directory,{recursive:true,mode:0o700});
   const nativeAgents=this.nativeAssets?await new CodexNativeAgents(this.nativeAssets,this.directory).install(installation.binary):undefined;
-  return {...installation,...(nativeAgents?{nativeAgents}:{})};
+  return {...installation,...(nativeAgents?{nativeAgents}:{gatewayWorkers:true})};
  }
  private async backup(){
   const before:Record<string,string|null>={};for(const name of ['bridge.mjs','settings.json','codex']){try{before[name]=await readFile(join(this.directory,name),'utf8');}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;before[name]=null;}}
@@ -58,24 +58,26 @@ export class CodexBridgeInstallation {
   const installation=await this.preflight();await access(join(this.directory,'codex'),constants.X_OK);
   // Reapplying the current bridge is idempotent and backs up any changed launcher.
   const routing=JSON.parse(await readFile(join(this.directory,'settings.json'),'utf8')) as CodexBridgeRouting;
-  if(this.nativeAssets)await this.install({officialModels:routing.officialModels,gatewayModels:routing.gatewayModels});
+  // Also reinstall when withdrawing the experimental engine: old settings must
+  // not keep selecting it after the desktop stops providing native assets.
+  await this.install({officialModels:routing.officialModels,gatewayModels:routing.gatewayModels});
   await exec('/usr/bin/open',['--env',`CODEX_CLI_PATH=${join(this.directory,'codex')}`,'--env',`CODEX_APP_RUNTIME_CLI_PATH=${installation.binary}`,installation.app],{timeout:10000});
   // open's success only confirms launch dispatch. Require a live protocol bridge.
-  for(let i=0;i<80;i++){const state=await this.status();if(state.connected&&(!this.nativeAssets||state.nativeAgentsConnected))return;await new Promise(r=>setTimeout(r,250));}
+  for(let i=0;i<80;i++){const state=await this.status();if(state.connected&&!state.launchRequired)return;await new Promise(r=>setTimeout(r,250));}
   throw fail('配置已保存，但会话桥接尚未连接。请从 TokenFlow 的「重启」入口再次启动 Codex。');
  }
  async status(){
-  const files=await readdir(this.directory).catch(()=>[]);let connected=false,nativeAgentsConnected=false,stage:string|undefined;
+  const files=await readdir(this.directory).catch(()=>[]);let connected=false,nativeAgentsConnected=false,compatibilityEngineActive=false,gatewayWorkersConnected=false,stage:string|undefined;
   const settings=await readFile(join(this.directory,'settings.json'),'utf8').then(text=>JSON.parse(text)).catch(()=>undefined);
   const desiredRevision=this.nativeAssets?await readFile(join(this.nativeAssets,'manifest.json'),'utf8').then(text=>JSON.parse(text).revision).catch(()=>undefined):undefined;
   for(const name of files.filter(n=>/^status-\d+\.json$/.test(n))){
    try{const state=JSON.parse(await readFile(join(this.directory,name),'utf8'));if(!Number.isSafeInteger(state.pid)||!Number.isSafeInteger(state.enginePid))continue;
     const {stdout}=await exec('/bin/ps',['-p',String(state.pid),'-o','args='],{timeout:2000});
     if(!stdout.includes(join(this.directory,'bridge.mjs')))continue;
-    process.kill(state.enginePid,0);connected=true;stage=state.stage;
+    process.kill(state.enginePid,0);connected=true;stage=state.stage;compatibilityEngineActive ||= !!state.nativeAgentsRevision;gatewayWorkersConnected ||= state.gatewayWorkers===true&&!state.nativeAgentsRevision;
     if(settings?.nativeAgents?.revision&&state.nativeAgentsRevision===settings.nativeAgents.revision&&(!this.nativeAssets||state.nativeAgentsRevision===desiredRevision))nativeAgentsConnected=true;
    }catch{/* Stale process records are not a connected client. */}
   }
-  return {supported:process.platform==='darwin'&&!!this.runtime,connected,...(stage?{stage}:{}),launchRequired:!connected||!!this.nativeAssets&&!nativeAgentsConnected,nativeAgentsSupported:!!this.nativeAssets,nativeAgentsConnected};
+  return {supported:process.platform==='darwin'&&!!this.runtime,connected,...(stage?{stage}:{}),launchRequired:!connected||(this.nativeAssets?!nativeAgentsConnected:compatibilityEngineActive||!gatewayWorkersConnected),compatibilityEngineActive,gatewayWorkersSupported:!this.nativeAssets&&!!this.runtime,gatewayWorkersConnected,nativeAgentsSupported:!!this.nativeAssets,nativeAgentsConnected};
  }
 }

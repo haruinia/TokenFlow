@@ -13,9 +13,9 @@ it('does not claim hybrid routing is active from configuration alone',()=>{
  const markup=renderToStaticMarkup(createElement(CodexRoutingMode,{mode:'official',hybrid:true,bridge:{supported:true,connected:false},busy:false,canRestore:true,canGateway:true,dirty:false,onOfficial:()=>{},onGateway:()=>{},onHybrid:()=>{}}));
  expect(markup).toContain('官方直连＋网关（实验）');expect(markup).toContain('会话桥未连接');expect(markup).toContain('普通图标启动不保证加载');expect(markup).not.toContain('会话桥已连接');
 });
-it('distinguishes configured native agent support from the actually loaded engine',()=>{
+it('discloses the old runtime until restarted and labels independent gateway tasks accurately',()=>{
  const props={mode:'official' as const,hybrid:true,busy:false,canRestore:true,canGateway:true,dirty:false,onOfficial:()=>{},onGateway:()=>{}};
- const waiting=renderToStaticMarkup(createElement(CodexRoutingMode,{...props,bridge:{supported:true,connected:true,nativeAgentsSupported:true,nativeAgentsConnected:false}}));
- expect(waiting).toContain('子代理双入口将在从本页重启 Codex 后加载');expect(waiting).not.toContain('子代理双入口已加载');expect(waiting).toContain('配置修改前自动备份');
- const active=renderToStaticMarkup(createElement(CodexRoutingMode,{...props,bridge:{supported:true,connected:true,nativeAgentsSupported:true,nativeAgentsConnected:true}}));expect(active).toContain('子代理双入口已加载');
+ const waiting=renderToStaticMarkup(createElement(CodexRoutingMode,{...props,bridge:{supported:true,connected:true,compatibilityEngineActive:true,gatewayWorkersSupported:true}}));
+ expect(waiting).toContain('仍在使用旧兼容后台');expect(waiting).toContain('配置修改前自动备份');expect(waiting).not.toContain('网关任务入口已连接');
+ const active=renderToStaticMarkup(createElement(CodexRoutingMode,{...props,bridge:{supported:true,connected:true,gatewayWorkersSupported:true,gatewayWorkersConnected:true}}));expect(active).toContain('网关任务入口已连接');expect(active).toContain('旧对话不补写工具');expect(active).not.toContain('复用原生任务管理');
 });
