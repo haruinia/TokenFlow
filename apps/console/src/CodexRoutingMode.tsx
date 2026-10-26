@@ -1,19 +1,20 @@
 import type {CodexRoutingMode as Mode} from '../../../packages/core/src/codex-routing-mode';
 
-const labels:Record<Mode,string>={official:'官方直连',gateway:'网关模型',coexist:'聚合共存（旧模式）',external:'自定义接入',unreadable:'配置无法确认'};
+const labels:Record<Mode,string>={official:'官方直连',gateway:'网关模型',coexist:'官方账号＋网关模型（统一网关）',external:'自定义接入',unreadable:'配置无法确认'};
 const descriptions:Record<Mode,string>={
  official:'Codex → OpenAI。使用官方原生压缩；退出 TokenFlow 不影响官方对话，用量从本机记录统计。',
  gateway:'Codex → TokenFlow → 网关模型。官方登录保留；Codex 请求当前模型生成摘要，使用时需保持 TokenFlow 运行。',
- coexist:'官方和网关请求都经过 TokenFlow。可切回官方直连，或切为仅使用网关模型。',
+ coexist:'官方和网关请求都经过 TokenFlow。官方登录和原生压缩保留，第三方模型使用摘要兼容；子代理使用原生派发。使用时请保持 TokenFlow 运行。',
  external:'当前配置使用自定义来源，不能据此认定为官方直连。',
  unreadable:'暂时无法判断连接方式，请先检查配置。'
 };
 
-export function CodexRoutingMode({mode='unreadable',busy,canRestore,canGateway,dirty,onOfficial,onGateway,onHybrid,hybrid=false,configurationMatches=false,bridge}:{mode?:Mode;busy:boolean;canRestore:boolean;canGateway:boolean;dirty:boolean;onOfficial:()=>void;onGateway:()=>void;onHybrid?:()=>void;hybrid?:boolean;configurationMatches?:boolean;bridge?:{supported:boolean;connected:boolean;nativeAgentsSupported?:boolean;nativeAgentsConnected?:boolean;compatibilityEngineActive?:boolean;gatewayWorkersSupported?:boolean;gatewayWorkersConnected?:boolean;stage?:string}}){
+export function CodexRoutingMode({mode='unreadable',busy,canRestore,canGateway,dirty,onOfficial,onGateway,onCoexist,onHybrid,hybrid=false,configurationMatches=false,bridge}:{mode?:Mode;busy:boolean;canRestore:boolean;canGateway:boolean;dirty:boolean;onOfficial:()=>void;onGateway:()=>void;onCoexist?:()=>void;onHybrid?:()=>void;hybrid?:boolean;configurationMatches?:boolean;bridge?:{supported:boolean;connected:boolean;nativeAgentsSupported?:boolean;nativeAgentsConnected?:boolean;compatibilityEngineActive?:boolean;gatewayWorkersSupported?:boolean;gatewayWorkersConnected?:boolean;stage?:string}}){
  const hybridSaved=hybrid&&configurationMatches&&!dirty;
  return <section className="tfCodexRouting" aria-label="Codex 连接方式">
   <div className="tfCodexRoutingHead"><strong>连接方式</strong><span>已保存配置：{hybrid?'官方直连＋网关（实验）':labels[mode]}</span><div className="tfRow">
-   <button type="button" disabled={busy||!canGateway||!bridge?.supported||hybridSaved} onClick={onHybrid}>{hybridSaved?'官方账号＋网关模型已配置':hybrid&&dirty?'应用混合模式的模型更改…':'官方账号＋网关模型…'}</button>
+   <button type="button" disabled={busy||!canGateway||!onCoexist||mode==='coexist'&&configurationMatches&&!dirty} onClick={onCoexist}>{mode==='coexist'&&!dirty?'统一网关已配置':'官方账号＋网关模型…'}</button>
+   <button type="button" disabled={busy||!canGateway||!bridge?.supported||hybridSaved} onClick={onHybrid}>{hybridSaved?'官方直连＋网关已配置':hybrid&&dirty?'应用直连混合更改…':'官方直连＋网关（实验）…'}</button>
    <button type="button" disabled={busy||!canRestore} onClick={onOfficial}>{mode==='official'&&!hybrid?'官方直连已配置':'使用官方直连…'}</button>
    <button type="button" disabled={busy||!canGateway||mode==='gateway'&&!dirty} onClick={onGateway}>{mode==='gateway'&&!dirty?'网关模型已配置':dirty?'应用网关模型…':'使用网关模型…'}</button>
   </div></div>

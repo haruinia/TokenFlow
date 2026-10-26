@@ -68,3 +68,13 @@ it('routes official and gateway models independently, rejects unknown IDs, and s
  expect((await service.app.inject({method:'POST',url:'/codex/v1/responses',headers:{...headers,'x-tokenflow-client-key':'bad'},payload:{model:'official-test',input:'x'}})).statusCode).toBe(401);
  await service.app.close();service=await createDesktopService(options);expect((await ask('official-test')).statusCode).toBe(200);expect(officialCalls).toHaveLength(7);
 });
+it('keeps official model metadata intact and ranks clearly labelled gateway entries after it',()=>{
+ const native={models:[{...official.models[0],slug:'official-a',priority:20},{...official.models[0],slug:'official-b',priority:2}]};
+ const gateway={models:[{slug:'api-a/model',display_name:'Source · Model',priority:0},{slug:'api-b/model',display_name:'TokenFlow · Other',priority:1}]};
+ const before=structuredClone({native,gateway}),merged=mergeCodexCatalog(gateway,native);
+ expect(merged.models.slice(0,2)).toEqual(native.models);
+ expect(merged.models.slice(2)).toEqual([{...gateway.models[0],display_name:'TokenFlow · Source · Model',priority:21},{...gateway.models[1],display_name:'TokenFlow · Other',priority:22}]);
+ expect([...merged.models].sort((a,b)=>(a.priority as number)-(b.priority as number)).map(m=>m.slug)).toEqual(['official-b','official-a','api-a/model','api-b/model']);
+ expect({native,gateway}).toEqual(before);
+
+});

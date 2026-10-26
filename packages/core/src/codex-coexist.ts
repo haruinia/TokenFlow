@@ -37,9 +37,14 @@ export async function loadOfficialCodexCatalogForAuth(configPath:string,authoriz
   throw unavailable(`${reason}。本次未改动配置，原有模式仍保留，请稍后重试。`);
  }
 }
-export function mergeCodexCatalog<T extends {models:Array<{slug:string}>}>(gateway:T,official:OfficialCodexCatalog){
+export function mergeCodexCatalog<T extends {models:Array<{slug:string;display_name?:string;priority?:number}>}>(gateway:T,official:OfficialCodexCatalog){
  const ids=new Set(official.models.map(m=>m.slug));if(gateway.models.some(m=>ids.has(m.slug)))throw unavailable('网关模型 ID 与官方模型重复，请为网关模型使用带来源的 ID。');
- return {...gateway,tokenflow_gateway_models:gateway.models.map(m=>m.slug),models:[...structuredClone(official.models),...gateway.models]};
+ // Native Codex sorts by priority, so appending alone interleaves both catalogs.
+ // Preserve every official field; only label and rank the gateway additions.
+ const lastOfficial=Math.max(0,...official.models.map(m=>typeof m.priority==='number'&&Number.isInteger(m.priority)?m.priority:0));
+ if(lastOfficial+gateway.models.length>2147483647)throw unavailable('官方模型排序超出兼容范围，未改动配置。');
+ const additions=gateway.models.map((m,i)=>({...m,display_name:'TokenFlow · '+(m.display_name??m.slug).replace(/^TokenFlow · /,''),priority:lastOfficial+1+i}));
+ return {...gateway,tokenflow_gateway_models:gateway.models.map(m=>m.slug),models:[...structuredClone(official.models),...additions]};
 }
 
 /** ChatGPT authorization is passed only to the fixed official host. Never reuse it for a gateway model. */

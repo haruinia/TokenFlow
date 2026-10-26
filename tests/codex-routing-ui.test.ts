@@ -6,7 +6,7 @@ const render=(mode:'official'|'gateway'|'coexist'|'external')=>renderToStaticMar
 it('distinguishes saved routing from login and running sessions',()=>{
  const direct=render('official');expect(direct).toContain('Codex → OpenAI');expect(direct).toContain('退出 TokenFlow 不影响官方对话');expect(direct).toContain('已打开的会话不会热切换');
  const gateway=render('gateway');expect(gateway).toContain('官方登录保留');expect(gateway).toContain('Codex 请求当前模型生成摘要');
- const legacy=render('coexist');expect(legacy).toContain('聚合共存（旧模式）');expect(legacy).toContain('官方和网关请求都经过 TokenFlow');
+ const legacy=render('coexist');expect(legacy).toContain('官方账号＋网关模型（统一网关）');expect(legacy).toContain('官方和网关请求都经过 TokenFlow');
  expect(render('external')).not.toContain('退出 TokenFlow 不影响官方对话');
 });
 it('does not claim hybrid routing is active from configuration alone',()=>{
@@ -18,4 +18,10 @@ it('discloses the old runtime until restarted and labels independent gateway tas
  const waiting=renderToStaticMarkup(createElement(CodexRoutingMode,{...props,bridge:{supported:true,connected:true,compatibilityEngineActive:true,gatewayWorkersSupported:true}}));
  expect(waiting).toContain('仍在使用旧兼容后台');expect(waiting).toContain('配置修改前自动备份');expect(waiting).not.toContain('网关任务入口已连接');
  const active=renderToStaticMarkup(createElement(CodexRoutingMode,{...props,bridge:{supported:true,connected:true,gatewayWorkersSupported:true,gatewayWorkersConnected:true}}));expect(active).toContain('网关任务入口已连接');expect(active).toContain('旧对话不补写工具');expect(active).not.toContain('复用原生任务管理');
+});
+
+it('offers unified routing independently of the optional bridge',()=>{
+ const html=renderToStaticMarkup(createElement(CodexRoutingMode,{mode:'official',busy:false,canRestore:false,canGateway:true,dirty:false,onOfficial:()=>{},onGateway:()=>{},onCoexist:()=>{},bridge:{supported:false,connected:false}}));
+ expect(html).toContain('<button type="button">官方账号＋网关模型…</button>');
+ expect(html).toContain('disabled="">官方直连＋网关（实验）…');
 });
