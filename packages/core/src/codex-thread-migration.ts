@@ -7,11 +7,13 @@ import {RunnerCoreError} from './errors.js';
 import {safePath} from './agent-connections.js';
 import {CodexHistoryBackups,type HistorySnapshot} from './codex-history-backups.js';
 
-const active=(entry:Entry)=>entry.state!=='restored'&&entry.state!=='deleted'&&entry.state!=='unavailable';
+const active=(entry:Entry)=>entry.state!=='restored'&&entry.state!=='deleted'&&entry.state!=='unavailable'&&entry.state!=='parent_managed';
+/** Native children are reloaded by their owner; thread/resume ignores provider overrides. */
+const parentManaged=(row:Pick<Route,'source'>)=>{try{const source=JSON.parse(row.source);return !!source&&typeof source==='object'&&'subagent' in source;}catch{return false;}};
 const fail=(message:string,code='codex_migration_failed')=>new RunnerCoreError(message,{statusCode:409,code});
 type Route={id:string;provider:string;model:string;rollout:string;archived:boolean;source:string};
 type HistoryBackup={journalId:string;file:string};
-type Entry=Route&{bootstrapHistory?:string;historyBackup?:HistoryBackup;historySnapshots?:{snapshot:HistorySnapshot;provider:string;model:string;recordedAt:string}[];observedRoute?:{provider:string;model:string};nextModel:string;returnModel?:string;rearchive?:boolean;state:'pending'|'migrated'|'restored'|'deleted'|'unavailable'};
+type Entry=Route&{bootstrapHistory?:string;historyBackup?:HistoryBackup;historySnapshots?:{snapshot:HistorySnapshot;provider:string;model:string;recordedAt:string}[];observedRoute?:{provider:string;model:string};nextModel:string;returnModel?:string;rearchive?:boolean;state:'pending'|'migrated'|'restored'|'deleted'|'unavailable'|'parent_managed'};
 type Journal={version:1;id:string;createdAt:string;databaseBackup?:string;state:'prepared'|'migrated'|'restored';entries:Entry[]};
 export type MigrationStatus={lifecyclePhase?:'idle'|'stopping'|'changing'|'opening';backups:number;remaining:number;restorable:number;unavailable?:number;phase:'idle'|'backup'|'migrating'|'restoring';done:number;total:number};
 export interface MigrationClient {pid?:number;resume(id:string,provider:string,model:string):Promise<void>;setArchived(id:string,archived:boolean):Promise<void>;close():Promise<void>}
@@ -121,7 +123,7 @@ export class CodexThreadMigration {
   const available=!!await this.database(),rows=await this.rows(),journals=await this.journals();
   const groups=new Map<string,{provider:string;model:string;archived:boolean;count:number}>();
   for(const row of rows){const key=JSON.stringify([row.provider,row.model,row.archived]);const group=groups.get(key)??{provider:row.provider,model:row.model,archived:row.archived,count:0};group.count++;groups.set(key,group);}
-  const relevant=rows.filter(row=>row.provider==='token_flow'||!row.archived&&['cli','vscode'].includes(row.source)&&!!row.model&&row.provider==='openai');
+  const relevant=rows.filter(row=>!parentManaged(row)&&(row.provider==='token_flow'||!row.archived&&['cli','vscode'].includes(row.source)&&!!row.model&&row.provider==='openai'));
   const mismatched=relevant.filter(row=>row.provider!==expected.provider||expected.provider==='token_flow'&&!(expected.allowedModels??[expected.model]).includes(row.model));
   const fingerprint=createHash('sha256').update(JSON.stringify({rows:rows.map(({rollout:_,...row})=>row).sort((a,b)=>a.id.localeCompare(b.id)),journals})).digest('hex');
   return {available,expected,total:rows.length,active:rows.filter(row=>!row.archived).length,archived:rows.filter(row=>row.archived).length,groups:[...groups.values()].slice(0,80),groupCount:groups.size,
@@ -134,7 +136,7 @@ export class CodexThreadMigration {
   await this.recoverAvailable();
   const journals=await this.journals(),owned=new Set(journals.flatMap(j=>j.entries.filter(e=>active(e)||e.state==='unavailable').map(e=>e.id)));
   const current=await this.rows();
-  const rows=current.filter(row=>(row.provider==='openai'&&!row.archived&&['vscode','cli'].includes(row.source)||row.provider==='token_flow')&&!!row.model&&!owned.has(row.id));
+  const rows=current.filter(row=>(row.provider==='openai'&&!row.archived&&['vscode','cli'].includes(row.source)||row.provider==='token_flow')&&!!row.model&&!parentManaged(row)&&!owned.has(row.id));
   if(!rows.length&&!journals.some(j=>j.entries.some(active)))return;
   await this.idle();
   await this.captureKnown(journals,current);
@@ -149,7 +151,7 @@ export class CodexThreadMigration {
  async prepareOfficial(model:string){
   const journals=await this.journals(),current=await this.rows();
   const owned=new Set(journals.flatMap(j=>j.entries.filter(e=>active(e)||e.state==='unavailable').map(e=>e.id)));
-  const rows=current.filter(row=>row.provider==='token_flow'&&!!row.model&&!owned.has(row.id));
+  const rows=current.filter(row=>row.provider==='token_flow'&&!!row.model&&!parentManaged(row)&&!owned.has(row.id));
   if(journals.some(j=>j.entries.some(active))){await this.idle();await this.captureKnown(journals,current);}
   if(!rows.length)return;
   if(!model||model.includes('/'))throw fail('请先选择一个官方 Codex 模型，再还原这些对话。');
@@ -197,7 +199,7 @@ export class CodexThreadMigration {
   await this.recoverAvailable();
   const journals=await this.journals(),entries=journals.flatMap(j=>j.entries.filter(active)),rows=await this.rows();
   const unavailable=new Set(journals.flatMap(j=>j.entries.filter(e=>e.state==='unavailable').map(e=>e.id)));
-  const hasThreads=rows.some(row=>!unavailable.has(row.id)&&(entries.some(entry=>entry.id===row.id)||row.provider==='token_flow'&&!!row.model));
+  const hasThreads=rows.some(row=>!parentManaged(row)&&!unavailable.has(row.id)&&(entries.some(entry=>entry.id===row.id)||row.provider==='token_flow'&&!!row.model));
   if(!entries.length&&!hasThreads)return {migrated:0};
   const selected=hasThreads?(typeof model==='function'?await model():model):undefined;
   await this.prepareOfficial(selected??'');return this.execute(true,selected);
@@ -207,7 +209,7 @@ export class CodexThreadMigration {
   if(!entries.length)return {migrated:0};
   if(!restore){
    const rows=new Map((await this.rows()).map(row=>[row.id,row]));
-   if(entries.every(entry=>{const row=rows.get(entry.id);return entry.state==='migrated'&&!entry.rearchive&&row?.provider==='token_flow'&&row.source===entry.source&&allowedModels.includes(row.model);}))return {migrated:0};
+   if(entries.every(entry=>{const row=rows.get(entry.id);return !parentManaged(entry)&&entry.state==='migrated'&&!entry.rearchive&&row?.provider==='token_flow'&&row.source===entry.source&&allowedModels.includes(row.model);}))return {migrated:0};
   }
   await this.idle();
   if(!await this.database())throw fail('找不到旧对话数据库，备份已保留，请检查 Codex 数据目录后重试。');
@@ -222,6 +224,7 @@ export class CodexThreadMigration {
     if(row&&entry.rearchive){if(!row.archived)await (await getClient()).setArchived(entry.id,true);entry.rearchive=false;await this.save(journal);row=(await this.rows()).find(row=>row.id===entry.id);}
     if(!row){entry.state='deleted';await this.save(journal);continue;}
     if(row.source!==entry.source)throw fail('旧对话来源已被其他程序修改，未覆盖；请检查后重试。');
+    if(parentManaged(row)){entry.state='parent_managed';await this.save(journal);this.progress.done++;continue;}
     if(!restore&&row.provider==='token_flow'&&allowedModels.includes(row.model)){entry.state='migrated';entry.nextModel=row.model;await this.save(journal);continue;}
     if(restore&&model){entry.returnModel=model;await this.save(journal);}
     const restoredModel=entry.returnModel??(entry.provider==='token_flow'?'':entry.model),restoredProvider=entry.provider==='token_flow'?'openai':entry.provider;
