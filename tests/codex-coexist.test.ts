@@ -73,7 +73,7 @@ it('keeps official model metadata intact and ranks clearly labelled gateway entr
  const gateway={models:[{slug:'api-a/model',display_name:'Source · Model',priority:0},{slug:'api-b/model',display_name:'TokenFlow · Other',priority:1}]};
  const before=structuredClone({native,gateway}),merged=mergeCodexCatalog(gateway,native);
  expect(merged.models.slice(0,2)).toEqual(native.models);
- expect(merged.models.slice(2)).toEqual([{...gateway.models[0],display_name:'TokenFlow · Source · Model',priority:21},{...gateway.models[1],display_name:'TokenFlow · Other',priority:22}]);
+ expect(merged.models.slice(2)).toEqual([{...gateway.models[0],display_name:'TF · Source · Model',priority:21},{...gateway.models[1],display_name:'TF · Other',priority:22}]);
  expect([...merged.models].sort((a,b)=>(a.priority as number)-(b.priority as number)).map(m=>m.slug)).toEqual(['official-b','official-a','api-a/model','api-b/model']);
  expect({native,gateway}).toEqual(before);
 

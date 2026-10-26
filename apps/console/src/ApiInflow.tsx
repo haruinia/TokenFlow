@@ -1,3 +1,4 @@
+import {orderApiSources} from './api-source-order';
 import { apiModelRoute, normalizeApiBaseURL, protocolFromURL } from '../../shared/api-endpoint';
 import type {MaintenanceContext} from '../../../packages/core/src/maintenance-conversations';
 import {Thinking} from './LoadingState';
@@ -84,7 +85,7 @@ function ApiSourceCard({local,source,usage,disabled,editing,notify,onEdit,onTogg
 }
 
 export function ApiInflow({local,usage,onChange,notify,onContext}:{onContext?:(context:MaintenanceContext)=>void;local:LocalAgentSnapshot;usage:UsageData;onChange:()=>Promise<void>;notify:Notify}){
- const sources=local.apiSources??[];
+ const sources=orderApiSources(local.apiSources??[],usage.allRows);
  const pendingSaved=useRef<ApiSource|null>(null);
  useEffect(()=>{
   const source=pendingSaved.current;

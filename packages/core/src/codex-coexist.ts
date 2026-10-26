@@ -43,7 +43,7 @@ export function mergeCodexCatalog<T extends {models:Array<{slug:string;display_n
  // Preserve every official field; only label and rank the gateway additions.
  const lastOfficial=Math.max(0,...official.models.map(m=>typeof m.priority==='number'&&Number.isInteger(m.priority)?m.priority:0));
  if(lastOfficial+gateway.models.length>2147483647)throw unavailable('官方模型排序超出兼容范围，未改动配置。');
- const additions=gateway.models.map((m,i)=>({...m,display_name:'TokenFlow · '+(m.display_name??m.slug).replace(/^TokenFlow · /,''),priority:lastOfficial+1+i}));
+ const additions=gateway.models.map((m,i)=>({...m,display_name:'TF · '+(m.display_name??m.slug).replace(/^(?:TokenFlow|TF) · /,''),priority:lastOfficial+1+i}));
  return {...gateway,tokenflow_gateway_models:gateway.models.map(m=>m.slug),models:[...structuredClone(official.models),...additions]};
 }
 

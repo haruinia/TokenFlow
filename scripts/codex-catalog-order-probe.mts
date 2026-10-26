@@ -26,7 +26,7 @@ try{
  assert.equal(added.length,2);assert.equal(native.length,official.models.length);
  assert.ok(rows.indexOf(added[0])>Math.max(...native.map(m=>rows.indexOf(m))));
  for(const m of native)assert.equal(m.displayName,official.models.find((o:any)=>o.slug===m.model).display_name);
- for(const m of added)assert.ok(m.displayName.startsWith('TokenFlow · '));
+ for(const m of added)assert.ok(m.displayName.startsWith('TF · '));
  assert.deepEqual(native.map(m=>m.model),[...official.models].sort((a:any,b:any)=>a.priority-b.priority).map((m:any)=>m.slug));
 }catch(e){error=e instanceof Error?e.message:'Probe failed';process.exitCode=1;}
 finally{if(proc.exitCode===null&&proc.signalCode===null)await new Promise<void>(r=>{proc.once('exit',()=>r());proc.kill();});await rm(root,{recursive:true,force:true});}
