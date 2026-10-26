@@ -1,3 +1,4 @@
+import {codexEnvironmentSnapshot,codexRebuiltEnvironment} from './codex-checkpoint-instructions.js';
 import {checkpointMessageIdentity,replayCheckpointWindow} from './checkpoint-window.js';
 import {initialParts,initialParallel,smallerParts,reuseInitialParts,type InitialPart} from './initial-compaction.js';
 import {responsesStream} from './responses-stream.js';
@@ -16,7 +17,7 @@ type RequestBody = Item & {model:string};
 export type ContextScope = {owner:string; model:string; source:string};
 export type CompactionReport={inputBytes:number;outputBytes:number;calls:number;reused:number;durationMs:number;inputTokens:number|null;outputTokens:number|null;cachedTokens:number|null;cacheWriteTokens:number|null;reasoningTokens:number|null;failed:boolean;unmetered:boolean;cacheWriteFailed?:boolean};
 export type ContextOptions={onContextObservation?:(report:ContextObservation)=>void;onCompaction?:(report:CompactionReport)=>void;onBillingUsage?:(usage:unknown)=>void;onUsageIncomplete?:()=>void;onCompactionStart?:()=>void;onError?:(error:GatewayContextError)=>void;onInitialCompaction?:(active:boolean)=>void;onCancel?:()=>void;signal?:AbortSignal};
-export type ContextMigration = {bootstrapHistory?:string;bootstrapRecordedAt?:number;prepareHybridHistory?:boolean;contextWindowTokens?:number;scope:ContextScope;threadId?:string;recover:(item:Item)=>Promise<Item[]>;normalize?:(item:Item)=>Item[]};
+export type ContextMigration = {bootstrapHistory?:string;bootstrapRecordedAt?:number;prepareHybridHistory?:boolean;rebuildsInstructions?:boolean;contextWindowTokens?:number;scope:ContextScope;threadId?:string;recover:(item:Item)=>Promise<Item[]>;normalize?:(item:Item)=>Item[]};
 type ManagedWindow={hash:string;input:Item[];coveredUsers:string[]};
 type ManagedSession={initialized:boolean;bootstrapHistory?:string;hybridPrepared?:boolean;foreign:string[];windows:ManagedWindow[]};
 type Send = (path:string, body:Item) => Promise<Response>;
@@ -33,7 +34,7 @@ const canonical=(value:unknown):unknown=>Array.isArray(value)?value.map(canonica
 // This is a history-reduction target, not the provider's context limit. Fixed
 // instructions/tools and the current user request cannot be summarized away.
 // Leave checkpoint room around them instead of rejecting a fresh conversation.
-function contextBudget(body:RequestBody,input:Item[],initial=false){
+function contextBudget(body:RequestBody,input:Item[],initial=false,fixedInstruction=instruction){
  // The latest complete (or still pending) tool exchange is needed to continue
  // execution. Its size is not a provider context limit and must not turn a
  // soft history target into a local 413 after an otherwise valid tool result.
@@ -45,7 +46,7 @@ function contextBudget(body:RequestBody,input:Item[],initial=false){
   if(['function_call_output','custom_tool_call_output'].includes(String(item.type)))pending.delete(item.call_id);
  }
  let lastUser=-1;for(let index=input.length-1;index>=0;index--)if(input[index]!.role==='user'){lastUser=index;break;}
- const retained=input.filter((item,index)=>((!initial||pending.size>0)&&index>=tailStart)||index===lastUser||['system','developer'].includes(String(item.role)));
+ const retained=input.filter((item,index)=>((!initial||pending.size>0)&&index>=tailStart)||index===lastUser||fixedInstruction(item));
  return Math.max(CONTEXT_INPUT_BYTES,size({input:retained,instructions:body.instructions,tools:body.tools})+32*1024);
 }
 
@@ -302,11 +303,13 @@ export class GatewayContext {
    input=[...history,...input];
   }
   const expanded:Item[]=[];
+  const checkpointInstructions=new Set<string>();
   for(const item of input){
    if(item.type==='compaction'){
     // The checkpoint replaces its covered window. Preserve fresh user or
     // instruction messages a client prepends when rebuilding that window.
     let restored:Item[];try{const saved=this.unsealHistory(item.encrypted_content,scope);restored=saved.input;managed=true;for(const hash of saved.coveredUsers)coveredUsers.add(hash);}catch(error){if(!migration)throw error;restored=await migration.recover(item);if(typeof item.encrypted_content==='string'&&!item.encrypted_content.startsWith(PREFIX))foreign.push(createHmac('sha256',this.secret).update(item.encrypted_content).digest('hex'));else managed=true;}
+    for(const entry of restored)if(instruction(entry))checkpointInstructions.add(checkpointMessageIdentity(entry));
     const replayed=this.replayCheckpoint(expanded,restored,coveredUsers);
     expanded.length=0;expanded.push(...replayed);
    }
@@ -314,7 +317,14 @@ export class GatewayContext {
    else expanded.push(item);
   }
   const portable=migration?.normalize?expanded.flatMap(migration.normalize):expanded;
-  return {input:portable,coveredUsers,managed,foreign};
+  // Native Codex reconstructs current initial context around remote checkpoints.
+  // Only that explicit client contract permits historical checkpoint rules to
+  // enter the summary. Ordinary API clients and absent replacement roles retain
+  // their existing rules verbatim. No instruction is discarded on inference.
+  const current=items(body.input).filter(instruction),roles=new Set(current.map(item=>item.role));
+  const currentIds=new Set(current.map(checkpointMessageIdentity));
+  const historicalInstructions=new Set(migration?.rebuildsInstructions&&current.some(codexRebuiltEnvironment)?portable.filter(item=>codexEnvironmentSnapshot(item)&&roles.has(item.role)&&checkpointInstructions.has(checkpointMessageIdentity(item))&&!currentIds.has(checkpointMessageIdentity(item))).map(checkpointMessageIdentity):[]);
+  return {input:portable,coveredUsers,managed,foreign,historicalInstructions};
  }
  async response(path:string,body:RequestBody,owner:string,source:string,send:Send,migration?:ContextMigration,options:ContextOptions={}):Promise<Response> {
   if(!body.stream||!migration)return this.respond(path,body,owner,source,send,migration,options);
@@ -371,7 +381,7 @@ export class GatewayContext {
     session.state.windows=session.state.windows.filter(window=>window.hash!==hash);
     session.state.windows.push({hash,input:replacement.filter(item=>!instruction(item)),coveredUsers:[...covered]});
     await remember();
-   }:undefined,!!migration,initial?{contextWindow:migration?.contextWindowTokens,signal:options.signal,threadId:migration?.threadId}:undefined,reuseSummaries,options.onContextObservation);report.failed=false;return response;}
+   }:undefined,!!migration,initial?{contextWindow:migration?.contextWindowTokens,signal:options.signal,threadId:migration?.threadId}:undefined,reuseSummaries,options.onContextObservation,expanded.historicalInstructions);report.failed=false;return response;}
    finally{report.durationMs=Date.now()-started;options.onCompaction?.({...report});if(initial)options.onInitialCompaction?.(false);}
   };
   for(const field of ['store','stream'])if(body[field]!=null&&typeof body[field]!=='boolean')throw new GatewayContextError(field+' must be boolean');
@@ -533,10 +543,11 @@ export class GatewayContext {
   });
   const headers=new Headers(response.headers);headers.delete('content-length');if(checkpoint)headers.set('x-token-flow-compaction','model-summary-v1; threshold=utf8-upper-bound');return new Response(stream,{headers});
  }
- private async compact(body:RequestBody,input:Item[],scope:ContextScope,send:Send,cacheScope:ContextScope,attemptScope:ContextScope,report:CompactionReport,persistSummaries:boolean,coveredUsers:Set<string>,remember?:(prefix:Item[],replacement:Item[],covered:Set<string>)=>Promise<void>,durable=false,initial?:{contextWindow?:number;signal?:AbortSignal;threadId?:string},reuseSummaries=false,observe?:ContextOptions['onContextObservation']) {
+ private async compact(body:RequestBody,input:Item[],scope:ContextScope,send:Send,cacheScope:ContextScope,attemptScope:ContextScope,report:CompactionReport,persistSummaries:boolean,coveredUsers:Set<string>,remember?:(prefix:Item[],replacement:Item[],covered:Set<string>)=>Promise<void>,durable=false,initial?:{contextWindow?:number;signal?:AbortSignal;threadId?:string},reuseSummaries=false,observe?:ContextOptions['onContextObservation'],historicalInstructions=new Set<string>()) {
   // Keep recent user turns; long tool loops may compact older exchanges within
   // a turn. Never cut across an unfinished tool call.
-  const budget=contextBudget(body,input,!!initial);
+  const fixedInstruction=(item:Item)=>instruction(item)&&!historicalInstructions.has(checkpointMessageIdentity(item));
+  const budget=contextBudget(body,input,!!initial,fixedInstruction);
   const pending=new Set<string>();const boundaries:number[]=[];const safeCuts:number[]=[];
   for(let i=0;i<input.length;i++){
    const item=input[i]!;
@@ -566,7 +577,7 @@ export class GatewayContext {
    // Switching back first reuses saved summaries and organizes only new work.
    // When Codex explicitly requests compaction, merge the old summaries too;
    // retaining every checkpoint forever grows context on each pass.
-   return input.slice(0,index).filter(item=>instruction(item)||reuseSummaries&&historicalSummary(item)||item===input[lastUser]);
+   return input.slice(0,index).filter(item=>fixedInstruction(item)||reuseSummaries&&historicalSummary(item)||item===input[lastUser]);
   };
   const retainedBytes=(index:number)=>size({input:[...preservedAt(index),...input.slice(index)],instructions:body.instructions,tools:body.tools});
   // The latest user item is separately preserved. Completed exchanges after
@@ -652,7 +663,7 @@ export class GatewayContext {
     // Codex reconnect; completed summaries remain reusable on disk.
     try{return await task;}finally{if(this.pending.get(attemptKey)===task)this.pending.delete(attemptKey);}
    };
-   // Rules are carried verbatim in `preserved`; summarizing them again adds
+   // Current rules are carried verbatim in `preserved`; summarizing them again adds
    // paid chunks without reducing the continuation, especially on IDE rollouts
    // with many developer messages. User turns stay as factual task context.
    const history=prefix.filter(item=>!preserved.includes(item));

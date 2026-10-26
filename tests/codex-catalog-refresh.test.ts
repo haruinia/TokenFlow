@@ -12,6 +12,18 @@ import { compactionModelWindow } from '../packages/core/src/initial-compaction.j
 const roots:string[]=[];
 afterEach(async()=>{for(const root of roots.splice(0))await rm(root,{recursive:true,force:true});});
 const sourceId='a'.repeat(24),model=`api-${sourceId}/company/gpt`;
+it('migrates only the gateway unlimited sentinel, preserving official and custom tool budgets',async()=>{
+ const root=await mkdtemp(join(await realpath(tmpdir()),'codex-tool-policy-'));roots.push(root);
+ const dir=join(root,'agent-backups');await mkdir(dir);
+ const file=join(dir,'codex-models-abcd.json');
+ const models=[{slug:'official',context_window:272000,truncation_policy:{mode:'bytes',limit:Number.MAX_SAFE_INTEGER}},{slug:'gateway',context_window:272000,truncation_policy:{mode:'bytes',limit:Number.MAX_SAFE_INTEGER}},{slug:'custom',context_window:272000,truncation_policy:{mode:'bytes',limit:23456}}];
+ await writeFile(file,JSON.stringify({models,tokenflow_gateway_models:['gateway','custom'],tokenflow_context_windows:{gateway:272000,custom:272000}}));
+ const connections=new AgentConnections(root,{codex:join(root,'config.toml')},async()=>[]);
+ expect(await connections.refreshCodexCompactionLimits(async()=>undefined)).toEqual({updated:1,failed:0});
+ const next=JSON.parse(await readFile(file,'utf8')).models;
+ expect(next[0]).toEqual(models[0]);expect(next[1].truncation_policy.limit).toBe(10000);expect(next[2]).toEqual(models[2]);
+ expect(await connections.refreshCodexCompactionLimits(async()=>undefined)).toEqual({updated:0,failed:0});
+});
 it('reapplies unchanged selections to replace the legacy downshift window and keeps the original config restorable',async()=>{
  const root=await mkdtemp(join(await realpath(tmpdir()),'codex-catalog-upgrade-'));roots.push(root);
  const configPath=join(root,'config.toml'),original='model = "gpt-6-astra"\nmodel_provider = "openai"\n';
@@ -72,11 +84,11 @@ it('updates existing generated catalogs while preserving routing, original backu
  const connections=new AgentConnections(root,{codex:configPath},async()=>[]);
  const record=await connections.apply({target:'codex',revision:(await connections.status()).find(t=>t.id==='codex')!.revision,origin:'http://127.0.0.1:9527',model,sourceId,keyId:randomUUID(),key:'fixture-key'});
  const before=await readFile(configPath,'utf8'),catalogPath=String(parse(before).model_catalog_json),catalog=JSON.parse(await readFile(catalogPath,'utf8'));
- catalog.models[0].auto_compact_token_limit=65536;catalog.models[0].max_context_window=999999;await writeFile(catalogPath,JSON.stringify(catalog));
+ catalog.models[0].truncation_policy.limit=Number.MAX_SAFE_INTEGER;catalog.models[0].auto_compact_token_limit=65536;catalog.models[0].max_context_window=999999;await writeFile(catalogPath,JSON.stringify(catalog));
  expect(await connections.refreshCodexCompactionLimits(async()=>272000)).toEqual({updated:1,failed:0});
  const refreshed=JSON.parse(await readFile(catalogPath,'utf8'));
  expect(refreshed.models[0].context_window).toBe(272000);expect(refreshed.models[0].auto_compact_token_limit).toBeUndefined();expect(refreshed.models[0].max_context_window).toBeUndefined();
- expect(refreshed.models[0].truncation_policy.limit).toBe(Number.MAX_SAFE_INTEGER);
+ expect(refreshed.models[0].truncation_policy.limit).toBe(10000);
  expect(await readFile(configPath,'utf8')).toBe(before);
  expect((await connections.review(record.id)).checks.every(check=>check.ok)).toBe(true);
  expect(await connections.refreshCodexCompactionLimits(async()=>64000)).toEqual({updated:1,failed:0});

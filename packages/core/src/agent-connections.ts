@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { parseDocument as parseYAMLDocument, stringify as stringifyYAML } from 'yaml';
 import { detectAgent } from './agent-installation.js';
 import {mergeCodexCatalog,type OfficialCodexCatalog} from './codex-coexist.js';
-import { codexModelCatalog, codexContextMetadata } from './codex-model-catalog.js';
+import { codexModelCatalog, codexContextMetadata, CODEX_TOOL_OUTPUT_LIMIT } from './codex-model-catalog.js';
 import { apiModelDisplayName } from '../../../apps/shared/api-endpoint.js';
 import { deepseekConfigPath,deepseekHome } from './deepseek-config.js';
 import {WindowsAgentLifecycle} from './windows-agent-lifecycle.js';
@@ -480,6 +480,8 @@ export class AgentConnections {
         const windows={...object(catalog.tokenflow_context_windows??{})};let changed=legacy;
         for(const model of catalog.models){
           if(gatewayModels&&!gatewayModels.includes(model.slug))continue;
+          // Migrate only our former unlimited sentinel; preserve user/source budgets.
+          if(model.truncation_policy?.mode==='bytes'&&model.truncation_policy.limit===Number.MAX_SAFE_INTEGER){model.truncation_policy={mode:'bytes',limit:CODEX_TOOL_OUTPUT_LIMIT};changed=true;}
           if(!capacities.has(model.slug))capacities.set(model.slug,await window(model.slug));
           const discovered=capacities.get(model.slug);
           if(positive(discovered)&&windows[model.slug]!==discovered){windows[model.slug]=discovered;changed=true;}
