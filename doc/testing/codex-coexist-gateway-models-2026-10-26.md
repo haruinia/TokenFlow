@@ -25,22 +25,31 @@
 
 **官方模型直连未在 headless 下验证**：同一端点请求官方 `gpt-6-luna` 返回 `官方模型需要 Codex 当前的 ChatGPT 登录`。这是桌面端凭据授权（`allowCredentials`）才具备的条件，headless 无该通道，属预期守卫而非缺陷；官方共存的实际走通需在桌面应用内验证。
 
-## 三、复现的缺陷：还原后配置被 Codex 重写
+## 三、还原残留：是还原语义不完备，不是 Codex 写回
 
-`POST /api/a2a/restore`（`restartCodex:true`、`restoreHistory:false`）返回 `state=restored`，`auth.json` 与快照一致，但 `config.toml` 被 Codex 重启后的自身写回覆盖：
+`POST /api/a2a/restore`（`restartCodex:true`、`restoreHistory:false`）返回 `state=restored`，`auth.json` 与快照一致，但 `config.toml` 与快照不同：
 
 | 残留 | 说明 |
 | --- | --- |
-| `model = "gpt-6-luna"` 行丢失 | 接管前存在的用户模型设置未回到文件 |
+| `model = "gpt-6-luna"` 行丢失 | 接管前的用户模型选择没有回来 |
 | otel 端点仍指向 `127.0.0.1:19529` | 指向已停止的测试网关，真实端点为 `9528` |
 | `x-tokenflow-recorder` 仍为测试实例的令牌 | 同上 |
-| TOML 引号/转义被重新序列化 | Codex 自己的写入器风格 |
+| TOML 引号/转义被重新序列化 | TokenFlow 自己的写入器风格 |
 
-2026-10-23 首次实机替换测试时出现过同一现象，本次稳定复现，可判定为**产品缺陷**而非偶发：`restore` 写入正确内容后立刻重启 Codex，Codex 以内存中的旧配置写回，覆盖了还原结果。建议修复方向：重启前让 Codex 完整落盘退出、还原后在 Codex 启动完成时再校验一次配置并在漂移时重新应用（现有 `verification` 只在写入后检查）。
+**归因：还原函数只清路由，不恢复用户设置。** 三处证据：
 
-本次已按快照回填 `config.toml`，最终 `config.toml`/`auth.json` 与测试前字节级一致（`45ed27ab…` / `77acbc83…`）。
+1. 重启顺序是「`stop()` → 确认进程清空 → `work()` 写配置 → `open()`」（`codex-switch-lifecycle.ts` 的 `change()`），Codex 在写配置时已经退出，不存在"用内存旧配置写回"的窗口；新启动的 Codex 读到的就是刚写好的文件，也不会凭空产生 19529。
+2. 还原后文件的 TOML 用转义双引号（`"C:\\Users\\..."`），这是 TokenFlow 写入器的风格；Codex 自己的写入器用单引号字面量（`'C:\Users\...'`，见快照原文）。即这份残留是 TokenFlow 写出来的。
+3. `nativeCodexConfig()` 的实现明确 `delete config['model']` 并置 `model_provider='openai'`，且**完全不处理 `[otel]` 段**——与观测到的两处残留逐字对应。该函数自 2026-10-21 `c13ddff`（main 分支）起就是这样，早于两次实机测试，也早于本次合并。
+
+**结论**：这是 main 主线「退回官方」还原语义的缺口，两个平台一致，并非合并引入的回归：
+
+- `model` 被删除而不是恢复为接管前的值，用户还原后要重新选一次模型；
+- `[otel]` 段（endpoint + recorder 令牌）不在还原范围，还原后遥测仍发往已断开的网关端口。
+
+修复方向：`nativeCodexConfig()` 在清理路由的同时，把 `record.before` 中的 `model`／`[otel]` 还原（或至少移除本次接入注入的 otel 段），并在写入后校验这些字段是否回位。本次已按快照回填 `config.toml`，最终 `config.toml`/`auth.json` 与测试前字节级一致（`45ed27ab…` / `77acbc83…`）。
 
 ## 四、结论
 
 - 官方共存 + 多网关模型目录在实机上工作正常，7 项校验全通过，网关模型真实调用可用。
-- 还原链路存在「重启覆盖还原结果」的稳定缺陷，需产品侧修复；在此之前，实机还原后必须人工核对 `config.toml`。
+- 还原语义不完备（main 既有设计）：`nativeCodexConfig` 会删掉 `model` 且不清理 `[otel]` 段，还原后用户需重选模型、遥测仍指向旧网关；与本次合并无关。
