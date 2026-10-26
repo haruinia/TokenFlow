@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +7,7 @@ import { UsageLedger, dayOf } from '../packages/core/src/usage-ledger.js';
 
 let root = '';
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'token-flow-ledger-')); });
-afterEach(async () => { await rm(root, { recursive: true, force: true }); });
+afterEach(async () => { vi.useRealTimers(); await rm(root, { recursive: true, force: true }); });
 
 const event = (overrides: Partial<Parameters<UsageLedger['add']>[0]> = {}) => ({
   target: 'codex', keyId: 'k1', keyName: 'A2A · codex', sourceId: 'acct', model: 'codex/gpt-5',

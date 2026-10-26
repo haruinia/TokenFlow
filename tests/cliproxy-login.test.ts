@@ -13,6 +13,16 @@ import {loginProviderSchema} from '../packages/core/src/login/index.js';
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {for (const fn of cleanup.splice(0).reverse()) await fn();});
 const binary = resolve('tests/fixtures/fake-cliproxy.mjs');
+it('preserves shared context capacity fields without inferring unknown or malformed windows',async()=>{
+ const {manager,root}=await setup();await mkdir(join(root,'cliproxy'),{recursive:true});
+ await writeFile(join(root,'cliproxy/fixture-accounts.json'),JSON.stringify([
+  {name:'capacity.json',provider:'workbuddy',status:'active',models:[{id:'canonical',context_length:123456,context_window:234567,inputTokenLimit:345678},{id:'legacy',context_window:234567},{id:'gemini-shape',inputTokenLimit:345678},{id:'unknown'},{id:'malformed',context_length:0,context_window:'bad',inputTokenLimit:-1}]},
+ ]));
+ await manager.start();const models=manager.snapshot().models;
+ for(const [id,window] of [['canonical',123456],['legacy',234567],['gemini-shape',345678],['unknown',undefined],['malformed',undefined]] as const){
+  expect(models.find(m=>m.id===`workbuddy/${id}`),id).toBeDefined();expect(models.find(m=>m.id===`workbuddy/${id}`)?.contextWindow,id).toBe(window);
+ }
+});
 it('preserves official image declarations without overriding Qoder as text-only',async()=>{
  const {manager,root}=await setup();
  await mkdir(join(root,'cliproxy'),{recursive:true});

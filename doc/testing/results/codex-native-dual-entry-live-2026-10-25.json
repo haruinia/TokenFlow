@@ -1,0 +1,235 @@
+{
+  "passed": true,
+  "samePid": true,
+  "officialForwardAttempts": 0,
+  "scope": "Patched source-built engine; real official and DeepSeek siblings in native tree",
+  "entrypoint": "dual",
+  "sourceCommit": "970111f6cb62cc02fe36a82ea7d71b37a2889c97",
+  "gatewayModel": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+  "rounds": [
+    {
+      "phase": "official-child-native",
+      "pid": 7376,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 28684
+    },
+    {
+      "phase": "gateway-child-native",
+      "pid": 7376,
+      "markersVerified": 1,
+      "gatewayCalls": 1,
+      "durationMs": 11987
+    },
+    {
+      "phase": "native-mixed-sibling-tree",
+      "providers": [
+        "openai",
+        "token_flow"
+      ],
+      "parentEdgesVerified": true,
+      "permissionsMatch": true
+    },
+    {
+      "phase": "gateway-child-followup",
+      "pid": 7376,
+      "markersVerified": 1,
+      "gatewayCalls": 1,
+      "durationMs": 16950
+    },
+    {
+      "phase": "native-shared-agent-list",
+      "pid": 7376,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 9561
+    },
+    {
+      "phase": "native-parent-remains-official",
+      "provider": "openai"
+    },
+    {
+      "phase": "official-native-compact-service-stopped",
+      "durationMs": 17691
+    },
+    {
+      "phase": "official-after-service-stopped",
+      "pid": 7376,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 2493
+    },
+    {
+      "phase": "native-engine-unchanged",
+      "enginePid": 7376
+    }
+  ],
+  "requests": [
+    {
+      "phase": "gateway-child-native",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false,
+      "items": [
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        }
+      ]
+    },
+    {
+      "phase": "gateway-child-followup",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false,
+      "items": [
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text",
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "assistant",
+          "contentTypes": [
+            "output_text"
+          ],
+          "initialTask": true,
+          "secondTask": false,
+          "longTask": false
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "contentTypes": [
+            "input_text"
+          ],
+          "initialTask": false,
+          "secondTask": true,
+          "longTask": false
+        }
+      ]
+    }
+  ]
+}

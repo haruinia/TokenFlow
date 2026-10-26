@@ -20,6 +20,20 @@
 | Windows 进程、授权、窗口与完整功能测试 | [Windows 兼容与验收](待修复的问题win兼容.md) |
 | 文件清理的范围与恢复方式 | [文件清理](guides/file-cleanup.md) |
 
+## 本轮实施与验收（2026-10-23）
+
+本轮已实施 Codex 续聊／配置修复、官方与网关模型共存、供应商选择性导入及导航调整。下面记录源码和明确测试场景的结果；当前剩余事项以 [TODO](TODO.md) 为准，尚未将最终安装包或全仓最终测试记为通过。
+
+| 范围与当前边界 | 验证报告 |
+| --- | --- |
+| 历史投影、压缩、分页／失败前分支／重启、官方目录与网关精确分流、tfctx 回到官方原生请求；隔离 native smoke 通过，旧祖先损伤恢复正在最终测试 | [Codex 续聊修复验证](testing/codex-continuation-repair-2026-10-23.md) |
+| 重复 TOML 备份重建与恢复、Claude 无独立 CLI 应用、npm 渠道、CC Switch SQLite／SQL／JSON 导入与导航；导入 9 项测试、built UI 7 张截图通过，真实安装和 Windows 待测 | [客户端配置与 UI 验证](testing/client-configuration-repair-2026-10-23.md) |
+| Antigravity Claude 工具名真实对照、缓存 usage 与错误路径回归；Grok 仍等待当前 SDK key 的有界 A/B | [模型协议修复验证](testing/model-protocol-repair-2026-10-23.md) |
+
+Claude Desktop 入口按用户纠正保留，仅移除桌面版单独的默认模型前端字段。AUTH-002 仍需最终安装版实际系统授权与密码提示次数验收，不承诺只提示一次。
+
+本轮实施与交付状态见 [10/23 客户端／网关修复验证](testing/client-gateway-delivery-2026-10-23.md)，包含导入、共存、包内检查及等待系统授权的实测边界。
+
 ## 技术参考
 
 - [WorkBuddy SDK 实现与验证记录](reference/workbuddy-sdk.md)：特定版本的适配依据和历史验证，不代替当前兼容性验收。
@@ -39,6 +53,7 @@
 | 旧模型发现说明 | [旧版说明](archive/reports/model-discovery-legacy.md)：包含已变化的目录策略，只供追溯 |
 | 从 README 移出的修复流水 | [历史 README 记录](archive/reports/readme-progress-2026-10-16.md) |
 | Codex 切换时主进程退出 | [内存溢出](archive/reports/codex-switch-oom-2026-10-17.md)：扫描会话时子字符串留住全文，不是切换逻辑错误 |
+| 10/23 续聊与客户端兼容调查 | [总报告](archive/reports/2026-10-23-codex-continuation-research.md)：首次整理 19 次摘要、持续压缩、回退历史投影缺陷及 12 项问题；另含 [客户端/CC Switch](archive/reports/2026-10-23-client-capabilities-research.md)、[Antigravity Claude](archive/reports/2026-10-23-antigravity-claude-research.md)、[Cursor/凭证](archive/reports/2026-10-23-cursor-credentials-research.md) |
 
 `archive/evidence/` 保存历史报告使用的证据。原已入库的资料随目录迁移；未审核的本地原始导出保持忽略，不批量提交账号、消息、配置或凭据。部分历史报告引用的原始文件只存在于本地，复现步骤和结论应以 Markdown 报告为准。
 

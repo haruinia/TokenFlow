@@ -6,7 +6,7 @@ import {createZstdDecompress} from 'node:zlib';
  * Decode before JSON parsing; Content-Length describes encoded bytes. */
 export function gatewayDecoding(app:FastifyInstance){
  app.addHook('preParsing',async(request,_reply,payload)=>{
-  if(!request.routeOptions.url?.startsWith('/v1/')||request.headers['content-encoding']?.trim().toLowerCase()!=='zstd')return payload;
+  if(!/^\/(?:codex\/)?v1\//.test(request.routeOptions.url??'')||request.headers['content-encoding']?.trim().toLowerCase()!=='zstd')return payload;
   const decoded=createZstdDecompress() as ReturnType<typeof createZstdDecompress>&{receivedEncodedLength:number};
   decoded.receivedEncodedLength=0;
   const encoded=new Transform({transform(chunk,_encoding,next){decoded.receivedEncodedLength+=chunk.length;next(null,chunk);}});

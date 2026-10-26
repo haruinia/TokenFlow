@@ -1,0 +1,49 @@
+{
+  "passed": true,
+  "engine": "codex-cli 0.164.0-alpha.11.1",
+  "scope": "Official engine; isolated homes; synthetic loopback responses; no desktop UI test or real model inference",
+  "checks": [
+    {
+      "variant": "same-engine-ephemeral",
+      "provider": "token_flow",
+      "nativeParentEdge": null,
+      "permissionsMatch": true,
+      "parentReceivedWorkerStart": true,
+      "normalListContainsWorker": false,
+      "ownListContainsWorker": false,
+      "rolloutPersisted": false,
+      "followupHasContext": true,
+      "cancellationAbortsHTTP": true,
+      "failureReported": true
+    },
+    {
+      "variant": "separate-engine-ephemeral",
+      "provider": "token_flow",
+      "nativeParentEdge": null,
+      "permissionsMatch": true,
+      "parentReceivedWorkerStart": false,
+      "normalListContainsWorker": false,
+      "ownListContainsWorker": false,
+      "rolloutPersisted": false,
+      "followupHasContext": true,
+      "cancellationAbortsHTTP": true,
+      "failureReported": true,
+      "resumeAfterRestart": false
+    },
+    {
+      "variant": "separate-engine-private-persistent",
+      "provider": "token_flow",
+      "nativeParentEdge": null,
+      "permissionsMatch": true,
+      "parentReceivedWorkerStart": false,
+      "normalListContainsWorker": false,
+      "ownListContainsWorker": true,
+      "rolloutPersisted": true,
+      "followupHasContext": true,
+      "cancellationAbortsHTTP": true,
+      "failureReported": true,
+      "resumeAfterRestart": true
+    }
+  ],
+  "requestCount": 15
+}

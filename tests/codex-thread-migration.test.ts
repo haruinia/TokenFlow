@@ -171,16 +171,16 @@ it('adds a new conversation backup without another full database snapshot during
  let databases=0;for(const dir of dirs)databases+=(await readdir(join(f.root,'codex-thread-backups',dir))).filter(n=>n.endsWith('.sqlite')).length;
  expect(databases).toBe(1);await f.migration.restore();expect(f.db.prepare("select model_provider from threads where id='new'").get()?.model_provider).toBe('openai');expect(await readFile(file,'utf8')).toBe('new history');
 }finally{await f.close();}});
-it('reconciles gateway child threads and survives repeated switch, create, archive and delete cycles',async()=>{const f=await fixture();try{
+it('preserves native children across repeated switch, create, archive and delete cycles',async()=>{const f=await fixture();try{
  const insert=async(id:string,source:string,archived=0)=>{const path=join(f.home,`${id}.jsonl`);await writeFile(path,`history ${id}`);f.db.prepare('insert into threads values (?,?,?,?,?,?)').run(id,'token_flow','qoder/a',path,source,archived);};
  await f.migration.prepare('qoder/a');await f.migration.migrate('qoder/a');
  await insert('guardian','{"subagent":{"other":"guardian"}}');await insert('child','{"subagent":{"thread_spawn":{"parent_thread_id":"old"}}}',1);await insert('new-project','vscode');
  f.db.prepare("delete from threads where id='cli'").run();
  await f.reopen().restore('native');
- expect(f.db.prepare("select count(*) as n from threads where model_provider='token_flow'").get()?.n).toBe(0);
+ expect(f.db.prepare("select count(*) as n from threads where model_provider='token_flow'").get()?.n).toBe(2);
  expect(f.db.prepare("select archived from threads where id='child'").get()?.archived).toBe(1);
  for(let cycle=0;cycle<3;cycle++){await f.reopen().prepare('qoder/b');await f.reopen().migrate('qoder/b');await insert(`born-${cycle}`,'vscode');await f.reopen().restore('native');}
- expect(f.db.prepare("select count(*) as n from threads where model_provider='token_flow'").get()?.n).toBe(0);
+ expect(f.db.prepare("select count(*) as n from threads where model_provider='token_flow'").get()?.n).toBe(2);
  expect(f.db.prepare("select id from threads where id='cli'").get()).toBeUndefined();expect(await readFile(join(f.home,'new-project.jsonl'),'utf8')).toBe('history new-project');
 }finally{await f.close();}});
 
@@ -285,5 +285,55 @@ it('backs up and switches large histories without starting any compaction',async
   expect(f.db.prepare("select model_provider from threads where id='old'").get()?.model_provider).toBe('token_flow');
   expect(await readFile(join(f.home,'old.jsonl'),'utf8')).toBe(original);
   await f.reopen().migrate('gateway');await f.reopen().restore();expect(f.compacted).toEqual([]);
+ }finally{await f.close();}
+});
+
+it('keeps an authorized official model while moving its provider into a mixed catalog, including later repairs',async()=>{
+ const f=await fixture();try{
+  const allowed=['gateway','native'];
+  await f.migration.prepare('gateway',allowed);
+  const manifest=JSON.parse(await readFile(join(f.root,'codex-thread-backups',(await readdir(join(f.root,'codex-thread-backups')))[0]!,'manifest.json'),'utf8'));
+  expect(manifest.entries.every((entry:any)=>entry.nextModel==='native')).toBe(true);
+  await f.migration.migrate('gateway',allowed);
+  for(const id of ['old','cli'])expect(f.db.prepare('select model_provider,model from threads where id=?').get(id)).toMatchObject({model_provider:'token_flow',model:'native'});
+  const before=f.calls();await f.reopen().prepare('gateway',allowed);await f.reopen().migrate('gateway',allowed);expect(f.calls()).toBe(before);
+  // A resumed official route may need its provider repaired, without replacing
+  // the still-authorized official model with the gateway default.
+  f.db.prepare("update threads set model_provider='openai' where id='old'").run();
+  await f.reopen().prepare('gateway',allowed);await f.reopen().migrate('gateway',allowed);
+  expect(f.db.prepare("select model_provider,model from threads where id='old'").get()).toMatchObject({model_provider:'token_flow',model:'native'});
+  // New official conversations discovered on a later apply use the same rule.
+  const file=join(f.home,'later-mixed.jsonl');await writeFile(file,'later mixed history');f.db.prepare('insert into threads values (?,?,?,?,?,?)').run('later-mixed','openai','native',file,'vscode',0);
+  await f.reopen().prepare('gateway',allowed);await f.reopen().migrate('gateway',allowed);
+  expect(f.db.prepare("select model_provider,model from threads where id='later-mixed'").get()).toMatchObject({model_provider:'token_flow',model:'native'});
+ }finally{await f.close();}
+});
+
+it('keeps parent-owned gateway children out of standalone provider migration',async()=>{
+ const f=await fixture();try{
+  const source=JSON.stringify({subagent:{thread_spawn:{parent_thread_id:'old',depth:1}}});
+  f.db.prepare("update threads set source=?,model_provider='token_flow',model='gateway-child' where id='subagent'").run(source);
+  f.setFailure('subagent');
+  await f.migration.prepare('gateway');await f.migration.migrate('gateway');await f.migration.restore('native');
+  expect(f.db.prepare("select model_provider,model,source from threads where id='subagent'").get()).toMatchObject({model_provider:'token_flow',model:'gateway-child',source});
+  expect((await f.migration.inspect({provider:'openai'})).mismatched).toBe(0);
+  expect((await f.migration.status()).restorable).toBe(0);
+ }finally{await f.close();}
+});
+it('finishes an older interrupted journal without resuming or rewriting its parent-owned child',async()=>{
+ const f=await fixture();try{
+  await f.migration.prepare('gateway');await f.migration.migrate('gateway');
+  const source=JSON.stringify({subagent:{thread_spawn:{parent_thread_id:'old',depth:1}}});
+  f.db.prepare("update threads set source=?,model_provider='token_flow',model='gateway-child' where id='subagent'").run(source);
+  const [id]=await readdir(join(f.root,'codex-thread-backups'));const path=join(f.root,'codex-thread-backups',id!,'manifest.json');
+  const manifest=JSON.parse(await readFile(path,'utf8'));
+  manifest.entries.unshift({id:'subagent',provider:'token_flow',model:'gateway-child',rollout:join(f.home,'subagent.jsonl'),archived:false,source,nextModel:'gateway-child',state:'migrated'});
+  await writeFile(path,JSON.stringify(manifest));f.setFailure('subagent');
+  const before=await readFile(join(f.home,'subagent.jsonl'),'utf8');
+  await f.reopen().restore('native');
+  expect(await readFile(join(f.home,'subagent.jsonl'),'utf8')).toBe(before);
+  expect(JSON.parse(await readFile(path,'utf8')).entries[0].state).toBe('parent_managed');
+  expect((await f.reopen().status()).restorable).toBe(0);
+  expect(f.db.prepare("select model_provider from threads where id='old'").get()?.model_provider).toBe('openai');
  }finally{await f.close();}
 });

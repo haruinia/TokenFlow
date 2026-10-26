@@ -31,3 +31,8 @@ it('honors an unavailable official platform and the vendor no-update response',a
  expect(await updates.check('deepseek',{...installed,supported:false})).toMatchObject({status:'unsupported'});expect(fetcher).not.toHaveBeenCalled();
  expect(await updates.check('workbuddy',{...installed,channel:'application'})).toMatchObject({status:'current'});
 });
+it('does not compare native and extension clients against unrelated npm releases',async()=>{
+ const fetcher=vi.fn(async()=>Response.json({version:'9.0.0'}));
+ for(const target of ['codex','claude'] as const)expect(await new AgentUpdates(fetcher).check(target,{...installed,channel:'other'})).toMatchObject({status:'unknown'});
+ expect(fetcher).not.toHaveBeenCalled();
+});

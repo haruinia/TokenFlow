@@ -128,6 +128,18 @@ export class ApiSources {
   // Old encrypted revisions are retained so an interrupted migration/edit is recoverable.
   return (await this.list()).find(s=>s.id===sourceId)!;
  }
+ /** Import all selected sources in one metadata transaction; no partial batch on storage failure. */
+ async importBatch(inputs:z.input<typeof apiSourceInput>[]){
+  const values=inputs.map(parseApiSourceInput);if(!values.length)return;
+  if(this.secrets.persistent===false||values.some(v=>!v.apiKey))throw new RunnerCoreError('导入需要可用的加密密钥存储和 API Key。',{statusCode:400,code:'credential_storage_unavailable'});
+  const refs:string[]=[],added:StoredSource[]=[],previous=this.entries;
+  try{
+   for(const value of values){const {apiKey,acknowledge:_ack,...fields}=value,id=randomBytes(12).toString('hex'),credentialRef=`source-${id}-${randomBytes(8).toString('hex')}`;
+    refs.push(credentialRef);await this.secrets.set(credentialRef,apiKey!);added.push({...fields,id,credentialRef,createdAt:new Date().toISOString(),checks:{}});
+   }
+   this.entries=[...previous,...added];await this.persist();
+  }catch{this.entries=previous;await Promise.allSettled(refs.map(ref=>this.secrets.remove?.(ref)));throw new RunnerCoreError('供应商未导入，已保留原有配置。请检查加密存储与目录权限后重试。',{statusCode:400,code:'supplier_import_storage'});}
+ }
  async remove(id:string){const old=this.entries;this.entries=old.filter(s=>s.id!==id);try{await this.persist();}catch(e){this.entries=old;throw e;}const s=old.find(s=>s.id===id);if(s)await this.secrets.remove?.(s.credentialRef);}
  async record(id:string,model:string,passed:boolean,message:string){const s=this.assert(id,model);const upstream=s.models.find(m=>apiModelID(id,m)===model)!;const old=this.entries;this.entries=old.map(entry=>entry.id===id?{...entry,checks:{...entry.checks,[upstream]:{status:passed?'passed':'failed',checkedAt:new Date().toISOString(),message}}}:entry);try{await this.persist();}catch(e){this.entries=old;throw e;}}
  async models(id:string,signal?:AbortSignal){const s=this.entries.find(s=>s.id===id);if(!s)throw conflict('来源不存在');const key=await this.secrets.get(s.credentialRef);if(!key)throw conflict('API 密钥暂不可读取，请解锁系统安全存储或重新填写。');

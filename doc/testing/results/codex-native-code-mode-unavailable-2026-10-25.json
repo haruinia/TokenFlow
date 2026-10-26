@@ -1,0 +1,17 @@
+{
+  "passed": false,
+  "scope": "Initial code-mode attempt without host; engine falls back to direct tools",
+  "error": "Turn failed in gateway-child-native: {\"message\":\"stream disconnected before completion: Encrypted function output content could not be decrypted or decoded.\",\"codexErrorInfo\":\"other\",\"additionalDetails\":null,\"misalignment\":null}\n+ actual - expected\n\n+ 'failed'\n- 'completed'\n",
+  "rounds": [
+    {
+      "phase": "official-child-native",
+      "pid": 7375,
+      "markersVerified": 1,
+      "gatewayCalls": 0,
+      "durationMs": 27861
+    }
+  ],
+  "requestCount": 7,
+  "readableGatewayTask": false,
+  "finding": "Code Mode host was disabled and unavailable; code-mode config alone allowed fallback to direct encrypted collaboration. Retry with matching host and fallback disabled."
+}

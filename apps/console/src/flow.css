@@ -1007,3 +1007,10 @@ to{transform:translate(0)}
 .quotaStatus>svg{flex:0 0 16px;margin-top:2px}
 .quotaStatus>span{min-width:0;word-break:normal;overflow-wrap:break-word}
 .quotaStale{font-size:10px;line-height:1.6;color:var(--muted);overflow-wrap:break-word}
+
+.tfCodexRouting{margin:4px 0 24px}
+.tfCodexRoutingHead{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.tfCodexRoutingHead>span{color:var(--muted);font-size:12px}
+.tfCodexRoutingHead>.tfRow{margin-left:auto;flex-wrap:wrap}
+.tfCodexRouting .tfHint{margin:8px 0 0}
+@media(max-width:680px){.tfCodexRoutingHead>.tfRow{margin-left:0;width:100%}}

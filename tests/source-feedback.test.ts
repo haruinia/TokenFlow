@@ -20,3 +20,10 @@ it('uses account and quota evidence rather than zero recorded Tokens to explain 
  local.accounts[0].authenticationRequired=true;
  expect(sourceFailure(local,'a','m')).toMatchObject({type:'source_auth_expired',status:401});
 });
+
+it('does not apply exhausted Antigravity model or third-party pools to unrelated Gemini models',()=>{
+ const local={state:'running',accounts:[{id:'a',disabled:false,models:['antigravity/gemini-new']}],quotas:{a:{provider:'antigravity',status:'ok',windows:[{id:'model:other',usedPercent:100},{id:'3p-weekly',usedPercent:100}]}}} as unknown as LocalAgentSnapshot;
+ expect(sourceFailure(local,'a','antigravity/gemini-new').type).not.toBe('source_quota_exhausted');
+ expect(sourceFailure(local,'a','antigravity/claude-sonnet').type).toBe('source_quota_exhausted');
+ expect(sourceFailure(local,'a','antigravity/other').type).toBe('source_quota_exhausted');
+});

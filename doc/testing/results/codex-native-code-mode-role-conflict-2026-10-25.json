@@ -1,0 +1,7 @@
+{
+  "passed": false,
+  "error": "Lost marker official-child-native: I can’t spawn the child as requested: the active instructions prohibit collaboration calls through `functions.exec`, and no direct collaboration tool is available.",
+  "rounds": [],
+  "observedTools": [],
+  "finding": "code_mode_only hides direct collaboration tools, but bundled role hints still require direct calls. Model correctly refused contradictory instructions. Next probe uses the supported root/subagent usage-hint configuration to describe the enabled tool surface accurately; permission policy unchanged."
+}

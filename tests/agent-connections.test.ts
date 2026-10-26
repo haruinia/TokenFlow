@@ -691,3 +691,113 @@ it('disconnects DeepSeek gateway without changing a subsequently selected unrela
  const after=result.find((entry:{id:string})=>entry.id==='llm-pi-ai').config.providers;
  expect(after['token-flow']).toBeUndefined();expect(after['other-api']).toEqual(providers['other-api']);
 });
+
+const duplicateCodex='model = "broken"\n[model_providers.duplicate]\nbase_url = "https://fixture.invalid"\n[model_providers.duplicate]\nbase_url = "https://other.invalid"\n';
+it('rebuilds duplicate Codex TOML from a minimal legal base and privately preserves exact damaged bytes',async()=>{
+ const {root,paths,connections}=await setup();await writeFile(paths.codex,duplicateCodex);
+ const preview=await connections.preview('codex','http://127.0.0.1:9527','fixture/model');
+ expect(preview.recovery?.strategy).toBe('minimal');
+ const record=await connections.apply({target:'codex',revision:preview.revision,origin:'http://127.0.0.1:9527',model:'fixture/model',sourceId:'s',keyId:randomUUID(),key:'private-key'});
+ expect(parse(await readFile(paths.codex,'utf8'))).toMatchObject({model:'fixture/model',model_provider:'token_flow'});
+ expect((await connections.status())[0]).toMatchObject({configurationState:'configured',drift:false});
+ expect((await connections.review(record.id)).checks.every(check=>check.ok)).toBe(true);
+ const journal=JSON.parse(await readFile(join(root,'agent-backups',record.id+'.json'),'utf8'));expect(journal.previousConfig).toBe(duplicateCodex);
+ expect(JSON.stringify(await connections.status())).not.toContain('broken');
+ await connections.restore(record.id);
+ expect(parse(await readFile(paths.codex,'utf8'))).toEqual({});
+});
+it('repairs active Codex drift using a legal backup while preserving non-routing settings and the bad preimage',async()=>{
+ const {root,paths,connections}=await setup();await writeFile(paths.codex,'approval_policy="on-request"\n[mcp_servers.fixture]\ncommand="fixture"\n');
+ const first=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,origin:'http://127.0.0.1:9527',model:'fixture/first',sourceId:'s',keyId:randomUUID(),key:'first-key'});
+ await writeFile(paths.codex,duplicateCodex);
+ const preview=await connections.preview('codex','http://127.0.0.1:9527','fixture/second');expect(preview.recovery?.strategy).toBe('backup');
+ const second=await connections.apply({target:'codex',revision:preview.revision,replaceId:first.id,origin:'http://127.0.0.1:9527',model:'fixture/second',sourceId:'s',keyId:randomUUID(),key:'second-key'});
+ expect(parse(await readFile(paths.codex,'utf8'))).toMatchObject({approval_policy:'on-request',mcp_servers:{fixture:{command:'fixture'}},model:'fixture/second'});
+ const journal=JSON.parse(await readFile(join(root,'agent-backups',second.id+'.json'),'utf8'));expect(journal.previousConfig).toBe(duplicateCodex);
+ await connections.restore(second.id);expect(parse(await readFile(paths.codex,'utf8'))).toMatchObject({approval_policy:'on-request',mcp_servers:{fixture:{command:'fixture'}}});
+});
+it.each(['previous','native'] as const)('restores %s from malformed active Codex and refuses a newer concurrent revision',async destination=>{
+ const {root,paths,connections}=await setup();await writeFile(paths.codex,'approval_policy="on-request"\nmodel="native"\n');
+ const record=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,origin:'http://127.0.0.1:9527',model:'fixture/first',sourceId:'s',keyId:randomUUID(),key:'first-key'});
+ await writeFile(paths.codex,duplicateCodex);
+ const restoration=await connections.restoration(record.id,destination)??'';const preview=await connections.restorePreview(record.id,destination);expect(preview.canRestore).toBe(true);expect(()=>parse(restoration)).not.toThrow();
+ const newer='approval_policy="never"\n';await writeFile(paths.codex,newer);
+ await expect(connections.restore(record.id,{revision:preview.revision,allowRunning:true},destination)).rejects.toThrow('已变更');expect(await readFile(paths.codex,'utf8')).toBe(newer);
+ await writeFile(paths.codex,duplicateCodex);await connections.restore(record.id,{revision:preview.revision,allowRunning:true},destination);
+ expect(parse(await readFile(paths.codex,'utf8'))).toMatchObject({approval_policy:'on-request'});
+ const {readdir}=await import('node:fs/promises');const names=await readdir(join(root,'agent-backups'));
+ const backups=await Promise.all(names.filter(name=>name.startsWith('codex-repair-')).map(name=>readFile(join(root,'agent-backups',name),'utf8')));expect(backups.some(text=>JSON.parse(text).before===duplicateCodex)).toBe(true);
+});
+it('does not overwrite a newer Codex file after a malformed preview',async()=>{
+ const {paths,connections}=await setup();await writeFile(paths.codex,duplicateCodex);const preview=await connections.preview('codex','http://127.0.0.1:9527','fixture/model');
+ const newer='model="newer"\n';await writeFile(paths.codex,newer);
+ await expect(connections.apply({target:'codex',revision:preview.revision,origin:'http://127.0.0.1:9527',model:'fixture/model',sourceId:'s',keyId:randomUUID(),key:'private-key'})).rejects.toThrow('已变更');expect(await readFile(paths.codex,'utf8')).toBe(newer);
+});
+it.each(['apply','native'] as const)('preserves a newer file written during %s after the damaged preimage backup',async operation=>{
+ const {root,paths,connections}=await setup();await writeFile(paths.codex,'approval_policy="on-request"\n');
+ const first=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,origin:'http://127.0.0.1:9527',model:'fixture/first',sourceId:'s',keyId:randomUUID(),key:'first-key'});
+ await writeFile(paths.codex,duplicateCodex);
+ const revision=(await connections.status())[0].revision,newer='model="concurrent"\n';let checks=0;
+ // apply checks processes once before reading, then again immediately before replacement.
+ const concurrent=new AgentConnections(root,paths,async()=>{checks++;if(checks===(operation==='apply'?2:1))await writeFile(paths.codex,newer);return [];});
+ const task=operation==='apply'?concurrent.apply({target:'codex',revision,replaceId:first.id,origin:'http://127.0.0.1:9527',model:'fixture/second',sourceId:'s',keyId:randomUUID(),key:'second-key'}):concurrent.restore(first.id,{revision,allowRunning:false},'native');
+ await expect(task).rejects.toThrow('其他应用修改');expect(await readFile(paths.codex,'utf8')).toBe(newer);
+});
+it('uses legal official config for model preflight while the damaged current file remains untouched',async()=>{
+ const {paths,connections}=await setup();await writeFile(paths.codex,duplicateCodex);
+ const resolver=vi.spyOn(codexRuntime,'codexDefaultModel').mockImplementation(async home=>{
+  expect(parse(await readFile(join(home,'config.toml'),'utf8'))).toMatchObject({model_provider:'openai'});return 'fixture-official';
+ });
+ try{expect(await connections.currentOfficialModel()).toBe('fixture-official');expect(await readFile(paths.codex,'utf8')).toBe(duplicateCodex);}finally{resolver.mockRestore();}
+});
+it('keeps byte-exact damaged Codex backups and never replays the old gateway from a legal image',async()=>{
+ const {root,paths,connections}=await setup();
+ const first=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,origin:'http://127.0.0.1:9527',model:'fixture/first',sourceId:'s',keyId:randomUUID(),key:'old-private-key'});
+ const damaged=Buffer.concat([Buffer.from(duplicateCodex),Buffer.from([0xff,0xfe])]);await writeFile(paths.codex,damaged);
+ const preview=await connections.restorePreview(first.id,'native');expect(preview.recovery?.strategy).toBe('backup');
+ await connections.restore(first.id,{revision:preview.revision,allowRunning:true},'native');
+ const text=await readFile(paths.codex,'utf8');expect(text).not.toContain('old-private-key');expect(text).not.toContain('token_flow');expect(parse(text).model_provider).toBe('openai');
+ const {readdir}=await import('node:fs/promises');const backups=(await readdir(join(root,'agent-backups'))).filter(name=>name.startsWith('codex-repair-'));
+ const backup=JSON.parse(await readFile(join(root,'agent-backups',backups[0]),'utf8'));expect(Buffer.from(backup.bytes,'base64')).toEqual(damaged);expect((await stat(join(root,'agent-backups',backups[0]))).mode&0o777).toBe(0o600);
+});
+
+it('keeps official Codex catalog metadata and ChatGPT authentication alongside gateway selections',async()=>{
+ const {paths,connections}=await setup();const original='model="native"\nprofile="work"\napproval_policy="on-request"\n[profiles.work]\nmodel="native"\n';await writeFile(paths.codex,original);
+ const auth=join(paths.codex,'..','auth.json'),login='{"tokens":{"access_token":"private-official-token"}}';await writeFile(auth,login);
+ const {codexModelCatalog}=await import('../packages/core/src/codex-model-catalog');
+ const official={models:codexModelCatalog('gpt-fixture').models.map(model=>({...model,description:'original official metadata',context_window:1000000,default_reasoning_level:'high'}))};
+ const selections=[{model:'fixture/gateway',sourceId:'a'.repeat(24)}];
+ const first=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,origin:'http://127.0.0.1:9527',...selections[0],selections,keyId:randomUUID(),key:'gateway-key',officialCatalog:official});
+ expect(first).toMatchObject({codexCoexist:true,officialModelSlugs:['gpt-fixture']});
+ const current=parse(await readFile(paths.codex,'utf8')) as any;
+ expect(current.model_providers.token_flow).toEqual({name:'TokenFlow',base_url:'http://127.0.0.1:9527/codex/v1',wire_api:'responses',http_headers:{'x-tokenflow-client-key':'gateway-key'},requires_openai_auth:true,supports_websockets:false,capabilities:{remote_compaction:'v2'}});
+ const catalog=JSON.parse(await readFile(current.model_catalog_json,'utf8'));expect(catalog.models[0]).toEqual(official.models[0]);expect(catalog.models.map((model:any)=>model.slug)).toEqual(['gpt-fixture','fixture/gateway']);
+ expect(catalog.tokenflow_gateway_models).toEqual(['fixture/gateway']);expect(await readFile(auth,'utf8')).toBe(login);
+ current.model='gpt-fixture';current.profiles.work.model='gpt-fixture';await writeFile(paths.codex,stringify(current));
+ expect((await connections.status())[0]).toMatchObject({configurationState:'configured',drift:false});expect((await connections.review(first.id)).checks.every(check=>check.ok)).toBe(true);
+ current.model_providers.token_flow.http_headers['x-tokenflow-client-key']='external-key';await writeFile(paths.codex,stringify(current));expect((await connections.status())[0].drift).toBe(true);expect((await connections.review(first.id)).checks.find(check=>check.name==='客户端 Key 未被覆盖')?.ok).toBe(false);current.model_providers.token_flow.http_headers['x-tokenflow-client-key']='gateway-key';await writeFile(paths.codex,stringify(current));
+ const probe=vi.fn(async()=>64000);await connections.refreshCodexCompactionLimits(probe);expect(probe).toHaveBeenCalledTimes(1);expect(probe).toHaveBeenCalledWith('fixture/gateway');
+ expect(JSON.parse(await readFile(current.model_catalog_json,'utf8')).models[0]).toEqual(official.models[0]);
+ const second=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,replaceId:first.id,origin:'http://127.0.0.1:9527',...selections[0],selections,keyId:randomUUID(),key:'standalone-key'});
+ const standalone=parse(await readFile(paths.codex,'utf8')) as any;expect(standalone.model_providers.token_flow.experimental_bearer_token).toBe('standalone-key');expect(standalone.model_providers.token_flow.http_headers).toBeUndefined();expect(standalone.model_providers.token_flow.requires_openai_auth).toBe(false);
+ expect(standalone.model_providers.token_flow.capabilities).toBeUndefined();
+ await connections.restore(second.id);expect(await readFile(paths.codex,'utf8')).toBe(original);expect(await readFile(auth,'utf8')).toBe(login);
+});
+it('rejects official and gateway model slug collisions before changing Codex configuration',async()=>{
+ const {paths,connections}=await setup();const original='model="native"\n';await writeFile(paths.codex,original);
+ await expect(connections.apply({target:'codex',revision:(await connections.status())[0].revision,origin:'http://127.0.0.1:9527',model:'collision',sourceId:'s',keyId:randomUUID(),key:'key',officialCatalog:{models:[{slug:'collision'}]}})).rejects.toThrow('重复');expect(await readFile(paths.codex,'utf8')).toBe(original);
+});
+
+it('keeps official direct and its login while declaring a separate local-summary gateway provider, accepting model-menu changes and restoring native',async()=>{
+ const {paths,connections}=await setup();const auth=JSON.stringify({auth_mode:'chatgpt',tokens:{access_token:'fixture-official'}});await writeFile(join(paths.codex,'../auth.json'),auth);
+ await writeFile(paths.codex,'model="official-b"\nmodel_provider="openai"\nprofile="work"\n[profiles.work]\nmodel="official-b"\napproval_policy="never"\nsandbox_mode="read-only"\n[model_providers.openai]\nbase_url="http://127.0.0.1:9999/v1"\n');
+ const official={models:[{slug:'official-a',context_window:400000},{slug:'official-b',context_window:272000}]};
+ const record=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,origin:'http://127.0.0.1:9527',model:'gateway/test',sourceId:'source',keyId:randomUUID(),key:'fixture-gateway',officialCatalog:official,codexDirectHybrid:true});
+ const doc=parse(await readFile(paths.codex,'utf8')) as any;
+ expect(doc).toMatchObject({model:'official-b',model_provider:'openai',profiles:{work:{model:'official-b',model_provider:'openai',approval_policy:'never',sandbox_mode:'read-only'}}});expect(doc.model_providers.openai).toBeUndefined();expect(doc.model_auto_compact_token_limit_scope).toBeUndefined();
+ expect(doc.model_providers.token_flow).toMatchObject({base_url:'http://127.0.0.1:9527/v1',requires_openai_auth:false,capabilities:{remote_compaction:'unsupported'}});
+ expect(record.codexDirectHybrid).toBe(true);expect(record.codexCoexist).toBe(false);expect((await connections.review(record.id)).checks.every(c=>c.ok)).toBe(true);
+ expect(JSON.parse(await readFile(doc.model_catalog_json,'utf8')).models.slice(0,2)).toEqual(official.models);
+ doc.model='gateway/test';doc.profiles.work.model='gateway/test';await writeFile(paths.codex,stringify(doc));expect((await connections.status())[0].configurationState).toBe('configured');expect((await connections.review(record.id)).checks.every(c=>c.ok)).toBe(true);
+ const preview=await connections.restorePreview(record.id,'native');expect(preview.canRestore).toBe(true);await connections.restore(record.id,undefined,'native');expect(parse(await readFile(paths.codex,'utf8')).model_provider).toBe('openai');expect(await readFile(join(paths.codex,'../auth.json'),'utf8')).toBe(auth);
+});

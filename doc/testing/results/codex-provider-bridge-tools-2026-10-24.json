@@ -1,0 +1,61 @@
+{
+  "passed": true,
+  "scope": "Actual installed engine + stdio bridge, synthetic credentials + loopback Responses fixture, dynamic tools across provider roundtrip",
+  "toolCalls": [
+    {
+      "phase": "official-tool",
+      "tool": "bridge_echo",
+      "arguments": {
+        "text": "official-tool"
+      }
+    },
+    {
+      "phase": "gateway-tool",
+      "tool": "bridge_echo",
+      "arguments": {
+        "text": "gateway-tool"
+      }
+    },
+    {
+      "phase": "official-again-tool",
+      "tool": "bridge_echo",
+      "arguments": {
+        "text": "official-again-tool"
+      }
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-tool",
+      "effort": "high",
+      "tier": "priority"
+    },
+    {
+      "phase": "official-tool",
+      "effort": "high",
+      "tier": "priority"
+    },
+    {
+      "phase": "gateway-tool",
+      "effort": "high"
+    },
+    {
+      "phase": "gateway-tool",
+      "effort": "high"
+    },
+    {
+      "phase": "switch-official",
+      "effort": "high"
+    },
+    {
+      "phase": "official-again-tool",
+      "effort": "high",
+      "tier": "priority"
+    },
+    {
+      "phase": "official-again-tool",
+      "effort": "high",
+      "tier": "priority"
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import {desktopCredentialSchema,type QoderCrypto} from './desktop-accounts.js';
 import {safePath} from './agent-connections.js';
 import type {Secrets} from './service.js';
 import {z} from 'zod';
+import {CredentialAccessStaleError,RevisionCredentialAccess} from './revision-credential-access.js';
 
 export type QoderIdeOptions={path?:string;crypto?:QoderCrypto;platform?:NodeJS.Platform;fetch?:typeof fetch};
 /** Electron's user-data root for Qoder IDE. Every Electron child process carries it on the
@@ -30,7 +31,7 @@ type Journal=z.infer<typeof journalSchema>;
 const vaultKey='native-login-qoder-ide';
 /** Own only the IDE's four auth rows. Keep exact original encrypted values in the OS-protected vault. */
 export class QoderIdeLogin {
- private cache?:{revision:string;value:Promise<Identity|null>};
+ private credentialAccess=new RevisionCredentialAccess<Record<string,any>>();
  private busy=false;
  constructor(private options:QoderIdeOptions={},private secrets?:Secrets,private processes:()=>Promise<number[]>=async()=>[]){}
  private path(){return this.options.path??qoderIdeLoginPath(this.options.platform);}
@@ -41,24 +42,30 @@ export class QoderIdeLogin {
   const path=this.path();await safePath(path);try{await access(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return [null,null,null,null];throw error;}
   const db=new DatabaseSync(path,{readOnly:true});try{db.exec('PRAGMA busy_timeout=1000');return this.rows(db);}finally{db.close();}
  }
- private async identity(stored:string){
+ private async document(options?:{retry?:boolean;fresh?:boolean},expected?:string){
+  return this.credentialAccess.read(async()=>{
+   const stored=(await this.stored())[0];if(expected!==undefined&&stored!==expected)throw new CredentialAccessStaleError();
+   if(!stored){this.credentialAccess.invalidate();throw conflict('未找到 Qoder IDE 本机登录。');}return {revision:nativeDigest(stored),input:stored};
+  },async stored=>{
+   if(!this.options.crypto)throw Error();const envelope=JSON.parse(stored);
+   if(envelope?.type!=='Buffer'||!Array.isArray(envelope.data)||!envelope.data.length||!envelope.data.every((n:unknown)=>Number.isInteger(n)&&Number(n)>=0&&Number(n)<=255))throw Error();
+   return JSON.parse(await this.options.crypto('decrypt',Buffer.from(envelope.data).toString('base64')));
+  },{mode:options?.fresh?'fresh':options?.retry?'retry':'cached'});
+ }
+ private async identity(stored:string,options?:{retry?:boolean;fresh?:boolean}){
   try{
-  if(!this.options.crypto)throw Error();const envelope=JSON.parse(stored);
-  if(envelope?.type!=='Buffer'||!Array.isArray(envelope.data)||!envelope.data.length||!envelope.data.every((n:unknown)=>Number.isInteger(n)&&Number(n)>=0&&Number(n)<=255))throw Error();
-  const value=JSON.parse(await this.options.crypto('decrypt',Buffer.from(envelope.data).toString('base64')));
+  const value=await this.document(options,stored);
   const text=(v:unknown)=>typeof v==='string'&&v.trim()?v.trim():undefined;
   if(!value||!text(value.token))return null;
   const accountId=text(value.id);if(!accountId)throw Error();
   return {accountId,email:text(value.email),displayName:text(value.name),orgId:text(value.orgId)};
   }catch{throw conflict('无法确认 Qoder IDE 现有登录，未覆盖原数据。请检查系统安全存储后刷新。');}
  }
- async importCredential(){
+ async importCredential(options?:{retry?:boolean}){
   if(!this.options.crypto)throw conflict('请使用 TokenFlow 桌面版读取 Qoder IDE 本机授权。');
   if(process.env.QODER_PERSONAL_TOKEN||process.env.QODER_PERSONAL_ACCESS_TOKEN||process.env.QODER_CONFIG_DIR||process.env.VSCODE_PORTABLE||process.env.VSCODE_APPDATA)throw conflict('检测到 Qoder IDE 环境覆盖，请移除后再导入本机登录。');
-  const state=await this.stored();if(!state[0])throw conflict('未找到 Qoder IDE 本机登录。');
   let value:Record<string,unknown>;try{
-   const envelope=JSON.parse(state[0]);if(envelope?.type!=='Buffer'||!Array.isArray(envelope.data)||!envelope.data.length||!envelope.data.every((n:unknown)=>Number.isInteger(n)&&Number(n)>=0&&Number(n)<=255))throw Error();
-   value=JSON.parse(await this.options.crypto('decrypt',Buffer.from(envelope.data).toString('base64')));
+   value=await this.document(options);
   }catch{throw conflict('无法读取 Qoder IDE 本机登录，请检查系统安全存储后重试。');}
   return verifyNativeQoder(nativeQoderCredential(value,true),this.options.fetch);
  }
@@ -69,20 +76,19 @@ export class QoderIdeLogin {
   if(process.env.QODER_PERSONAL_TOKEN||process.env.QODER_PERSONAL_ACCESS_TOKEN||process.env.QODER_CONFIG_DIR||process.env.VSCODE_PORTABLE||process.env.VSCODE_APPDATA)return '检测到 Qoder 登录环境覆盖，请移除覆盖后再切换。';
   return '';
  }
- private async journal():Promise<Journal|null>{const raw=await this.secrets?.get(vaultKey);if(!raw)return null;try{return journalSchema.parse(JSON.parse(raw));}catch{throw conflict('Qoder IDE 原登录备份无法读取，请保留备份并检查系统安全存储。');}}
+ private async journal(retry=false):Promise<Journal|null>{const raw=await this.secrets?.get(vaultKey,{retry});if(!raw)return null;try{return journalSchema.parse(JSON.parse(raw));}catch{throw conflict('Qoder IDE 原登录备份无法读取，请保留备份并检查系统安全存储。');}}
  private async save(journal:Journal|null){await this.secrets!.set(vaultKey,journal?JSON.stringify(journal):'');}
  async status(refresh=false){
   let stored:State=[null,null,null,null],identity:Identity|null=null,readError='';
-  try{stored=await this.stored();if(stored[0]){const revision=nativeDigest(stored[0]);if(refresh||this.cache?.revision!==revision)this.cache={revision,value:this.identity(stored[0])};identity=await this.cache.value;}}
+  try{stored=await this.stored();if(stored[0])identity=await this.identity(stored[0],{retry:refresh});else this.credentialAccess.invalidate();}
   catch{readError=this.options.crypto?'Qoder IDE 登录暂不可读取，请检查系统安全存储后刷新。':'Qoder IDE 登录需要通过 TokenFlow 桌面版读取。';}
-  const journal=await this.journal();
+  const journal=await this.journal(refresh);
   return {revision:nativeDigest(stored),accountId:identity?.accountId,email:identity?.email,displayName:identity?.displayName,loginState:identity?'signed-in' as const:readError?'unreadable' as const:'signed-out' as const,readError,readOnly:!this.secrets,pids:await this.processes(),backup:journal&&journal.state!=='restored'?{state:journal.state,createdAt:journal.createdAt}:null,gatewayConnected:false,unavailableReason:this.support()};
  }
  async usageLogin(){
   if(!this.options.crypto)return null;
-  const state=await this.stored();if(!state[0])return null;
-  const revision=nativeDigest(state[0]);if(this.cache?.revision!==revision)this.cache={revision,value:this.identity(state[0])};
-  const identity=await this.cache.value;
+  const state=await this.stored();if(!state[0]){this.credentialAccess.invalidate();return null;}
+  const identity=await this.identity(state[0]);
   return identity?{provider:'qoder' as const,accountId:identity.accountId,email:identity.email??null,displayName:identity.displayName}:null;
  }
  async prepare(raw:unknown){
@@ -112,13 +118,13 @@ export class QoderIdeLogin {
    if(journal.path!==this.path())throw conflict('Qoder IDE 登录目录已变化，已保留原备份。');
    // An explicit new selection supersedes the previous switch; do not first restore
    // old credentials over an external login. Revision/SQLite checks still apply.
-   if(!restore){if(state[0])await this.identity(state[0]);return;}
+   if(!restore){if(state[0])await this.identity(state[0],{fresh:true});return;}
    const exact=[journal.after,...(restore?[journal.before,journal.pendingBefore]:[])].some(s=>nativeDigest(s)===revision);
    if(!exact&&!(restore&&state[0]===null)){
-    const identity=state[0]?await this.identity(state[0]):null;
+    const identity=state[0]?await this.identity(state[0],{fresh:true}):null;
     if(!identity||identity.accountId!==journal.identity.accountId||(identity.orgId??'')!==(journal.identity.orgId??''))throw conflict('Qoder IDE 已登录其他账号或退出登录，未覆盖当前状态；原备份仍保留。');
    }
-  }else if(state[0])await this.identity(state[0]);
+  }else if(state[0])await this.identity(state[0],{fresh:true});
  }
  private async database(){
   for(const suffix of ['', '-wal', '-shm', '-journal'])await safePath(this.path()+suffix);
@@ -129,7 +135,7 @@ export class QoderIdeLogin {
  }
  private async write(expected:State,after:State){
   const db=await this.database();
-  try{db.exec('BEGIN IMMEDIATE');if(nativeDigest(this.rows(db))!==nativeDigest(expected))throw conflict('Qoder IDE 登录在写入前发生变化，未覆盖。');this.writeRows(db,after);db.exec('COMMIT');}
+  try{db.exec('BEGIN IMMEDIATE');if(nativeDigest(this.rows(db))!==nativeDigest(expected))throw conflict('Qoder IDE 登录在写入前发生变化，未覆盖。');this.credentialAccess.invalidate();this.writeRows(db,after);db.exec('COMMIT');this.credentialAccess.invalidate();}
   catch(error){try{db.exec('ROLLBACK');}catch{}throw error;}finally{db.close();}
  }
  async apply(revision:string,prepared:Awaited<ReturnType<QoderIdeLogin['prepare']>>|null){
@@ -148,7 +154,7 @@ export class QoderIdeLogin {
    await this.save(journal);
    try{
     if((await this.processes()).length)throw conflict('Qoder IDE 已重新运行，未更改登录。');
-    this.writeRows(db,after);db.exec('COMMIT');db.close();db=undefined;
+    this.credentialAccess.invalidate();this.writeRows(db,after);db.exec('COMMIT');this.credentialAccess.invalidate();db.close();db=undefined;
     journal.state=prepared?'applied':'restored';await this.save(journal);
    }catch(error){
     if(db){try{db.exec('ROLLBACK');}catch{}db.close();db=undefined;}

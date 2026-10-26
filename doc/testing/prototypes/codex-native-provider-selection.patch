@@ -1,0 +1,38 @@
+diff --git a/codex-rs/core/src/agent/child_config.rs b/codex-rs/core/src/agent/child_config.rs
+index 3d56d7e..44ec21f 100644
+--- a/codex-rs/core/src/agent/child_config.rs
++++ b/codex-rs/core/src/agent/child_config.rs
+@@ -81,6 +81,7 @@ pub(crate) async fn prepare_agent_spawn_config(
+                 .clone_from(&turn.developer_instructions);
+         }
+     }
++    apply_test_model_provider_route(&mut config, options.full_history_fork)?;
+     apply_spawn_agent_service_tier(session, &mut config).await?;
+     apply_spawn_agent_runtime_overrides(&mut config, turn)?;
+ 
+@@ -371,3 +372,25 @@ fn validate_spawn_agent_reasoning_effort(
+         "Reasoning effort `{requested_reasoning_effort}` is not supported for model `{model}`. Supported reasoning efforts: {supported}"
+     ))
+ }
++
++// Isolated feasibility probe only. The launcher supplies an exact model allowlist.
++// Keep the native AgentControl path, parent edge, permissions and cancellation.
++fn apply_test_model_provider_route(config: &mut Config, full_history_fork: bool) -> Result<(), String> {
++    let Some(raw) = std::env::var_os("TOKENFLOW_TEST_MODEL_PROVIDER_ROUTES") else { return Ok(()); };
++    let routes: std::collections::HashMap<String, String> = serde_json::from_str(&raw.to_string_lossy())
++        .map_err(|_| "Invalid isolated provider route configuration".to_string())?;
++    let Some(model) = config.model.as_ref() else { return Ok(()); };
++    let Some(provider_id) = routes.get(model) else { return Ok(()); };
++    if provider_id != "openai" && provider_id != "token_flow" {
++        return Err("Isolated provider route is not allowed".to_string());
++    }
++    if config.model_provider_id == *provider_id { return Ok(()); }
++    if full_history_fork {
++        return Err("Cross-provider full-history forks need portable context; use a fresh child".to_string());
++    }
++    let provider = config.model_providers.get(provider_id).cloned()
++        .ok_or_else(|| "Configured child provider is missing".to_string())?;
++    config.model_provider_id = provider_id.clone();
++    config.model_provider = provider;
++    Ok(())
++}

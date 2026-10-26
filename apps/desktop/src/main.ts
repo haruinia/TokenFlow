@@ -1,4 +1,4 @@
-import {qoderCrypto,qoderIdeCrypto,runQoderCrypto} from './qoder-crypto.js';
+import {qoderCrypto,qoderIdeCrypto,runQoderCrypto,closeQoderCrypto} from './qoder-crypto.js';
 import { app, BrowserWindow, safeStorage, session, dialog, shell, nativeImage, ipcMain, clipboard, Tray, Menu } from 'electron';
 import { mkdirSync, existsSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
@@ -83,9 +83,11 @@ async function start() {
   const token=randomBytes(32).toString('hex');
   const base=app.isPackaged?process.resourcesPath:resolve(here,'..');
   const claudeKeychainStore=process.platform==='darwin'?claudeKeychain(dirname(agentPaths().claude)):undefined;
-  const claudeCredentialStore=claudeKeychainStore?{read:guardCredentialAccess(allowCredentials,()=>claudeKeychainStore.read()),write:guardCredentialAccess(allowCredentials,(value:string|null)=>claudeKeychainStore.write(value))}:undefined;
+  const claudeCredentialStore=claudeKeychainStore?{read:guardCredentialAccess(allowCredentials,(options?:{fresh?:boolean})=>claudeKeychainStore.read(options)),write:guardCredentialAccess(allowCredentials,(value:string|null)=>claudeKeychainStore.write(value))}:undefined;
   await startup.update('正在启动本地服务…');
-  const service=await createDesktopService({root,token,localKey,secrets,outboundProxyURL:network.url,networkSnapshot:network.snapshot,fileCleanup:{
+  // Desktop conversations stay on the installed official engine. Cross-provider
+  // native-agent runtime remains available only to explicitly configured probes.
+  const service=await createDesktopService({codexBridgeRuntime:join(here,'codex-provider-bridge.js'),root,token,localKey,secrets,outboundProxyURL:network.url,networkSnapshot:network.snapshot,fileCleanup:{
     ...desktopCleanupFiles(app,shell),
     pickDirectory:async()=>{
       const picker={title:'选择扫描位置，可选择文件夹或磁盘',properties:['openDirectory'] as ('openDirectory')[]};
@@ -148,7 +150,7 @@ const unpacked=bundled.replaceAll('app.asar','app.asar.unpacked');return existsS
   app.on('activate',()=>{if(window){void show();}else{startup?.focus();}});
   // Keep the gateway and menu bar alive even if the workspace is destroyed.
   app.on('window-all-closed',()=>{});
-  app.on('before-quit',event=>{if(closing)return;event.preventDefault();closing=true;void reconciliation.close().finally(()=>service.app.close()).finally(()=>network.close()).finally(()=>app.quit());});
+  app.on('before-quit',event=>{if(closing)return;event.preventDefault();closing=true;void reconciliation.close().finally(()=>service.app.close()).finally(()=>closeQoderCrypto()).finally(()=>network.close()).finally(()=>app.quit());});
   // The workspace opens immediately; saved accounts, namespaced models and quotas load in the background.
   await startup.update('正在打开工作台…');
   void service.discoverLocal().catch(() => undefined); // Failure is exposed in the model center with a retry action.

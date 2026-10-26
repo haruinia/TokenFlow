@@ -1,0 +1,119 @@
+{
+  "probeCompleted": true,
+  "currentCompactionMatchesNative": false,
+  "explicitCapabilityMatchesNative": true,
+  "scope": "Installed Codex engine; synthetic upstream/auth; explicit compaction, not automatic threshold; no real OpenAI inference",
+  "results": [
+    {
+      "scenario": "native",
+      "provider": "openai",
+      "providerCaps": {
+        "imageGeneration": true,
+        "webSearch": true
+      },
+      "selectionPassthrough": true,
+      "observed": [
+        {
+          "model": "gpt-6-astra",
+          "effort": "low",
+          "tier": "omitted/default",
+          "path": "/native/v1/responses"
+        },
+        {
+          "model": "gpt-6-astra",
+          "effort": "high",
+          "tier": "priority",
+          "path": "/native/v1/responses"
+        },
+        {
+          "model": "gpt-6.1-sol",
+          "effort": "xhigh",
+          "tier": "omitted/default",
+          "path": "/native/v1/responses"
+        }
+      ],
+      "compaction": [
+        {
+          "path": "/native/v1/responses",
+          "model": "gpt-6.1-sol",
+          "remoteTrigger": true,
+          "localSummaryPrompt": false
+        }
+      ]
+    },
+    {
+      "scenario": "current-coexist",
+      "provider": "token_flow",
+      "providerCaps": {
+        "imageGeneration": true,
+        "webSearch": true
+      },
+      "selectionPassthrough": true,
+      "observed": [
+        {
+          "model": "gpt-6-astra",
+          "effort": "low",
+          "tier": "omitted/default",
+          "path": "/codex/v1/responses"
+        },
+        {
+          "model": "gpt-6-astra",
+          "effort": "high",
+          "tier": "priority",
+          "path": "/codex/v1/responses"
+        },
+        {
+          "model": "gpt-6.1-sol",
+          "effort": "xhigh",
+          "tier": "omitted/default",
+          "path": "/codex/v1/responses"
+        }
+      ],
+      "compaction": [
+        {
+          "path": "/codex/v1/responses",
+          "model": "gpt-6.1-sol",
+          "remoteTrigger": false,
+          "localSummaryPrompt": true
+        }
+      ]
+    },
+    {
+      "scenario": "explicit-remote-compaction",
+      "provider": "token_flow",
+      "providerCaps": {
+        "imageGeneration": true,
+        "webSearch": true
+      },
+      "selectionPassthrough": true,
+      "observed": [
+        {
+          "model": "gpt-6-astra",
+          "effort": "low",
+          "tier": "omitted/default",
+          "path": "/codex/v1/responses"
+        },
+        {
+          "model": "gpt-6-astra",
+          "effort": "high",
+          "tier": "priority",
+          "path": "/codex/v1/responses"
+        },
+        {
+          "model": "gpt-6.1-sol",
+          "effort": "xhigh",
+          "tier": "omitted/default",
+          "path": "/codex/v1/responses"
+        }
+      ],
+      "compaction": [
+        {
+          "path": "/codex/v1/responses",
+          "model": "gpt-6.1-sol",
+          "remoteTrigger": true,
+          "localSummaryPrompt": false
+        }
+      ]
+    }
+  ]
+}

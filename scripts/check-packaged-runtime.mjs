@@ -24,6 +24,14 @@ try{
  assert.ok(cursor.Agent,'Cursor SDK loads its native runtime');
  const sdk=await import(pathToFileURL(req.resolve('@token-flow/codebuddy-runtime')).href);
  assert.equal(typeof sdk.runOfficialSDK,'function');
+ const schemaModule=await import(new URL('./client-schema.js',pathToFileURL(req.resolve('@token-flow/codebuddy-runtime'))).href);
+ const compile=schemaModule.createClientSchemaCompiler();
+ const declared={type:'object',properties:{selection:{type:'object',properties:{id:{type:'string'},name:{type:'string'}},oneOf:[{required:['id']},{required:['name']}]}},required:['selection']};
+ const schema=compile(declared),args={selection:{id:'synthetic'}};
+ assert.deepEqual(schema.inputSchema,declared);
+ assert.deepEqual(schema.parse(args),args);
+ assert.throws(()=>schema.parse({selection:{id:'synthetic',name:'ambiguous'}}));
+ assert.deepEqual(compile({$schema:'http://json-schema.org/draft-06/schema#',type:'object'}).parse({}),{});
  let createDesktopService;
  for(const file of await readdir(join(archive,'dist'))){
   if(!/^chunk-.*\.js$/.test(file))continue;
@@ -150,5 +158,5 @@ try{
  }finally{globalThis.fetch=originalFetch;}
  const zstd=await service.app.inject({method:'POST',url:'/v1/responses',headers:{...headers,authorization:`Bearer ${key.apiKey}`,'content-type':'application/json','content-encoding':'zstd'},payload:zstdCompressSync(Buffer.from(JSON.stringify({model:'qoder/kmodel_latest',input:'Packaged zstd complete history 首🙂尾',store:false})))});
  assert.equal(zstd.statusCode,200,zstd.body);assert.equal(zstd.json().output[0].content[0].text,'qoder');
- console.log(JSON.stringify({passed:true,electron:process.versions.electron,platform:process.platform,arch:process.arch,checks:['native zstd request decoded by the packaged gateway','no switch-time or gateway-born bootstrap; explicit Codex compaction','valid expanding summaries, immediate failed-summary retry and cached continuation','production dependencies','bundled licenses','Cursor native SDK','WorkBuddy SDK import','static UI','Responses gateway','Pi repair conversation','selected usage evidence','local usage worker','Claude native account attribution','existing Qoder and both WorkBuddy edition identities','Qoder IDE switch, restore and standalone isolation','automatic LAN listener, per-key source IPs and isolated model routes','Claude Desktop subagent roles and independent menu routes','Claude Desktop external gateway drift detection']},null,2));
+ console.log(JSON.stringify({passed:true,electron:process.versions.electron,platform:process.platform,arch:process.arch,checks:['native zstd request decoded by the packaged gateway','no switch-time or gateway-born bootstrap; explicit Codex compaction','valid expanding summaries, immediate failed-summary retry and cached continuation','production dependencies','bundled licenses','Cursor native SDK','WorkBuddy SDK import','WorkBuddy original-schema validation and draft metadata','static UI','Responses gateway','Pi repair conversation','selected usage evidence','local usage worker','Claude native account attribution','existing Qoder and both WorkBuddy edition identities','Qoder IDE switch, restore and standalone isolation','automatic LAN listener, per-key source IPs and isolated model routes','Claude Desktop subagent roles and independent menu routes','Claude Desktop external gateway drift detection']},null,2));
 }finally{await service?.app.close();await rm(root,{recursive:true,force:true});}

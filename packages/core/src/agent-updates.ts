@@ -30,7 +30,7 @@ export class AgentUpdates{
   try{
    let url:string|undefined;
    const npm:Partial<Record<Target,string>>={pi:'@earendil-works/pi-coding-agent',claude:'@anthropic-ai/claude-code',codex:'@openai/codex'};
-   if(npm[target]&&installed.channel!=='application')url=`https://registry.npmjs.org/${encodeURIComponent(npm[target]!)}/latest`;
+   if(npm[target]&&installed.channel==='npm')url=`https://registry.npmjs.org/${encodeURIComponent(npm[target]!)}/latest`;
    else if(target==='deepseek'&&this.platform==='darwin'&&this.arch==='arm64')url='https://download.deepseek.com/dsh-desk/feeds/mac-arm64/nightly-mac.yml';
    else if(target==='deepseek'&&this.platform==='win32'&&this.arch==='x64')url='https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml';
    else if(target==='qoder'&&this.platform==='darwin')url='https://download.qoder.com.cn/qoder-app/releases/latest-mac.yml';

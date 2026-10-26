@@ -1,12 +1,12 @@
 import {it,expect,vi} from 'vitest';
-import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,rm,realpath} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createServer} from 'node:net';
 import {createDesktopService} from '../packages/core/src/service.js';
 
 it('reports account discovery as pending even after the gateway is running, then publishes saved accounts',async()=>{
- const root=await mkdtemp(join(tmpdir(),'tokenflow-account-startup-'));
+ const root=await mkdtemp(join(await realpath(tmpdir()),'tokenflow-account-startup-'));
  const allocator=createServer();await new Promise<void>(r=>allocator.listen(0,'127.0.0.1',r));const port=(allocator.address() as {port:number}).port;await new Promise<void>(r=>allocator.close(()=>r()));
  await mkdir(join(root,'cliproxy'));
  await writeFile(join(root,'cliproxy/fixture-accounts.json'),JSON.stringify([{name:'qoder.json',provider:'qoder',status:'active',models:['fixture-model']}]));

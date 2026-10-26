@@ -43,7 +43,9 @@ const accountSchema = z.object({
   auth_index: z.union([z.string(), z.number()]).optional(), project_id: z.string().optional(), account_type: z.string().optional(),
   id_token: z.object({chatgpt_account_id: z.string().optional(), plan_type: z.string().optional()}).passthrough().optional(),
 });
-const modelSchema = z.object({id: z.string(), display_name: z.string().optional(), type: z.string().optional(), owned_by: z.string().optional(), supportedInputModalities:z.array(z.string()).optional(),context_length:z.number().positive().optional(),context_window:z.number().positive().optional()});
+// Optional capacity metadata must not invalidate an otherwise callable catalog.
+const modelCapacity = z.number().int().positive().safe().optional().catch(undefined);
+const modelSchema = z.object({id: z.string(), display_name: z.string().optional(), type: z.string().optional(), owned_by: z.string().optional(), supportedInputModalities:z.array(z.string()).optional(),context_length:modelCapacity,context_window:modelCapacity,inputTokenLimit:modelCapacity});
 const qoderProfilesSchema=z.record(z.object({email:z.string().email().max(200),checkedAt:z.number().finite()}));
 const apiCallSchema = z.object({status_code: z.number().int(), header: z.record(z.array(z.string())).default({}), body: z.string().default('')});
 export function revokedCredential(file:{status?:string;status_message?:string}){return file.status==='error'&&/\b(?:invalid_grant|token_revoked|refresh_token_revoked|refresh_token_reused|refresh_token_expired)\b/i.test(file.status_message??'');}
@@ -52,7 +54,7 @@ export type LocalAccount = {id: string; provider: string; label: string; nativeC
 /** `provider` 为承接该模型的登录 Provider；未知类型（如 Gemini API Key）为空。 */
 // Unknown capabilities remain unknown; never infer vision from a model name.
 function modelImageCapabilities(model:z.infer<typeof modelSchema>,provider:string){
- const contextWindow=model.context_length??model.context_window;
+ const contextWindow=model.context_length??model.context_window??model.inputTokenLimit;
  const capacity=contextWindow?{contextWindow}:{};
  const modalities=model.supportedInputModalities;
  if(!modalities?.length)return capacity;

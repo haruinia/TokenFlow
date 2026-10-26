@@ -210,3 +210,13 @@ it.each(['text_mismatch','missing_result','context_limit','tool_schema','sdk_exe
   }
  }finally{await sdk.close();await rm(root,{recursive:true,force:true});}
 });
+it.each(['unknown_name','unfinished_block','invalid_json','invalid_args','truncated_turn','parallel_limit','orphan_delta','input_limit'] as const)('preserves stable tool code and fixed %s subtype in both protocols and transports',async toolIssue=>{
+ const root=await mkdtemp(join(tmpdir(),'sdk-tool-issue-'));
+ const sdk=new WorkBuddySDKProvider(root,async()=>({type:'workbuddy',access_token:'private-token'}),async input=>{
+  input.onDiagnostic?.({event:'failure',elapsedMs:1,reason:'tool_protocol',toolIssue,origin:'exception',toolBlocks:1,unfinishedToolBlocks:0});throw Error('PRIVATE_TOOL_ARGUMENT');
+ });
+ try{for(const path of ['messages','responses'])for(const stream of [false,true]){
+  const response=await sdk.response('chosen',path,{model:'workbuddy/test',...(path==='messages'?{messages:[{role:'user',content:'PRIVATE_PROMPT'}]}:{input:'PRIVATE_PROMPT'}),stream},new AbortController().signal);
+  const wire=await response.text();expect(wire).toContain('workbuddy_tool_protocol');expect(wire).toContain(toolIssue);expect(wire).not.toMatch(/PRIVATE|private-token|toolBlocks/);if(!stream)expect(response.status).toBe(502);
+ }}finally{await sdk.close();await rm(root,{recursive:true,force:true});}
+});

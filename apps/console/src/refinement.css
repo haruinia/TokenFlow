@@ -306,7 +306,13 @@ a:hover{text-decoration:underline}
 .tfAgentPickerCatalog>header>.tfAgentCatalogIdentity{display:flex;align-items:center;gap:8px;min-width:0;flex:0 1 auto}
 .tfAgentCatalogIdentity small{max-width:220px}
 .tfAgentPickerCatalog>header>.textButton{margin-left:auto;flex-shrink:0}
-.tfAgentPickerCatalog>header>.tfAgentPickerRings{display:flex;align-items:center;gap:8px;min-width:0;overflow:auto}
+.tfAgentPickerCatalog>header>.tfAgentPickerRings{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;min-width:0;flex-basis:100%}
+.tfAgentPickerQuotaWindow{display:flex;align-items:center;gap:6px;min-width:0;font-size:11px;color:var(--muted)}
+.tfAgentPickerQuotaWindow>span:last-child{display:grid;gap:2px;overflow-wrap:anywhere}
+.tfModelQuotaDialog{width:min(560px,calc(100vw - 32px))}
+.tfModelQuotaDialog .quota{max-height:none;padding:0}
+.tfModelQuotaDialog .quotaWindowDetails{min-width:0;overflow-wrap:anywhere}
+.tfAgentPickerCatalog>header>.tfModelQuotaButton{margin-left:0}
 .tfAgentPickerRings .quotaRing{width:36px;height:36px}
 .tfAgentPickerRings .quotaRing>span{font-size:11px}
 .tfAgentPickerRings .quotaRing>span>small{font-size:8px}
@@ -622,11 +628,11 @@ a:hover{text-decoration:underline}
 .tfRequestStatus{justify-content:flex-start;max-width:880px;width:100%;margin-inline:auto;padding:0 16px 8px}
 .tfNotifications,.nativeMac .tfNotifications{inset:auto 16px 80px auto}
 
-/* Every Thinking request uses the same viewport center, without a surface or backdrop. */
+/* Shared page feedback never obscures an open progress dialog. */
 .tfThinkingFeedback{position:fixed;inset:0;margin:auto;padding:0;border:0;width:max-content;height:max-content;overflow:visible;background:transparent;color:var(--text);pointer-events:none;-webkit-app-region:no-drag}
 .tfThinkingFeedback::backdrop{background:transparent;pointer-events:none}
-.tfThinkingFeedback .tfThinking{font-size:13px}
-body:has(dialog[open],.tfPage .tfLoadingSkeleton) .tfThinkingFeedback[data-fallback=true]{display:none}
+.tfThinkingFeedback .tfThinking{font-size:13px;color:var(--text)}
+body:has(dialog[open]) .tfThinkingFeedback,body:has(.tfPage .tfLoadingSkeleton) .tfThinkingFeedback[data-fallback=true]{display:none}
 
 /* Login refresh updates quota, while expanded quota stays outside the selected fill. */
 .tfNativeRefresh.tfRefreshing>svg{animation:tfRefreshSpin .8s linear infinite}
@@ -715,3 +721,14 @@ body:has(dialog[open],.tfPage .tfLoadingSkeleton) .tfThinkingFeedback[data-fallb
 .tfPickerAccountCount{margin-left:8px;font-size:11px;font-variant-numeric:tabular-nums}
 .tfAccessChoices input:focus-visible+span{outline:1px solid var(--muted)}
 .tfAccountsPage>.tfUsageFold{margin-bottom:16px}
+
+.tfQuotaModelDetails{font-size:11px;color:var(--muted)}
+.tfQuotaModelDetails>summary{cursor:pointer;width:fit-content;padding:4px 0}
+.tfQuotaModelDetails>.hint{display:block;margin:8px 0}
+.tfQuotaModelRows{display:grid;gap:12px}
+
+/* Account placeholders and loaded identities share the same flex row. */
+.tfAgentColumns div.tfLineMain{display:flex;align-items:center}
+.tfAgentFieldSkeleton{display:inline-block;vertical-align:middle;width:min(100%,24ch);height:1em}
+.tfAgentFieldSkeleton.short{width:min(100%,14ch)}
+.tfTileText .tfAgentFieldSkeleton{width:12ch;max-width:100%}

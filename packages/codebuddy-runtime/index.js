@@ -2,7 +2,9 @@ import {createRequire} from 'node:module';
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {query,createSdkMcpServer,tool} from '@tencent-ai/agent-sdk';
-import {fromJSONSchema,z} from 'zod';
+import {z} from 'zod';
+import {ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js';
+import {createClientSchemaCompiler} from './client-schema.js';
 
 const modelTransportPrompt = 'Continue the caller conversation supplied in the user input. Follow the caller system instructions below. You provide model responses and client tool proposals only. The client owns task execution and executes every proposed tool. Do not act as a separate coding agent, access local files, or claim a tool executed before its result appears in the supplied history. Historical tool calls are not new requests. Output the continuation, not an explanation of the transcript.';
 
@@ -10,16 +12,10 @@ const modelTransportPrompt = 'Continue the caller conversation supplied in the u
 const require=createRequire(import.meta.url);
 const cli=resolve(require.resolve('@tencent-ai/agent-sdk'),'../../cli/bin/codebuddy').replace(/\.asar([/\\])/g,'.asar.unpacked$1');
 
-// Codex app tools may use top-level unions or keywords Zod cannot convert.
-// Those still accept any object; the model reads the original schema instead.
-function clientSchema(parameters){
- try{const schema=fromJSONSchema(parameters);if(schema.shape)return {schema,note:''};}catch{}
- return {schema:z.looseObject({}),note:` Parameters JSON Schema: ${JSON.stringify(parameters)}`};
-}
-
 function sourceErrorCode(message){
  return /\b11128\b|unapproved channel/i.test(message)?'source_policy_blocked':/\b401\b|unauthorized|invalid.*token/i.test(message)?'authentication_error':/\b429\b|rate.limit/i.test(message)?'rate_limit_error':undefined;
 }
+const toolIssues=new Set(['unknown_name','unfinished_block','invalid_json','invalid_args','truncated_turn','parallel_limit','orphan_delta','input_limit']);
 
 // Inspect errors in memory; diagnostic events contain only known labels,
 // counters and a fingerprint, never arbitrary exception/request text.
@@ -27,10 +23,12 @@ function failureDiagnostic(value,origin){
  const details=[...new Set([value?.message,...(Array.isArray(value?.errors)?value.errors:[]),value?.error,value?.sdkCause].filter(v=>v!==undefined))];
  const detail=details.slice(0,32).map(v=>typeof v==='string'?v:[v?.message,v?.type,v?.code].filter(v=>typeof v==='string'||typeof v==='number').join(' ')).join('\n').slice(0,65536);
  const source=sourceErrorCode(detail);
- const reason=source??(/text stream mismatch/.test(detail)?'text_mismatch':/model (?:mismatch|changed)/i.test(detail)?'model_mismatch':/context.{0,40}(?:length|window|limit|exceed)|(?:input|prompt).{0,30}(?:too long|too large)|too many tokens/i.test(detail)?'context_limit':/(?:max.?tokens|output.{0,20}(?:limit|budget)).{0,40}(?:exceed|invalid|maximum)/i.test(detail)?'output_limit':/(?:invalid|unsupported).{0,30}(?:tool|function).{0,20}schema|(?:tool|function).{0,20}schema.{0,30}(?:invalid|unsupported)/i.test(detail)?'tool_schema':/tool (?:delta|input|turn|proposal)|incomplete or unknown tool|single client tool limit/i.test(detail)?'tool_protocol':/max(?:imum)? turns|turns \(\d+\) exceeded/i.test(detail)?'turn_limit':/EOF|socket|ECONN|fetch failed|ENOTFOUND/i.test(detail)?'transport':/timeout|timed out/i.test(detail)?'timeout':value?.name==='CLIStartupError'?'sdk_startup':value?.name==='ExecutionError'?'sdk_execution':'unknown');
+ const toolIssue=toolIssues.has(value?.sdkToolIssue)?value.sdkToolIssue:undefined;
+ const reason=source??(toolIssue?'tool_protocol':/text stream mismatch/.test(detail)?'text_mismatch':/model (?:mismatch|changed)/i.test(detail)?'model_mismatch':/context.{0,40}(?:length|window|limit|exceed)|(?:input|prompt).{0,30}(?:too long|too large)|too many tokens/i.test(detail)?'context_limit':/(?:max.?tokens|output.{0,20}(?:limit|budget)).{0,40}(?:exceed|invalid|maximum)/i.test(detail)?'output_limit':/(?:invalid|unsupported).{0,30}(?:tool|function).{0,20}schema|(?:tool|function).{0,20}schema.{0,30}(?:invalid|unsupported)/i.test(detail)?'tool_schema':/tool (?:delta|input|turn|proposal)|incomplete or unknown tool|single client tool limit/i.test(detail)?'tool_protocol':/max(?:imum)? turns|turns \(\d+\) exceeded/i.test(detail)?'turn_limit':/EOF|socket|ECONN|fetch failed|ENOTFOUND/i.test(detail)?'transport':/timeout|timed out/i.test(detail)?'timeout':value?.name==='CLIStartupError'?'sdk_startup':value?.name==='ExecutionError'?'sdk_execution':'unknown');
  const mismatch=detail.match(/text stream mismatch: partial=(\d+), complete=(\d+)/);
+ const toolStats={};for(const [field,valueField] of [['toolBlocks','sdkToolBlocks'],['unfinishedToolBlocks','sdkUnfinishedToolBlocks']])if(Number.isSafeInteger(value?.[valueField])&&value[valueField]>=0&&value[valueField]<=1000000)toolStats[field]=value[valueField];
  const status=[value?.status,value?.statusCode].find(v=>Number.isInteger(v)&&v>=400&&v<=599)??(Number(detail.match(/\b(?:HTTP(?: status)?|status(?:Code)?|API Error)[: =]+(400|401|403|408|413|422|429|500|502|503|504)\b/i)?.[1])||undefined);
- return {origin,reason,...(status?{status}:{}),...(details.length?{errorCount:details.length,fingerprint:createHash('sha256').update(detail).digest('hex')}:{}),...(mismatch?{partialChars:Number(mismatch[1]),completeChars:Number(mismatch[2])}:{}),...(['error_max_turns','error_during_execution','error_max_budget_usd'].includes(value?.subtype)?{subtype:value.subtype}:{})};
+ return {origin,reason,...(toolIssue?{toolIssue,...toolStats}:{}),...(status?{status}:{}),...(details.length?{errorCount:details.length,fingerprint:createHash('sha256').update(detail).digest('hex')}:{}),...(mismatch?{partialChars:Number(mismatch[1]),completeChars:Number(mismatch[2])}:{}),...(['error_max_turns','error_during_execution','error_max_budget_usd'].includes(value?.subtype)?{subtype:value.subtype}:{})};
 }
 
 function reachedTurnLimit(value){
@@ -49,10 +47,16 @@ export async function runOfficialSDK(input){
  const diagnostic=(event,details={})=>input.onDiagnostic?.({event,elapsedMs:Date.now()-started,...details});
  if(input.signal.aborted){diagnostic('closed');throw new Error('SDK request cancelled');}
  const calls=[];const names=new Map();const schemas=new Map();let accepting=true;
+ const compileSchema=createClientSchemaCompiler();const listed=[];
  const definitions=input.tools.map((t,i)=>{
   const name=`client_${i}`;names.set(`mcp__token_flow__${name}`,t);
-  const {schema,note}=clientSchema(t.parameters);schemas.set(`mcp__token_flow__${name}`,schema);
-  return tool(name,`Client tool ${t.name}. ${t.description??''}${note}`,schema,args=>{
+  let schema;try{schema=compileSchema(t.parameters);}catch{diagnostic('failure',{origin:'exception',reason:'tool_schema'});throw Error('SDK tool schema is invalid or unsupported');}
+  schemas.set(`mcp__token_flow__${name}`,schema);
+  const description=`Client tool ${t.name}. ${t.description??''}`;listed.push({name,description,inputSchema:schema.inputSchema});
+  // Only the transport uses a loose object. Both callbacks and streamed
+  // proposals validate the original schema without altering client arguments.
+  return tool(name,description,z.looseObject({}),args=>{
+   try{schema.parse(args);}catch{return {isError:true,content:[{type:'text',text:'Client tool arguments do not match the declared JSON Schema. The tool did not execute.'}]};}
    // These callbacks only propose client work. Reject additional proposals
    // before recording them when the caller requires sequential execution.
    if(!accepting||input.parallelToolCalls===false&&calls.length)return {isError:true,content:[{type:'text',text:'Only one client tool call is permitted this turn. This tool did not execute; wait for the client result before requesting it again.'}]};
@@ -63,6 +67,9 @@ export async function runOfficialSDK(input){
   });
  });
  const mcp=definitions.length?createSdkMcpServer({name:'token_flow',tools:definitions}):undefined;
+ // Expose the original declaration through the public low-level MCP handler;
+ // the high-level SDK must not regenerate it from the transport's Zod schema.
+ if(mcp)mcp.instance.server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:listed}));
  const env=Object.fromEntries(Object.keys(process.env).filter(k=>/^(CODEBUDDY|ANTHROPIC|OPENAI|WORKBUDDY|ACC_PRODUCT)_/.test(k)).map(k=>[k,undefined]));
  // CLI cloud discovery precedes the late --endpoint option. Set its early
  // authoritative endpoint too, so an overseas token never discovers another region.
@@ -74,6 +81,7 @@ export async function runOfficialSDK(input){
  let q,child;
  const abortController=new AbortController();const cancel=()=>{abortController.abort();child??=q?.transport?.process;q?.transport?.close();};input.signal.addEventListener('abort',cancel,{once:true});if(input.signal.aborted)cancel();
  let text='',usage,result,actualModel=input.model;let streamed=false;let streamModel;let partial='';const blockTypes=new Map(),toolBlocks=new Map();let turnUsage={},handedOff=false,turnTruncated=false;
+ const toolError=toolIssue=>Object.assign(new Error('SDK tool proposal rejected'),{sdkToolIssue:toolIssue,sdkToolBlocks:toolBlocks.size,sdkUnfinishedToolBlocks:[...toolBlocks.values()].filter(block=>!block.complete).length});
  const prompt=input.images?.length?(async function*(){yield {type:'user',session_id:'',parent_tool_use_id:null,message:{role:'user',content:[{type:'text',text:input.prompt},...input.images]}};})():input.prompt;
  try{
   q=query({prompt,options:{pathToCodebuddyCode:cli,executable:process.execPath,env,environment:input.region==='china'?'internal':'external',endpoint:input.endpoint,model:input.model,cwd:input.cwd,systemPrompt:[modelTransportPrompt,input.systemPrompt].filter(Boolean).join('\n\n'),includePartialMessages:true,settingSources:[],tools:[],mcpServers:mcp?{token_flow:mcp}:{},strictMcpConfig:true,persistSession:false,maxTurns:1,abortController,stderr:line=>{const value=String(line);if(/retry|retrying|429|timeout|ECONN|EOF/i.test(value))diagnostic('stderr',{category:/429/.test(value)?'rate_limit':/retry/i.test(value)?'retry':/timeout/i.test(value)?'timeout':'transport'});},canUseTool:async(name,args)=>names.has(name)?{behavior:'allow',updatedInput:args}:{behavior:'deny',message:'Only caller-provided tools are permitted'}}});
@@ -114,8 +122,8 @@ export async function runOfficialSDK(input){
      if(event.content_block.type==='tool_use')toolBlocks.set(event.index,{name:event.content_block.name,input:event.content_block.input,json:'',complete:false});
     }
     if(event.type==='content_block_delta'&&event.delta.type==='input_json_delta'){
-     const block=toolBlocks.get(event.index);if(!block)throw new Error('SDK tool delta without a tool block');
-     block.json+=event.delta.partial_json;if(block.json.length>16*1024*1024)throw new Error('SDK tool input exceeds limit');
+     const block=toolBlocks.get(event.index);if(!block)throw toolError('orphan_delta');
+     block.json+=event.delta.partial_json;if(block.json.length>16*1024*1024)throw toolError('input_limit');
     }
     if(event.type==='content_block_stop'&&toolBlocks.has(event.index))toolBlocks.get(event.index).complete=true;
     if(event.type==='message_delta'){turnUsage=streamUsage(turnUsage,event.usage);if(['max_tokens','model_context_window_exceeded','refusal'].includes(event.delta?.stop_reason))turnTruncated=true;}
@@ -124,15 +132,17 @@ export async function runOfficialSDK(input){
     // mislabel its one-turn limit as error_during_execution. The client owns
     // execution: hand off at the complete model turn, never at a partial block.
     if(event.type==='message_stop'&&toolBlocks.size){
-     if(turnTruncated)throw new Error('SDK tool turn did not finish normally');
+     if(turnTruncated)throw toolError('truncated_turn');
      if(input.model!=='auto'&&streamModel!==input.model)throw new Error('SDK streaming model mismatch');
      const proposals=[...toolBlocks.values()].map(block=>{
       const tool=names.get(block.name),schema=schemas.get(block.name);
-      if(!block.complete||!tool||!schema)throw new Error('SDK incomplete or unknown tool proposal');
-      const args=schema.parse(block.json?JSON.parse(block.json):block.input);
+      if(!block.complete)throw toolError('unfinished_block');
+      if(!tool||!schema)throw toolError('unknown_name');
+      let raw;try{raw=block.json?JSON.parse(block.json):block.input;}catch{throw toolError('invalid_json');}
+      let args;try{args=schema.parse(raw);}catch{throw toolError('invalid_args');}
       return {name:tool.name,arguments:JSON.stringify(args),custom:tool.custom};
      });
-     if(input.parallelToolCalls===false&&proposals.length>1)throw new Error('SDK violated the single client tool limit');
+     if(input.parallelToolCalls===false&&proposals.length>1)throw toolError('parallel_limit');
      accepting=false;calls.splice(0,calls.length,...proposals);actualModel=streamModel;
      if(Number.isFinite(turnUsage.input_tokens)&&Number.isFinite(turnUsage.output_tokens))usage=turnUsage;
      text+=partial;partial='';handedOff=true;diagnostic('tool_handoff',{toolCalls:calls.length});break;

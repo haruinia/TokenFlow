@@ -32,7 +32,7 @@ import './page-layout.css';
 import './dialogs.css';
 
 type View='accounts'|'apis'|'agents'|'proxy'|'activity'|'usage'|'cleanup'|'settings';
-const empty:LocalAgentSnapshot={state:'stopped',loginState:'idle',port:8317,logs:[],accounts:[],models:[],accountError:undefined,lastError:undefined,quotas:{},quotaBusy:false,providers:[],login:undefined};
+const empty:LocalAgentSnapshot={accountsLoading:true,state:'stopped',loginState:'idle',port:8317,logs:[],accounts:[],models:[],accountError:undefined,lastError:undefined,quotas:{},quotaBusy:false,providers:[],login:undefined};
 const post=(body:unknown={})=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 const gatewayText:Record<string,string>={stopped:'网关已停止',starting:'网关启动中…',stopping:'网关停止中…',failed:'网关启动失败'};
 const saved:[View,string,IconName][]=[['accounts','账号授权','user'],['apis','API 接口','plug']];
@@ -128,8 +128,8 @@ function App(){
   <aside className="tfSide">
    <div className="tfBrand"><img src="/logo.svg" alt="" width="24" height="24"/>TokenFlow</div>
    <nav aria-label="主导航">
-    <small className="tfNavGroup">已保存</small>{saved.map(navButton)}
     <small className="tfNavGroup">使用</small>{used.map(navButton)}
+    <small className="tfNavGroup">供应商</small>{saved.map(navButton)}
    </nav>
    <nav aria-label="更多" className="tfSideFoot">{secondary.map(navButton)}</nav>
   </aside>

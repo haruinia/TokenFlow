@@ -79,6 +79,16 @@ it('does not return a cached credential when storage becomes unavailable or its 
  await writeFile(file,'corrupt');expect(await secrets.get('custom')).toBe('');
  await writeFile(file,'encrypted:original');expect(await secrets.get('custom')).toBe('original');expect(decrypt).toHaveBeenCalledTimes(3);
 });
+it('clears read warnings and unreadable state after explicit recovery, including cached success after unlock',async()=>{
+ const root=await setup(),file=join(root,'secrets','openai.bin');await writeFile(file,'encrypted:fixture');let denied=true,available=true;
+ const decrypt=vi.fn((value:Buffer)=>{if(denied)throw Error('fixture denied');return storage.decryptString(value);});
+ const secrets=createSecrets(root,{...storage,isEncryptionAvailable:()=>available,decryptString:decrypt});
+ expect(await secrets.get('openai')).toBe('');expect(secrets.warnings()).toHaveLength(1);denied=false;
+ expect(await secrets.get('openai',{retry:true})).toBe('fixture');expect(secrets.warnings()).toEqual([]);
+ available=false;expect(await secrets.get('openai')).toBe('');expect(secrets.warnings()).toHaveLength(1);available=true;
+ expect(await secrets.get('openai')).toBe('fixture');expect(secrets.warnings()).toEqual([]);expect(decrypt).toHaveBeenCalledTimes(2);
+ await secrets.set('openai','replacement');expect((await readdir(join(root,'secrets'))).some(name=>name.includes('.unreadable-'))).toBe(false);
+});
 it('encrypts native login backups and fails closed on unreadable or locked originals',async()=>{
  const root=await setup();const secrets=createSecrets(root,storage);await secrets.set('native-login-workbuddy','original-session');expect(await secrets.get('native-login-workbuddy')).toBe('original-session');
  const path=join(root,'secrets','native-login-qoder.bin');await writeFile(path,'corrupt-original');await expect(secrets.get('native-login-qoder')).rejects.toThrow('无法解密');expect(await readFile(path,'utf8')).toBe('corrupt-original');

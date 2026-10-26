@@ -21,6 +21,7 @@ async function fixture(real=false,configure?:(app:Awaited<ReturnType<typeof crea
   res.setHeader('content-type','application/json');const pathname=new URL(req.url!,'http://127.0.0.1').pathname;let raw='';for await(const c of req)raw+=c;const body=raw?JSON.parse(raw):{};
   const key=String(req.headers.authorization??req.headers['x-api-key']??'');calls.push({path:req.url!,key,body});
   await paused;
+  if(JSON.stringify(body).includes('daily-token-envelope')){res.end(JSON.stringify({code:1008,error:true,message:'超过每天令牌使用限制',data:null,debug:'PRIVATE_PROVIDER_BODY'}));return;}
   if(JSON.stringify(body).includes('classified-context-error')){res.writeHead(400);res.end(JSON.stringify({error:{code:'context_length_exceeded',message:'PRIVATE_PROVIDER_BODY'}}));return;}
   if(JSON.stringify(body).includes('classified-field-error')){res.writeHead(400);res.end(JSON.stringify({error:{type:'invalid_request_error',param:'messages[2].content',message:'PRIVATE_PROVIDER_BODY'}}));return;}
   if(JSON.stringify(body).includes('classified-stream-error')){res.setHeader('content-type','text/event-stream');res.end('data: '+JSON.stringify({type:'response.failed',response:{status:'failed',error:{code:'context_length_exceeded',message:'PRIVATE_PROVIDER_BODY'}}})+'\n\n');return;}
@@ -349,6 +350,16 @@ it('marks interrupted API streams as failed, prevents budget replay, and does no
  await service.app.inject({method:'DELETE',url:`/api/gateway-keys/${created.key.id}`,headers});expect((await service.app.inject({method:'DELETE',url:`/api/sources/${s.id}`,headers})).statusCode).toBe(200);
  expect((await service.app.inject({method:'POST',url:'/v1/responses',headers,payload:{model,input:'Hi'}})).statusCode).toBe(503);
 },60000);
+it('reports daily token limits returned as HTTP 200 JSON instead of a broken Responses stream',async()=>{
+ const {service,headers,add}=await fixture(true),source=await add('Daily quota fixture','private-fixture-key','responses'),model=apiModelID(source.id,'shared');
+ for(const stream of [true,false]){
+  const result=await service.app.inject({method:'POST',url:'/v1/responses',headers,payload:{model,input:'daily-token-envelope',stream}});
+  expect(result.statusCode,result.body).toBe(429);expect(result.json().error).toMatchObject({code:'upstream_daily_token_limit',message:expect.stringContaining('每日 token')});
+  expect(result.body).not.toContain('PRIVATE_PROVIDER_BODY');expect(result.body).not.toContain('response.completed');
+ }
+ const activity=(await service.app.inject({url:'/api/gateway/activity',headers})).json();
+ expect(activity.recent.filter((r:any)=>r.model===model).slice(0,2)).toEqual(expect.arrayContaining([expect.objectContaining({status:429,error:expect.objectContaining({code:'upstream_daily_token_limit'})})]));
+});
 it.each(['chat','responses'])('preserves classified %s API failures through the relay and Responses gateway',async protocol=>{
  const {service,headers,add}=await fixture(true);const source=await add('Diagnostic API','diagnostic-private-key',protocol),model=apiModelID(source.id,'shared');
  await expect.poll(()=>service.proxy.apiModelAvailable(model),{timeout:5000}).toBe(true);

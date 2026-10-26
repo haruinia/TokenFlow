@@ -6,8 +6,10 @@ import { createHash } from 'node:crypto';
 import { readConfig } from './agent-connections.js';
 import { nativeConflict, nativeDigest, writePrivate, type NativeStore, type NativeState, type NativeCredential } from './native-accounts.js';
 import type {NativeUsageLogin} from './native-usage-logins.js';
+import {RevisionCredentialAccess} from './revision-credential-access.js';
 const exec=promisify(execFile);
-export interface CredentialStore {read():Promise<string|null>;write(value:string|null):Promise<void>}
+export type CredentialReadOptions={fresh?:boolean;retry?:boolean};
+export interface CredentialStore {read(options?:CredentialReadOptions):Promise<string|null>;write(value:string|null):Promise<void>}
 export function claudeKeychainService(configDir:string,env:NodeJS.ProcessEnv=process.env){
   const secureDir=env.CLAUDE_SECURESTORAGE_CONFIG_DIR,configEnv=env.CLAUDE_CONFIG_DIR;
   // Claude Code hashes the raw variable value, not a resolved path. Without the variable (e.g. launched from Finder),
@@ -18,10 +20,32 @@ export function claudeKeychainService(configDir:string,env:NodeJS.ProcessEnv=pro
 export function claudeKeychain(configDir:string):CredentialStore {
   const service=claudeKeychainService(configDir);
   const user=process.env.USER||userInfo().username;const account=/^[a-zA-Z0-9._-]+$/.test(user)?user:'claude-code-user';
+  const args=['find-generic-password','-a',account,'-s',service];
+  const access=new RevisionCredentialAccess<string|null>();
+  let mutation=Promise.resolve();
+  const read=(options?:CredentialReadOptions)=>access.read(async()=>{
+    try{
+      // Attribute-only queries do not request the protected password. Re-read it
+      // only when Keychain metadata changes, including external CLI logins.
+      const metadata=await exec('/usr/bin/security',args,{timeout:10000,maxBuffer:2*1024*1024});
+      const revision=createHash('sha256').update(metadata.stdout).update(metadata.stderr).digest('hex');
+      return {revision,input:true};
+    }catch(e){if((e as {code?:number}).code===44)return {revision:'missing',input:false};throw nativeConflict('无法读取 Claude Code 钥匙串，请解锁系统钥匙串后重试。');}
+  },async exists=>{
+    if(!exists)return null;
+    try{return (await exec('/usr/bin/security',[...args,'-w'],{timeout:60000,maxBuffer:2*1024*1024})).stdout.trim();}
+    catch{throw nativeConflict('无法读取 Claude Code 钥匙串，请解锁系统钥匙串后重试。');}
+  },{mode:options?.fresh?'fresh':options?.retry?'retry':'cached'});
   return {
-    async read(){try{return (await exec('/usr/bin/security',['find-generic-password','-a',account,'-s',service,'-w'],{timeout:10000,maxBuffer:2*1024*1024})).stdout.trim();}catch(e){if((e as {code?:number}).code===44)return null;throw nativeConflict('无法读取 Claude Code 钥匙串，请解锁系统钥匙串后重试。');}},
+    async read(options){
+      // Mutations require a fresh value even if two writes share a metadata
+      // timestamp. Polling can reuse the successful protected read.
+      await mutation;return read(options);
+    },
     async write(value){
-      if(value===null){try{await exec('/usr/bin/security',['delete-generic-password','-a',account,'-s',service],{timeout:10000});}catch(e){if((e as {code?:number}).code!==44)throw nativeConflict('无法还原 Claude Code 钥匙串。');}return;}
+      const result=mutation.then(async()=>{
+      access.invalidate();
+      if(value===null){try{await exec('/usr/bin/security',['delete-generic-password','-a',account,'-s',service],{timeout:10000});}catch(e){if((e as {code?:number}).code!==44)throw nativeConflict('无法还原 Claude Code 钥匙串。');}finally{access.invalidate();}return;}
       // security's interactive input keeps the credential out of process arguments.
       const quote=(v:string)=>`"${v.replaceAll('\\','\\\\').replaceAll('"','\\"')}"`;
       await new Promise<void>((yes,no)=>{
@@ -33,7 +57,10 @@ export function claudeKeychain(configDir:string):CredentialStore {
         child.stdin.on('error',()=>{failed=true;});
         child.stdin.end(`add-generic-password -U -a ${quote(account)} -s ${quote(service)} -w ${quote(value)}\n`);
       });
-      if(await this.read()!==value)throw nativeConflict('Claude Code 钥匙串写入校验失败。');
+      access.invalidate();
+      if(await read({fresh:true})!==value)throw nativeConflict('Claude Code 钥匙串写入校验失败。');
+      });
+      mutation=result.catch(()=>{access.invalidate();});return result;
     },
   };
 }
@@ -55,11 +82,12 @@ export class ClaudeAccountStore implements NativeStore {
     this.profile=join(resolve(dir)===join(homedir(),'.claude')&&!process.env.CLAUDE_CONFIG_DIR?homedir():dir,'.claude.json');
     this.lockPath=`${settings}.token-flow.lock`;this.storage=keychain?'系统钥匙串':'本地凭据文件';
   }
-  private async docs(){return {settings:await readConfig(this.settings),profile:await readConfig(this.profile),file:await readConfig(this.credentials),keychain:this.keychain?await this.keychain.read():null};}
-  async read(){
-    const d=await this.docs(),profile=object(d.profile);
+  private async docs(options?:CredentialReadOptions){return {settings:await readConfig(this.settings),profile:await readConfig(this.profile),file:await readConfig(this.credentials),keychain:this.keychain?await this.keychain.read(options):null};}
+  private state(d:{settings:string|null;profile:string|null;file:string|null;keychain:string|null}){
+    const profile=object(d.profile);
     return {auth:field(object(d.keychain).claudeAiOauth),fileAuth:field(object(d.file).claudeAiOauth),account:field(profile.oauthAccount),...claudeSettingsState(d.settings)};
   }
+  async read(options?:CredentialReadOptions){return this.state(await this.docs(options));}
   describe(state:NativeState){const account=object(state.account);return {email:typeof account.emailAddress==='string'?account.emailAddress:null,accountId:typeof account.accountUuid==='string'?account.accountUuid:null,organizationId:typeof account.organizationUuid==='string'?account.organizationUuid:null,model:state.model?JSON.parse(state.model) as string:null};}
   loginStatus(state:NativeState):{loginState:'signed-in'|'signed-out'|'unreadable';readError?:string}{
     const oauth=object(state.auth??state.fileAuth);
@@ -88,8 +116,8 @@ export class ClaudeAccountStore implements NativeStore {
     return {...before,auth:same?before.auth:this.keychain?auth:null,fileAuth:same?before.fileAuth:this.keychain?null:auth,account:JSON.stringify({emailAddress:c.email,...(c.account_uuid?{accountUuid:c.account_uuid}:{}),...(c.organization_uuid?{organizationUuid:c.organization_uuid}:{})}),model:model?JSON.stringify(model.slice(7)):before.model};
   }
   async write(before:NativeState,after:NativeState){
-    if(nativeDigest(await this.read())!==nativeDigest(before))throw nativeConflict('Claude Code 登录已被其他程序修改。');
-    const d=await this.docs();
+    const d=await this.docs({fresh:true});
+    if(nativeDigest(this.state(d))!==nativeDigest(before))throw nativeConflict('Claude Code 登录已被其他程序修改。');
     const settings=object(d.settings),profile=object(d.profile),file=object(d.file),keychain=object(d.keychain);
     put(settings,'model',after.model);put(profile,'oauthAccount',after.account);put(file,'claudeAiOauth',after.fileAuth);put(keychain,'claudeAiOauth',after.auth);
     const serialized=(doc:Record<string,unknown>,original:string|null)=>!Object.keys(doc).length&&original===null?null:JSON.stringify(doc,null,2)+'\n';
@@ -100,7 +128,7 @@ export class ClaudeAccountStore implements NativeStore {
       for(const [path,original,next] of changes){if(await readConfig(path)!==original)throw nativeConflict('Claude Code 配置被其他程序修改，已停止切换。');await writePrivate(path,next);}
     }catch(error){
       for(const [path,original,next] of changes)if(await readConfig(path)===next)await writePrivate(path,original);
-      if(this.keychain&&await this.keychain.read()===nextKeychain)await this.keychain.write(d.keychain);
+      if(this.keychain&&await this.keychain.read({fresh:true})===nextKeychain)await this.keychain.write(d.keychain);
       throw error;
     }
   }

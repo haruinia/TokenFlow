@@ -1,0 +1,83 @@
+{
+  "passed": true,
+  "samePid": true,
+  "delegations": 1,
+  "officialForwardAttempts": 0,
+  "scope": "Prototype dynamic tool creates independent gateway worker; not native spawn_agent; actual official and DeepSeek inference",
+  "gatewayModel": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+  "rounds": [
+    {
+      "phase": "worker-created",
+      "provider": "token_flow",
+      "permissionsMatch": true
+    },
+    {
+      "phase": "worker-long-turn",
+      "inputBytes": 450235,
+      "markersVerified": 2
+    },
+    {
+      "phase": "worker-local-compaction",
+      "durationMs": 30906
+    },
+    {
+      "phase": "worker-completed",
+      "markersVerified": 2,
+      "durationMs": 38884
+    },
+    {
+      "phase": "official-receives-worker-result",
+      "pid": 42360,
+      "markersVerified": 2,
+      "gatewayCalls": 3,
+      "durationMs": 58939
+    },
+    {
+      "phase": "parent-still-official",
+      "provider": "openai"
+    },
+    {
+      "phase": "official-after-worker-service-stopped",
+      "pid": 42360,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 9943
+    },
+    {
+      "phase": "official-native-compact-after-worker",
+      "pid": 42360,
+      "gatewayCalls": 0,
+      "durationMs": 13720
+    },
+    {
+      "phase": "official-after-native-compaction",
+      "pid": 42360,
+      "markersVerified": 2,
+      "gatewayCalls": 0,
+      "durationMs": 10624
+    },
+    {
+      "phase": "engine-unchanged",
+      "bridgePid": 42360,
+      "enginePid": 42361,
+      "long": false
+    }
+  ],
+  "requests": [
+    {
+      "phase": "worker-long-turn",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false
+    },
+    {
+      "phase": "worker-local-compaction",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false
+    },
+    {
+      "phase": "worker-after-compaction",
+      "model": "api-f254d61008aa5e1648614c7e/deepseek-ai/DeepSeek-V4.1-Flash",
+      "summary": false
+    }
+  ]
+}

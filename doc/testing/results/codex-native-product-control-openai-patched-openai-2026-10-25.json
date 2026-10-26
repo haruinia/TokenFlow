@@ -1,0 +1,293 @@
+{
+  "nativeLifecyclePassed": true,
+  "schemasChecked": true,
+  "parentProvider": "openai",
+  "requestedReloadProviderMatched": true,
+  "scope": "Real engine, native agent operations, synthetic local provider endpoints",
+  "engineVariant": "patched-source",
+  "toolNamespace": "original collaboration plus tokenflow_agents message aliases",
+  "firstRequestRoutingEnabled": true,
+  "desiredChildProvider": "openai",
+  "toolNames": [
+    "exec_command",
+    "write_stdin",
+    "request_user_input",
+    "apply_patch",
+    "view_image",
+    "followup_task",
+    "send_message",
+    "spawn_agent",
+    "followup_task",
+    "interrupt_agent",
+    "list_agents",
+    "send_message",
+    "spawn_agent",
+    "wait_agent",
+    "get_goal",
+    "create_goal",
+    "update_goal"
+  ],
+  "toolResults": [
+    {
+      "mode": "reject-unknown",
+      "callId": "call_reject-unknown_1",
+      "output": "Child model is not in the configured model selection"
+    },
+    {
+      "mode": "spawn",
+      "callId": "call_spawn_3",
+      "output": {
+        "task_name": "/root/provider_child"
+      }
+    },
+    {
+      "mode": "followup",
+      "callId": "call_followup_6",
+      "output": ""
+    },
+    {
+      "mode": "status",
+      "callId": "call_status_9",
+      "output": {
+        "agents": [
+          {
+            "agent_name": "/root",
+            "agent_status": "running"
+          },
+          {
+            "agent_name": "/root/provider_child",
+            "agent_status": {
+              "completed": "CHILD_NATIVE_OK"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "mode": "hold",
+      "callId": "call_hold_11",
+      "output": ""
+    },
+    {
+      "mode": "interrupt",
+      "callId": "call_interrupt_14",
+      "output": {
+        "previous_status": "running"
+      }
+    },
+    {
+      "mode": "fail",
+      "callId": "call_fail_16",
+      "output": ""
+    },
+    {
+      "mode": "status",
+      "callId": "call_status_19",
+      "output": {
+        "agents": [
+          {
+            "agent_name": "/root",
+            "agent_status": "running"
+          },
+          {
+            "agent_name": "/root/provider_child",
+            "agent_status": {
+              "errored": "{\"error\":{\"message\":\"Synthetic child failure\",\"type\":\"invalid_request_error\"}}"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "checks": [
+    {
+      "check": "unknown-model-rejected-before-child-request",
+      "passed": true
+    },
+    {
+      "check": "rejected-spawns-create-no-native-orphans",
+      "passed": true
+    },
+    {
+      "check": "routes-hot-read-without-engine-restart",
+      "passed": true
+    },
+    {
+      "check": "native-spawn-initial-provider",
+      "provider": "openai",
+      "parentRelation": "01a1730d-ad70-7b22-94a9-0a9aae70c025"
+    },
+    {
+      "check": "native-child-unsubscribe",
+      "result": {
+        "status": "unsubscribed"
+      }
+    },
+    {
+      "check": "requested-provider-change",
+      "requested": "openai",
+      "actual": "openai",
+      "applied": true
+    },
+    {
+      "check": "reload-same-native-child",
+      "provider": "openai",
+      "sameId": true,
+      "permissionsMatch": true
+    },
+    {
+      "check": "native-followup-uses-actual-child-provider",
+      "provider": "openai",
+      "passed": true
+    },
+    {
+      "check": "native-status",
+      "passed": true
+    },
+    {
+      "check": "native-interrupt-aborts-child-HTTP",
+      "passed": true
+    },
+    {
+      "check": "native-failure-event",
+      "passed": true
+    },
+    {
+      "check": "native-failure-visible-to-parent",
+      "status": {
+        "errored": "{\"error\":{\"message\":\"Synthetic child failure\",\"type\":\"invalid_request_error\"}}"
+      },
+      "passed": true
+    },
+    {
+      "check": "parent-provider-unchanged",
+      "passed": true
+    },
+    {
+      "check": "provider-credential-separation",
+      "passed": true
+    }
+  ],
+  "calls": [
+    {
+      "mode": "reject-unknown",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "reject-unknown",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "spawn",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "spawn",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "spawn",
+      "path": "/parent/v1/responses",
+      "model": "fixture-child",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "followup",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "followup",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "followup",
+      "path": "/parent/v1/responses",
+      "model": "fixture-child",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "status",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "status",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "hold",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "hold",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "hold",
+      "path": "/parent/v1/responses",
+      "model": "fixture-child",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "interrupt",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "interrupt",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "fail",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "fail",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "fail",
+      "path": "/parent/v1/responses",
+      "model": "fixture-child",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "status",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    },
+    {
+      "mode": "status",
+      "path": "/parent/v1/responses",
+      "model": "fixture-parent",
+      "credentialKind": "official"
+    }
+  ]
+}

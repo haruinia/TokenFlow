@@ -129,3 +129,36 @@ it('retains original group boundaries when an interrupted conversation is shorte
  await again.response('responses',{model:'codex/test',input:history},'key','source',async(_path,body)=>{if(body.instructions)expect(completed.has(JSON.stringify(body.input))).toBe(false);return answer();},migration,{onCompaction:r=>{report=r;}});
  expect(report?.reused).toBeGreaterThanOrEqual(completed.size);
 });
+
+it('merges all extracted checkpoints once with a target instead of recursively repartitioning summaries',async()=>{
+ const {root,context}=await setup();let extracted=0,merged=0,forwarded='';const markers:string[]=[];let report:CompactionReport|undefined;
+ const send=async(_path:string,body:Record<string,any>)=>{
+  if(!body.instructions){forwarded=JSON.stringify(body.input);return answer('Done');}
+  const text=body.input[0].content as string;
+  if(text.startsWith('Final checkpoint consolidation;')){
+   merged++;for(const marker of markers)expect(text).toContain(marker);
+   expect(text).toMatch(/at most \d+ UTF-8 bytes/);return answer('MERGED_REQUIRED_FACTS '+markers.join(' '));
+  }
+  extracted++;const marker='EXTRACTED_'+extracted;markers.push(marker);return answer(marker+' '+ 'x'.repeat(8000));
+ };
+ await context.response('responses',{model:'codex/test',input:history},'key','source',send,migration,{onCompaction:r=>{report=r;}});
+ expect(extracted).toBeGreaterThan(3);expect(merged).toBe(1);expect(report?.calls).toBe(extracted+1);expect(forwarded).toContain('MERGED_REQUIRED_FACTS');
+ // The exact extraction and merge inputs are durable: a gateway restart and
+ // retry pay for no already completed work, including the consolidation call.
+ const again=await GatewayContext.open(root);let repeated=0;
+ await again.response('responses',{model:'codex/test',input:history},'key','source',async(_path,body)=>{if(body.instructions)repeated++;return answer();},migration);
+ expect(repeated).toBe(0);
+});
+
+it('reduces a seven-group first-contact fixture to seven extractions plus one complete merge',async()=>{
+ const {context}=await setup();let extracts=0,merges=0;const supplied:string[]=[];let report:CompactionReport|undefined;
+ const content='BEGIN_REQUIRED_FACT '+ 'x'.repeat(1250000)+' MIDDLE_REQUIRED_FACT '+ 'y'.repeat(1275803)+' END_REQUIRED_FACT';
+ const input=[{role:'user',content:'Preserve this task'},{role:'assistant',content},{type:'compaction_trigger'}];
+ const result=await context.response('responses',{model:'qoder/test',input},'key','source',async(_path,body)=>{
+  const transcript=(body.input as any[])[0].content as string;
+  if(transcript.startsWith('Final checkpoint consolidation;')){merges++;for(let i=1;i<=7;i++)expect(transcript).toContain(`GROUP_${i}_FACT`);return answer('BEGIN_REQUIRED_FACT MIDDLE_REQUIRED_FACT END_REQUIRED_FACT '+Array.from({length:7},(_,i)=>`GROUP_${i+1}_FACT`).join(' '));}
+  extracts++;supplied.push(transcript.slice(transcript.indexOf('\n')+1));return answer(`GROUP_${extracts}_FACT `+'z'.repeat(8000));
+ },{...migration,contextWindowTokens:undefined},{onCompaction:r=>{report=r;}});
+ expect(supplied.join('')).toBe(JSON.stringify([{role:'assistant',content}])+'\n');
+ expect(extracts).toBe(7);expect(merges).toBe(1);expect(report?.calls).toBe(8);expect(result.ok).toBe(true);
+});

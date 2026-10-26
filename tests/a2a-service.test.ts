@@ -289,6 +289,7 @@ it('performs the confirmed Codex stop, backup, change and relaunch in a single a
  await mkdir(join(root,'codex'));await mkdir(join(root,'cliproxy'));
  await writeFile(join(root,'cliproxy/fixture-accounts.json'),JSON.stringify([{name:'codex.json',provider:'codex',status:'active',models:['shared-model']}]));
  const path=join(root,'codex/config.toml');await writeFile(path,'model="native-model"');
+ const authPath=join(root,'codex/auth.json'),auth=JSON.stringify({tokens:{access_token:'fixture-official',refresh_token:'fixture-refresh'}});await writeFile(authPath,auth);
  const allocator=createServer();await new Promise<void>(r=>allocator.listen(0,'127.0.0.1',r));const port=(allocator.address() as {port:number}).port;await new Promise<void>(r=>allocator.close(()=>r()));
  let pids=[123];const events:string[]=[];
  const lifecycle=new CodexSwitchLifecycle(async()=>pids,async()=>{events.push('stop');pids=[];},async()=>{events.push('open');return {message:'opened'};},'darwin',async()=>{});
@@ -302,13 +303,19 @@ it('performs the confirmed Codex stop, backup, change and relaunch in a single a
  try{
   await service.proxy.start();const headers={host:'127.0.0.1:9527',authorization:'Bearer admin'};const sourceId=service.proxy.snapshot().accounts[0].id;
   const state=async()=>(await service.app.inject({url:'/api/a2a',headers})).json().targets.find((t:{id:string})=>t.id==='codex');
-  const target=await state();const payload={target:'codex',sourceId,model:'codex/shared-model',revision:target.revision,allowRunning:true,restartCodex:true};
+  const target=await state();expect(target.codexRoutingMode).toBe('official');const payload={target:'codex',sourceId,model:'codex/shared-model',revision:target.revision,allowRunning:true,restartCodex:true,codexCoexist:false};
   const stale=await service.app.inject({method:'POST',url:'/api/a2a/connect',headers,payload:{...payload,revision:'0'.repeat(64)}});expect(stale.statusCode).toBe(409);expect(events).toEqual([]);
   const connected=await service.app.inject({method:'POST',url:'/api/a2a/connect',headers,payload});expect(connected.statusCode,connected.body).toBe(200);
   expect(events).toEqual(['stop','backup','migrate','open']);expect(await readFile(path,'utf8')).toContain('codex/shared-model');
-  pids=[123];events.length=0;const current=await state();
+  expect(await readFile(authPath,'utf8')).toBe(auth);
+  const gatewayConfig=parse(await readFile(path,'utf8')) as any;
+  expect(gatewayConfig.model_providers.token_flow).toMatchObject({base_url:'http://127.0.0.1:9527/v1',requires_openai_auth:false});
+  expect(gatewayConfig.model_providers.token_flow.capabilities).toBeUndefined();
+  pids=[123];events.length=0;const current=await state();expect(current.codexRoutingMode).toBe('gateway');
   const restored=await service.app.inject({method:'POST',url:'/api/a2a/restore',headers,payload:{id:current.connection.id,revision:current.revision,allowRunning:true,restartCodex:true}});
   expect(restored.statusCode,restored.body).toBe(200);expect(events).toEqual(['stop','open']);expect(parse(await readFile(path,'utf8'))).toEqual({model_provider:'openai'});
+  expect(await readFile(authPath,'utf8')).toBe(auth);
+  const direct=await state();expect(direct.codexRoutingMode).toBe('official');expect(direct.connection).toBeNull();expect(direct.backups[0].state).toBe('restored');
   // Restarting alone must not trigger history conversion or another backup.
   const session=join(root,'codex/sessions/rollout-legacy.jsonl');await mkdir(join(root,'codex/sessions'));
   await writeFile(session,JSON.stringify({type:'response_item',payload:{type:'reasoning',id:'rs_chatcmpl_legacy',encrypted_content:'',summary:[{type:'summary_text',text:'retained summary'}]}})+'\n');

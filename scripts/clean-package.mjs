@@ -1,13 +1,14 @@
 import { rm } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Fixed project-local generated directories only; never remove source or profiles.
-export async function cleanPackage() {
-  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-  for (const name of ['release', 'artifacts', '.tmp', 'output']) {
+// artifacts/ also contains live reconciliation journals and retained audit evidence.
+// It is not a disposable packaging output and is excluded from desktop bundles.
+export async function cleanPackage(root = fileURLToPath(new URL('../', import.meta.url))) {
+  for (const name of ['release', '.tmp', 'output']) {
     const dir = join(root, name);
     if (!existsSync(dir)) continue;
     if (process.platform === 'win32') {

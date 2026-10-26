@@ -38,7 +38,7 @@ export class CodexSwitchLifecycle {
   }
   throw failure('Codex 仍在运行，尚未开始备份或修改配置，请稍后重试。');
  }
- async change<T>(work:()=>Promise<T>):Promise<T>{
+ async change<T>(work:()=>Promise<T>,launch?:()=>Promise<unknown>):Promise<T>{
   if(!['darwin','win32'].includes(this.platform))throw failure('当前系统请手动退出并重新打开 Codex。');
   if(this.phase!=='idle')throw failure('Codex 正在切换，请等待完成。');
   this.phase='stopping';
@@ -48,7 +48,7 @@ export class CodexSwitchLifecycle {
    // A failed migration remains stopped; opening during a partial migration can overwrite its state.
    const result=await work();
    this.phase='opening';
-   try{if(this.platform==='win32')await this.windows.open('codex');else await this.launch();}catch(error){throw failure(`配置操作已完成，但 Codex 未能重新打开。可点击「重启」重试。${error instanceof Error?error.message:''}`);}
+   try{if(this.platform==='win32')await this.windows.open('codex');else await (launch??this.launch)();}catch(error){throw failure(`配置操作已完成，但 Codex 未能重新打开。可点击「重启」重试。${error instanceof Error?error.message:''}`);}
    return result;
   }finally{this.phase='idle';}
  }

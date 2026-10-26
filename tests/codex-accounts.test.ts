@@ -126,3 +126,21 @@ it('reports when codex login status cannot read the switched login',async()=>{
  }
  expect(new Set(homes)).toEqual(new Set([join(root,'codex')]));
 });
+
+it('restores the original official login over duplicate TOML with a private exact backup',async()=>{
+ const {root,config,auth,manager}=await setup();const original='model="native"\napproval_policy="on-request"\n[mcp_servers.fixture]\ncommand="fixture"\n';await writeFile(config,original);const originalAuth=JSON.stringify({tokens:oauth('original')});await writeFile(auth,originalAuth);
+ await manager.switch({revision:(await manager.status()).revision,allowRunning:false,model:'codex/selected'},oauth('next'));
+ const damaged='[duplicate]\nx=1\n[duplicate]\nx=2\n';await writeFile(config,damaged);
+ const status=await manager.status();expect(status).toMatchObject({loginState:'unreadable',provider:'unknown',storage:'unknown',backup:{state:'applied'}});expect(status.readError).toContain('配置');
+ await manager.restore({revision:status.revision,allowRunning:false});expect(parse(await readFile(config,'utf8'))).toEqual(parse(original));expect(await readFile(auth,'utf8')).toBe(originalAuth);
+ const {readdir}=await import('node:fs/promises');const backups=(await readdir(join(root,'agent-backups'))).filter(name=>name.startsWith('codex-repair-'));expect(backups).toHaveLength(1);
+ expect(JSON.parse(await readFile(join(root,'agent-backups',backups[0]),'utf8')).before).toBe(damaged);
+});
+it('refuses changed credentials while repairing duplicate TOML and preserves newer concurrent configuration',async()=>{
+ const {root,config,auth,manager}=await setup();await writeFile(config,'model="native"\n');await manager.switch({revision:(await manager.status()).revision,allowRunning:false,model:'codex/selected'},oauth('next'));
+ const damaged='[duplicate]\nx=1\n[duplicate]\nx=2\n';await writeFile(config,damaged);await writeFile(auth,JSON.stringify({tokens:oauth('external')}));
+ await expect(manager.restore({revision:(await manager.status()).revision,allowRunning:false})).rejects.toThrow('其他修改');expect(await readFile(config,'utf8')).toBe(damaged);
+ await writeFile(auth,JSON.stringify({tokens:oauth('next')}));const revision=(await manager.status()).revision;let calls=0;const newer='model="newer"\n';
+ const concurrent=new CodexAccounts(root,config,async()=>{if(++calls===2)await writeFile(config,newer);return [];},quiet);
+ await expect(concurrent.restore({revision,allowRunning:false})).rejects.toThrow('变化');expect(await readFile(config,'utf8')).toBe(newer);expect(JSON.parse(await readFile(auth,'utf8')).tokens.account_id).toBe('next');
+});

@@ -12,6 +12,7 @@ import type { LocalAccount,LocalModel } from './cliproxy.js';
 import type { AccountQuota } from './quota/types.js';
 import type { LoginSession } from './login/types.js';
 import {CursorUsage} from './cursor-usage.js';
+import {CursorLocalModelCompatibility,cursorLocalAlternative,cursorRetryableModelRejection,cursorGeneratedUsage} from './cursor-model-compatibility.js';
 import {localCursorSession} from './cursor-local.js';
 import {rememberCursorGatewayConversation} from './cursor-conversations.js';
 import type {CursorUsageReader} from './cursor-native-usage.js';
@@ -32,6 +33,7 @@ class CursorAccount {
  private credential?:Credential;private loaded=false;private models:SDKModel[]=[];private login?:CursorLogin;
  private loginAbort?:AbortController;private loginTask?:Promise<void>;private refreshTask?:Promise<void>;
  private catalogCredential?:Credential;private refreshAbort=new AbortController();
+ private localModelCompatibility=new CursorLocalModelCompatibility();
  private sdkBillingUnavailable?:{key:string;until:number};
  private billing?:{key:string;client:CursorUsage};private quota?:AccountQuota;private quotaCheckedAt=0;
  private usageIdentity?:{key:string;email:string};
@@ -125,11 +127,14 @@ class CursorAccount {
   this.generating=true;let temp:string|undefined;let agent:Awaited<ReturnType<(typeof import('@cursor/sdk'))['Agent']['create']>>|undefined;
   const cancel=()=>{void this.active?.cancel().catch(()=>{});};signal.addEventListener('abort',cancel,{once:true});
   const releases:Array<()=>void>=[];
-  let cleanupTask:Promise<void>|undefined;
+  let cleanupTask:Promise<boolean>|undefined;
   const cleanup=()=>cleanupTask??=(async()=>{
-   if(agent){if(agent[Symbol.asyncDispose])await agent[Symbol.asyncDispose]().catch(()=>{});else await agent.close();}
-   if(temp)await rm(temp,{recursive:true,force:true});
-  })().catch(()=>{});
+   let disposed=true;
+   try{if(agent){if(agent[Symbol.asyncDispose])await agent[Symbol.asyncDispose]();else await agent.close();}}
+   catch{disposed=false;try{await agent?.close();}catch{/* Best effort only; failed disposal still vetoes replay. */}}
+   try{if(temp)await rm(temp,{recursive:true,force:true});}catch{disposed=false;}
+   return disposed;
+  })();
 
   try{
    const {Agent,JsonlLocalAgentStore}=await this.sdk();await mkdir(join(this.root,'cursor-runs'),{recursive:true,mode:0o700});temp=await mkdtemp(join(this.root,'cursor-runs','request-'));
@@ -137,10 +142,13 @@ class CursorAccount {
    const defaults=model.variants?.find(v=>v.isDefault)?.params??[];
    const params=defaults.map(p=>({...p}));
    if(input.effort){const parameter=model.parameters?.find(p=>['reasoning_effort','effort'].includes(p.id)&&p.values.some(v=>v.value===input.effort));if(parameter){const existing=params.find(p=>p.id===parameter.id);if(existing)existing.value=input.effort;else params.push({id:parameter.id,value:input.effort});}}
+   let selectedParams=this.localModelCompatibility.select(credential,model,params)??params;
+   let unsafeToReplay=false,compatibilityRecovered=false;
    const calls:CursorToolCall[]=[];let handoff!:()=>void;const toolRequested=new Promise<'tool'>(resolve=>{handoff=()=>resolve('tool');});
    const customTools:Record<string,SDKCustomTool>=Object.fromEntries(input.tools.map((tool,index)=>[`client_${index}`,{
     description:`Client tool: ${tool.namespace?`${tool.namespace}.`:""}${tool.name}. ${tool.description??''}`,inputSchema:tool.parameters,
     execute:async(args:Record<string,import('@cursor/sdk').SDKJsonValue>)=>{
+     unsafeToReplay=true;
      // The SDK publishes its own cwd as ambient context. It must never escape
      // into tools executed on a different client host (including older turns).
      if(containsTransportPath(args,join(this.root,'cursor-runs')))throw new Error('This path belongs to the SDK transport host, not the client workspace. Use the working directory from the client conversation; preserve relative paths if supported, otherwise ask for the client path.');
@@ -151,19 +159,46 @@ class CursorAccount {
      return new Promise<string>(resolve=>releases.push(()=>resolve('Tool execution handed back to the client.')));
     }
    }]));
-   agent=await Agent.create({apiKey:credential.apiKey,model:{id:model.id,...(params.length?{params}: {})},tools:input.tools.length?['mcp']:[],mcpServers:{},agents:{},local:{cwd:temp,settingSources:[],customTools,store:new JsonlLocalAgentStore(join(temp,'store'))}});
-   if(signal.aborted||this.closed||this.credential?.disabled||this.credential?.apiKey!==credential.apiKey)return errorResponse('请求已取消',499,'cursor_cancelled');
-   const startedAt=Date.now();
-   if(agent.agentId)await rememberCursorGatewayConversation(this.root,agent.agentId,startedAt);
-   this.active=await agent.send(input.images.length?{text:input.prompt,images:input.images}:input.prompt);if(signal.aborted)cancel();
-   const wait=this.active.wait();
-   const outcome=await Promise.race([wait,toolRequested]);
-   let result:Awaited<typeof wait>;
-   if(outcome==='tool'){
-    const stopping=this.active.cancel();for(const release of releases.splice(0))release();await stopping;result=await wait;
-   }else result=outcome;
-   if(signal.aborted||this.closed||this.credential?.disabled||this.credential?.apiKey!==credential.apiKey)return errorResponse('请求已取消',499,'cursor_cancelled');
-   if(!calls.length&&result.status!=='finished'){const cause=cursorFailure(result.error);return errorResponse(cause.message,cause.status,cause.code);}
+   let result!:Awaited<ReturnType<Run['wait']>>,startedAt=0;
+   for(let attempt=0;attempt<2;attempt++){
+    let rejection:unknown,failedStatus=true;
+    try{
+     agent=await Agent.create({apiKey:credential.apiKey,model:{id:model.id,...(selectedParams.length?{params:selectedParams}:{})},tools:input.tools.length?['mcp']:[],mcpServers:{},agents:{},local:{cwd:temp!,settingSources:[],customTools,store:new JsonlLocalAgentStore(join(temp!,'store'))}});
+     if(signal.aborted||this.closed||this.credential?.disabled||this.credential!==credential)return errorResponse('请求已取消',499,'cursor_cancelled');
+     startedAt=Date.now();
+     if(agent.agentId)await rememberCursorGatewayConversation(this.root,agent.agentId,startedAt);
+     this.active=await agent.send(input.images.length?{text:input.prompt,images:input.images}:input.prompt,{onDelta:({update})=>{
+      // Local SDK forwards every generated text/thinking/tool update through
+      // this accumulator before returning send()/wait() failures. Observe only
+      // booleans; no model output is copied into diagnostic storage.
+      if(['user-message-appended','step-started','step-completed'].includes(update.type))return;
+      if(update.type==='turn-ended'){unsafeToReplay ||= cursorGeneratedUsage(update.usage);return;}
+      if(update.type==='token-delta'){unsafeToReplay ||= update.tokens>0;return;}
+      if(update.type==='text-delta'||update.type==='thinking-delta'){unsafeToReplay ||= update.text.length>0;return;}
+      unsafeToReplay=true;
+     }});if(signal.aborted)cancel();
+     const wait=this.active.wait(),outcome=await Promise.race([wait,toolRequested]);
+     if(outcome==='tool'){
+      const stopping=this.active.cancel();for(const release of releases.splice(0))release();await stopping;result=await wait;
+     }else result=outcome;
+     if(signal.aborted||this.closed||this.credential?.disabled||this.credential?.apiKey!==credential.apiKey)return errorResponse('请求已取消',499,'cursor_cancelled');
+     if(calls.length||result.status==='finished')break;
+     rejection=result.error;failedStatus=result.status==='error';
+    }catch(error){rejection=error;}
+    if(signal.aborted||this.closed||this.credential?.disabled||this.credential?.apiKey!==credential.apiKey)return errorResponse('请求已取消',499,'cursor_cancelled');
+    const cause=cursorFailure(rejection);
+    const alternate=attempt===0&&failedStatus&&!unsafeToReplay&&!calls.length&&!result?.result&&!this.active?.result&&!cursorGeneratedUsage(result?.usage)&&!cursorGeneratedUsage(this.active?.usage)&&!cause.auth&&!cause.blocked&&cursorRetryableModelRejection(rejection)?cursorLocalAlternative(model,selectedParams):undefined;
+    this.localModelCompatibility.forget(credential,model,params);
+    if(!alternate)return errorResponse(cause.message,cause.status,cause.code);
+    // Dispose the rejected run before preparing one fresh agent. A client tool
+    // callback, disconnect or late generated delta vetoes replay even here.
+    const disposed=await cleanup();this.active=undefined;agent=undefined;cleanupTask=undefined;
+    if(signal.aborted||this.closed||this.credential!==credential)return errorResponse('请求已取消',499,'cursor_cancelled');
+    if(!disposed||unsafeToReplay)return errorResponse(cause.message,cause.status,cause.code);
+    temp=await mkdtemp(join(this.root,'cursor-runs','request-'));selectedParams=alternate;compatibilityRecovered=true;
+   }
+   if(!agent||!this.active)return errorResponse('Cursor 未返回有效运行结果',502,'cursor_upstream_error');
+   if(compatibilityRecovered)this.localModelCompatibility.remember(credential,model,params,selectedParams);
    if(input.required&&!calls.length)return errorResponse('Cursor 未按要求生成工具调用，请重试或选择其他模型。',502,'cursor_tool_required');
    let tokens:TokenUsage|undefined=result.usage??this.active.usage;
    // Remember only the explicit unsupported-feature response, per credential.

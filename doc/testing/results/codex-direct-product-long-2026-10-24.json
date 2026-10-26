@@ -1,0 +1,133 @@
+{
+  "passed": true,
+  "productSwitch": true,
+  "long": true,
+  "seedBytes": 482337,
+  "scope": "Native Codex OpenAI provider, no official base URL override; isolated TokenFlow stopped before final official continuation and compaction",
+  "networkProxy": true,
+  "officialForwardAttempts": 0,
+  "serviceStopped": true,
+  "rounds": [
+    {
+      "phase": "native-official-seed",
+      "provider": "openai",
+      "markersVerified": 4,
+      "durationMs": 11000
+    },
+    {
+      "phase": "native-official-compact",
+      "provider": "openai",
+      "durationMs": 7444
+    },
+    {
+      "phase": "native-official-compact-checkpoint",
+      "kind": "native"
+    },
+    {
+      "phase": "product-connect-gateway",
+      "authPreserved": true
+    },
+    {
+      "phase": "gateway-after-native-checkpoint",
+      "provider": "token_flow",
+      "markersVerified": 4,
+      "durationMs": 21801
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "provider": "token_flow",
+      "markersVerified": 5,
+      "durationMs": 4144
+    },
+    {
+      "phase": "gateway-before-summary",
+      "provider": "token_flow",
+      "markersVerified": 5,
+      "durationMs": 4626
+    },
+    {
+      "phase": "gateway-summary",
+      "provider": "token_flow",
+      "durationMs": 6424
+    },
+    {
+      "phase": "gateway-readable-summary",
+      "clientOwned": true
+    },
+    {
+      "phase": "gateway-after-summary",
+      "provider": "token_flow",
+      "markersVerified": 5,
+      "durationMs": 7033
+    },
+    {
+      "phase": "product-restore-official",
+      "telemetryRetained": true
+    },
+    {
+      "phase": "native-after-tokenflow-stopped",
+      "provider": "openai",
+      "markersVerified": 5,
+      "durationMs": 10682
+    },
+    {
+      "phase": "native-compact-tokenflow-stopped",
+      "provider": "openai",
+      "durationMs": 12754
+    },
+    {
+      "phase": "native-continue-after-compact-tokenflow-stopped",
+      "provider": "openai",
+      "markersVerified": 5,
+      "durationMs": 5009
+    },
+    {
+      "phase": "passive-usage-without-inference-proxy",
+      "samples": 5,
+      "inputTokens": 291285,
+      "outputTokens": 755
+    }
+  ],
+  "requests": [
+    {
+      "phase": "gateway-after-native-checkpoint",
+      "summary": true,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-after-native-checkpoint",
+      "summary": true,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-after-native-checkpoint",
+      "summary": true,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-after-native-checkpoint",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-before-summary",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-summary",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-after-summary",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    }
+  ]
+}

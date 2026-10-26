@@ -4,15 +4,16 @@ import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createServer} from 'node:http';
 import {zstdDecompressSync} from 'node:zlib';
-import {mkdtemp,writeFile,readFile,rm,realpath} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,rm,realpath,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir,homedir} from 'node:os';
 import YAML from 'yaml';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {GatewayContext} from '../packages/core/src/gateway-context.ts';
 import {CodexContext,codexContextScope} from '../packages/core/src/codex-context.ts';
 import {AgentConnections} from '../packages/core/src/agent-connections.ts';
 const localCompaction=!process.argv.includes('--remote-compaction');
+const projectionPages=process.argv.includes('--projection-pages');const priorProjectionDamage=process.argv.includes('--prior-projection-damage'),alreadyRewrittenDamage=process.argv.includes('--already-rewritten-before-damage');let projectedTurns=0,projectedItems=0,forkVerified=false,ancestorFile,ancestorHash,durableThreadsBefore;
 const root=await mkdtemp(join(await realpath(tmpdir()),'codex-continuation-'));
 const calls=[];let child;let responseNumber=0;let phase=0;let tools=0;let compactions=0;const upstream=[],compactionProgress=[];
 const liveOfficial=process.argv.includes('--live-official');let officialEndpoint,officialKey,officialReply='';let officialDurationMs=0;
@@ -29,6 +30,7 @@ const server=createServer(async(req,res)=>{
  try {
  const send=async(_path,request)=>{
  upstream.push({phase,body:request});
+ if(projectionPages&&phase===3&&JSON.stringify(request.input?.at(-1)).includes('FAILED_SOURCE_TURN_MARKER'))return Response.json({error:{type:'invalid_request_error',code:'fixture_failure',message:'Synthetic source failure'}},{status:400});
  if(liveOfficial&&phase===3){
   assert.ok(!request.input.some(item=>item.type==='compaction'),'gateway ciphertext must be materialized before native resume');
   assert.ok(JSON.stringify(request.input).includes('CHECKPOINT: Directory checks completed; preserve TURN_ONE_MARKER.'));
@@ -66,8 +68,25 @@ async function start(){
  proc.stderr.on('data',chunk=>{if(process.env.DEBUG_FIXTURE)process.stderr.write(chunk);});
  proc.stdout.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);let msg;try{msg=JSON.parse(line);}catch{continue;}if(pending.has(msg.id)){const wait=pending.get(msg.id);pending.delete(msg.id);msg.error?wait.reject(Error(JSON.stringify(msg.error))):wait.resolve(msg.result);}if(msg.method&&(/compact/i.test(msg.method)||/compact/i.test(msg.params?.item?.type??'')))compactionProgress.push({phase,method:msg.method,itemType:msg.params?.item?.type});if(phase===3&&msg.method==='item/completed'&&msg.params.item?.type==='agentMessage')officialReply+=msg.params.item.text??'';if(msg.method==='turn/completed')turnResolve?.(msg.params.turn);}});
  const rpc=(method,params)=>new Promise((resolve,reject)=>{const key=++id;const timer=setTimeout(()=>reject(Error('RPC timeout: '+method)),30000);pending.set(key,{resolve:v=>{clearTimeout(timer);resolve(v)},reject:e=>{clearTimeout(timer);reject(e)}});proc.stdin.write(JSON.stringify({id:key,method,params})+'\n');});
- await rpc('initialize',{clientInfo:{name:'continuation_fixture',version:'1.0'}});proc.stdin.write(JSON.stringify({method:'initialized'})+'\n');
- return {rpc,turn:async(threadId,model,text)=>{let timer;const done=new Promise((resolve,reject)=>{turnResolve=resolve;timer=setTimeout(()=>reject(Error('Turn timeout')),45000)});try{await rpc('turn/start',{threadId,model,input:[{type:'text',text}]});const result=await done;assert.equal(result.status,'completed',JSON.stringify({phase,error:result.error}));return result;}finally{clearTimeout(timer);}},stop:()=>new Promise(r=>{proc.once('exit',r);proc.kill();})};
+ await rpc('initialize',{clientInfo:{name:'continuation_fixture',version:'1.0'},...(projectionPages?{capabilities:{experimentalApi:true}}:{})});proc.stdin.write(JSON.stringify({method:'initialized'})+'\n');
+ return {rpc,turn:async(threadId,model,text,expectedStatus='completed')=>{let timer;const done=new Promise((resolve,reject)=>{turnResolve=resolve;timer=setTimeout(()=>reject(Error('Turn timeout')),45000)});try{await rpc('turn/start',{threadId,model,input:[{type:'text',text}]});const result=await done;assert.equal(result.status,expectedStatus,JSON.stringify({phase,error:result.error}));return result;}finally{clearTimeout(timer);}},stop:()=>new Promise(r=>{proc.once('exit',r);proc.kill();})};
+}
+async function page(client,method,params){
+ const values=[];let cursor;
+ for(let count=0;count<1000;count++){
+  const result=await client.rpc(method,{...params,limit:2,sortDirection:'asc',...(cursor?{cursor}:{})});
+  assert.ok(Array.isArray(result.data));values.push(...result.data);
+  if(!result.nextCursor)return values;
+  assert.notEqual(result.nextCursor,cursor,'pagination failed to advance');cursor=result.nextCursor;
+ }
+ throw Error('pagination did not finish');
+}
+async function inspectProjection(client,thread){
+ const turns=await page(client,'thread/turns/list',{threadId:thread,itemsView:'full'});
+ const items=await page(client,'thread/items/list',{threadId:thread});
+ assert.equal(new Set(turns.map(turn=>turn.id)).size,turns.length);
+ const text=JSON.stringify(items);if(process.env.DEBUG_PROJECTION)console.log(JSON.stringify({projectionPhase:phase,turnCount:turns.length,itemCount:items.length,markers:['TURN_ONE_MARKER','KEPT_BRANCH_MARKER','REMOVED_BRANCH_MARKER','TURN_THREE_MARKER','TURN_FOUR_MARKER'].map(marker=>[marker,text.includes(marker)])}));assert.ok(text.includes('TURN_ONE_MARKER'));assert.ok(text.includes('KEPT_BRANCH_MARKER'));assert.ok(!text.includes('REMOVED_BRANCH_MARKER'));
+ assert.ok(turns.length>=3);assert.ok(items.length>4);projectedTurns=turns.length;projectedItems=items.length;
 }
 try{
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin=`http://127.0.0.1:${server.address().port}`;
@@ -89,10 +108,25 @@ try{
  if(process.argv.includes('--repeat-gateway'))for(let round=1;round<=2;round++){
   tools=0;await client.turn(thread,'qoder/kmodel_latest',`GATEWAY_REPEAT_${round}_MARKER: preserve API compatibility.`);
  }
- phase=2;await client.turn(thread,'workbuddy/hy4-preview','TURN_THREE_MARKER');await client.stop();
- const migrated=await migration.prepareOfficial([],async()=>[]);if(!localCompaction)assert.ok(migrated.migrated>0);assert.equal((await migration.prepareOfficial([],async()=>[])).migrated,0);await connections.restore(record.id);phase=3;
+ phase=2;await client.turn(thread,'workbuddy/hy4-preview','TURN_THREE_MARKER');if(projectionPages)await inspectProjection(client,thread);await client.stop();
+ if(priorProjectionDamage){
+  if(alreadyRewrittenDamage)assert.ok((await migration.prepareOfficial([],async()=>[])).migrated>0);
+  ancestorFile=(await readdir(join(root,'sessions'),{recursive:true})).find(path=>path.endsWith(`-${thread}.jsonl`));assert.ok(ancestorFile);ancestorFile=join(root,'sessions',ancestorFile);ancestorHash=createHash('sha256').update(await readFile(ancestorFile)).digest('hex');
+  const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(join(root,'thread_history_1.sqlite'));const state=new DatabaseSync(join(root,'state_5.sqlite'),{readOnly:true});durableThreadsBefore=state.prepare('select count(*) as n from threads').get().n;state.close();
+  for(const table of ['thread_turns','thread_items','thread_history_projection_state','thread_realtime_items'])db.prepare(`DELETE FROM ${table} WHERE thread_id=?`).run(thread);db.close();
+ }
+ const requestsBeforeRepair=upstream.length;const migrated=await migration.prepareOfficial([],async()=>[]);assert.equal(upstream.length,requestsBeforeRepair,'projection repair must never start a model request');
+ if(priorProjectionDamage){assert.equal(createHash('sha256').update(await readFile(ancestorFile)).digest('hex'),ancestorHash,'ancestor durable history changed during projection repair');const {DatabaseSync}=await import('node:sqlite');const state=new DatabaseSync(join(root,'state_5.sqlite'),{readOnly:true});assert.equal(state.prepare('select count(*) as n from threads').get().n,durableThreadsBefore,'ephemeral repair created a durable conversation');state.close();}
+ if(!localCompaction&&!alreadyRewrittenDamage)assert.ok(migrated.migrated>0);assert.equal((await migration.prepareOfficial([],async()=>[])).migrated,0);await connections.restore(record.id);phase=3;
  client=await start();await client.rpc('thread/resume',{threadId:thread,model:'native-fixture',...(process.argv.includes('--implicit-provider')?{}:{modelProvider:'original_fixture'})});
- await client.turn(thread,'native-fixture',liveOfficial?'Return the exact text of the latest saved historical task checkpoint. Do not call tools.':'TURN_FOUR_MARKER');if(liveOfficial)assert.ok(officialReply.includes('TURN_ONE_MARKER'),'Official Luna failed to recover the original marker from the saved summary');await client.stop();
+ await client.turn(thread,'native-fixture',liveOfficial?'Return the exact text of the latest saved historical task checkpoint. Do not call tools.':'TURN_FOUR_MARKER');if(projectionPages){
+  await inspectProjection(client,thread);
+  await client.turn(thread,'native-fixture','FAILED_SOURCE_TURN_MARKER','failed');
+  const turns=await page(client,'thread/turns/list',{threadId:thread});
+  const fork=await client.rpc('thread/fork',{threadId:thread,beforeTurnId:turns.at(-1).id,model:'native-fixture',modelProvider:'original_fixture',excludeTurns:true});
+  await client.turn(fork.thread.id,'native-fixture','FORK_AFTER_REPAIR_MARKER');
+  const items=await page(client,'thread/items/list',{threadId:fork.thread.id});const text=JSON.stringify(items);assert.ok(text.includes('FORK_AFTER_REPAIR_MARKER'));assert.ok(!text.includes('FAILED_SOURCE_TURN_MARKER'));assert.ok(text.includes('TURN_FOUR_MARKER'));forkVerified=true;
+ }if(liveOfficial)assert.ok(officialReply.includes('TURN_ONE_MARKER'),'Official Luna failed to recover the original marker from the saved summary');await client.stop();
  const target=(await connections.status())[0];
  const again=await connections.apply({target:'codex',revision:target.revision,origin,model:'qoder/kmodel_latest',sourceId:'a'.repeat(24),keyId:randomUUID(),key:'rotated-synthetic-key'});
  phase=4;client=await start();await client.rpc('thread/resume',{threadId:thread,model:'qoder/kmodel_latest',modelProvider:'token_flow'});await client.turn(thread,'qoder/kmodel_latest','TURN_FIVE_MARKER');await client.stop();
@@ -131,6 +165,6 @@ try{
   assert.ok(migrationSummaries.length>0||clientPrepared,'neither Codex nor the migration path summarized the inherited history');
   for(const call of migrationSummaries)assert.ok(Buffer.byteLength(call.body.input[0].content)<600*1024,'summary unexpectedly exceeded planned fallback capacity');
  }
- console.log(JSON.stringify({passed:true,scope:liveOfficial?'installed Codex native-provider resume; saved gateway plaintext accepted by real authorized Luna through local credential bridge':'real installed Codex with synthetic providers; no live official login',liveOfficial,officialDurationMs,officialReplyPreservedEarliestMarker:officialReply.includes('TURN_ONE_MARKER'),localCompaction:localCompaction,longRecovery:process.argv.includes('--long-recovery'),repeatedGateway:process.argv.includes('--repeat-gateway'),originalCompactions:compactions,migrationSummaryCalls:migrationSummaries.length,migrated:migrated.migrated,requests:calls.length,toolHistoryPreserved:true,summaryResumed:true,foreignReasoningRepaired:true,compactionProgress}));
+ console.log(JSON.stringify({passed:true,scope:liveOfficial?'installed Codex native-provider resume; saved gateway plaintext accepted by real authorized Luna through local credential bridge':'real installed Codex with synthetic providers; no live official login',liveOfficial,officialDurationMs,officialReplyPreservedEarliestMarker:officialReply.includes('TURN_ONE_MARKER'),localCompaction:localCompaction,projectionPages,priorProjectionDamage,alreadyRewrittenDamage,projectedTurns,projectedItems,forkVerified,longRecovery:process.argv.includes('--long-recovery'),repeatedGateway:process.argv.includes('--repeat-gateway'),originalCompactions:compactions,migrationSummaryCalls:migrationSummaries.length,migrated:migrated.migrated,requests:calls.length,toolHistoryPreserved:true,summaryResumed:true,foreignReasoningRepaired:true,compactionProgress}));
 
 }finally{if(child&&child.exitCode===null)await new Promise(resolve=>{child.once('exit',resolve);child.kill();});server.closeAllConnections();await new Promise(r=>server.close(r));if(process.env.KEEP_FIXTURE)console.log(root);else await rm(root,{recursive:true,force:true});}

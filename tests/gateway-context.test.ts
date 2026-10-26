@@ -226,3 +226,9 @@ it('forwards long first and later managed histories without gateway-owned automa
  }
  expect(calls).toBe(3);expect(compactions).toBe(0);
 });
+
+it.each([undefined,null,{status:'completed'}, {status:'completed',output:[null]}, {status:'in_progress',output:[]}])('delivers a typed terminal error for malformed upstream SSE without saving success: %j',async terminal=>{
+ const {root,context}=await setup();let failure:unknown;const before=await readdir(join(root,'gateway-context'));
+ const response=await context.response('responses',{model:'api/test',input:'synthetic requirement',stream:true},'a','s',async()=>new Response('data: '+JSON.stringify({type:'response.completed',response:terminal})+'\n\n',{headers:{'content-type':'text/event-stream'}}),undefined,{onError:error=>{failure=error;}});
+ const wire=await response.text();expect(wire).toContain('invalid_terminal_response');expect(wire).not.toContain('response.completed');expect(failure).toMatchObject({code:'invalid_terminal_response',statusCode:502});expect(await readdir(join(root,'gateway-context'))).toEqual(before);
+});

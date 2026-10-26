@@ -1,0 +1,116 @@
+{
+  "passed": true,
+  "productSwitch": true,
+  "scope": "Native Codex OpenAI provider, no official base URL override; isolated TokenFlow stopped before final official continuation and compaction",
+  "networkProxy": true,
+  "officialForwardAttempts": 0,
+  "serviceStopped": true,
+  "rounds": [
+    {
+      "phase": "native-official-seed",
+      "provider": "openai",
+      "markersVerified": 1,
+      "durationMs": 8808
+    },
+    {
+      "phase": "native-official-compact",
+      "provider": "openai",
+      "durationMs": 5393
+    },
+    {
+      "phase": "native-official-compact-checkpoint",
+      "kind": "native"
+    },
+    {
+      "phase": "product-connect-gateway",
+      "authPreserved": true
+    },
+    {
+      "phase": "gateway-after-native-checkpoint",
+      "provider": "token_flow",
+      "markersVerified": 1,
+      "durationMs": 8162
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "provider": "token_flow",
+      "markersVerified": 2,
+      "durationMs": 4513
+    },
+    {
+      "phase": "gateway-before-summary",
+      "provider": "token_flow",
+      "markersVerified": 2,
+      "durationMs": 4449
+    },
+    {
+      "phase": "gateway-summary",
+      "provider": "token_flow",
+      "durationMs": 6856
+    },
+    {
+      "phase": "gateway-readable-summary",
+      "clientOwned": true
+    },
+    {
+      "phase": "gateway-after-summary",
+      "provider": "token_flow",
+      "markersVerified": 2,
+      "durationMs": 7030
+    },
+    {
+      "phase": "product-restore-official",
+      "telemetryRetained": true
+    },
+    {
+      "phase": "native-after-tokenflow-stopped",
+      "provider": "openai",
+      "markersVerified": 2,
+      "durationMs": 10122
+    },
+    {
+      "phase": "native-compact-tokenflow-stopped",
+      "provider": "openai",
+      "durationMs": 9935
+    },
+    {
+      "phase": "native-continue-after-compact-tokenflow-stopped",
+      "provider": "openai",
+      "markersVerified": 2,
+      "durationMs": 2955
+    },
+    {
+      "phase": "passive-usage-without-inference-proxy",
+      "samples": 5,
+      "inputTokens": 89017,
+      "outputTokens": 415
+    }
+  ],
+  "requests": [
+    {
+      "phase": "gateway-after-native-checkpoint",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-before-summary",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-summary",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    },
+    {
+      "phase": "gateway-after-summary",
+      "summary": false,
+      "model": "antigravity/gemini-3.8-flash-low"
+    }
+  ]
+}

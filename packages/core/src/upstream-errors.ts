@@ -53,8 +53,20 @@ const known:Record<string,{message:string;type:string;wireMessage?:string}>={
  a2a_server_tool_unsupported:{type:'unsupported_feature',message:'该来源支持客户端函数工具，暂不支持服务端内置工具。请关闭内置网页搜索等服务端工具，或选择支持它们的来源。',wireMessage:'This source supports client function/custom tools only; server-side or unknown tool types are not supported.'},
  upstream_context_length:{type:'invalid_request_error',message:'上游拒绝了超出模型上下文窗口的输入。请减少本轮附件或工具定义，或选择支持更长上下文的模型。'},
  upstream_rate_limited:{type:'rate_limit_error',message:'上游返回限流或容量不足，请稍后重试或选择其他模型。'},
+ upstream_daily_token_limit:{type:'rate_limit_error',message:'API 来源拒绝了本次请求：触发每日 token 使用额度限制。请在该 API 服务查看额度与重置时间，或选择其他来源；重新应用 Codex 配置不能恢复额度。'},
 };
-type ErrorDetail={code?:string;type?:string;param?:unknown;message?:string;fields?:unknown};
+const workbuddyToolIssueMessages={
+ unknown_name:'WorkBuddy SDK 返回未声明的工具名，工具调用未接受（unknown_name）。',
+ unfinished_block:'WorkBuddy SDK 的工具块未完整结束，工具调用未接受（unfinished_block）。',
+ invalid_json:'WorkBuddy SDK 的工具参数不是完整 JSON，工具调用未接受（invalid_json）。',
+ invalid_args:'WorkBuddy SDK 的工具参数不符合声明结构，工具调用未接受（invalid_args）。',
+ truncated_turn:'WorkBuddy SDK 的工具响应被截断或未正常结束，工具调用未接受（truncated_turn）。',
+ parallel_limit:'WorkBuddy SDK 返回多个工具调用，超出本次单工具要求（parallel_limit）。',
+ orphan_delta:'WorkBuddy SDK 返回没有对应工具块的参数片段，工具调用未接受（orphan_delta）。',
+ input_limit:'WorkBuddy SDK 的工具参数超过大小限制，工具调用未接受（input_limit）。',
+};
+type ToolIssue=keyof typeof workbuddyToolIssueMessages;
+type ErrorDetail={code?:string;type?:string;param?:unknown;message?:string;fields?:unknown;toolIssue?:unknown};
 const record=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 // Some Responses bridges wrap an already structured provider error inside
 // `message`. Read that envelope before classification so its category survives.
@@ -68,9 +80,17 @@ function errorEnvelope(body:string):{error?:ErrorDetail}{
   return ['code','type','message','param','fields'].some(key=>key in detail)?{error:detail as ErrorDetail}:{};
  }catch{return {};}
 }
-export function upstreamError(status:number,body:string):{code?:string;type:string;message:string;param?:string}{
+export function upstreamError(status:number,body:string):{code?:string;type:string;message:string;param?:string;toolIssue?:ToolIssue}{
  const parsed=errorEnvelope(body);
  const code=typeof parsed?.error?.code==='string'?parsed.error.code:undefined;const message=typeof parsed?.error?.message==='string'?parsed.error.message:'';
+ if(code==='workbuddy_tool_protocol'){
+  // The fixed message preserves this subtype in existing traces even when an
+  // intermediary keeps only error.code/message. Never inspect arbitrary names,
+  // arguments, or provider text to invent a tool subtype.
+  const issue=parsed.error?.toolIssue;
+  const toolIssue=typeof issue==='string'&&Object.hasOwn(workbuddyToolIssueMessages,issue)?issue as ToolIssue:(Object.keys(workbuddyToolIssueMessages) as ToolIssue[]).find(key=>message===workbuddyToolIssueMessages[key]);
+  return {code,...known.workbuddy_tool_protocol!,...(toolIssue?{toolIssue,message:workbuddyToolIssueMessages[toolIssue]}:{})};
+ }
  if(code==='workbuddy_invalid_request'||code==='cursor_invalid_request'){
   const fields=Array.isArray(parsed?.error?.fields)?parsed.error.fields.filter((field:unknown)=>typeof field==='string'&&/^(?:tools|input|messages|reasoning|model|stream|instructions|system|tool_choice|parallel_tool_calls|max_tokens|max_output_tokens|max_completion_tokens|reasoning_effort)(?:\.(?:[0-9]+|name|type|content|parameters|summary|effort))*$/.test(field)).slice(0,5):[];
   const detail=fields.length?`（字段：${fields.join('、')}）`:'';
@@ -78,13 +98,14 @@ export function upstreamError(status:number,body:string):{code?:string;type:stri
  }
  const entry=code&&Object.hasOwn(known,code)?[code,known[code]] as const:Object.entries(known).find(([,value])=>message===value.wireMessage);
  if(entry)return {code:entry[0],type:entry[1].type,message:entry[1].message};
+ if(message==='超过每天令牌使用限制')return {code:'upstream_daily_token_limit',...known.upstream_daily_token_limit!};
  if(['context_length_exceeded','context_too_large'].includes(code??''))return {code:'upstream_context_length',...known.upstream_context_length!};
  if(status===429||['rate_limit_exceeded','rate_limit_error'].includes(code??'')||parsed.error?.type==='rate_limit_error')return {code:'upstream_rate_limited',...known.upstream_rate_limited!};
  if(status===400||code==='upstream_invalid_request'){
-  const param=typeof parsed?.error?.param==='string'?parsed.error.param:'';
+  const param=typeof parsed?.error?.param==='string'?parsed.error.param:message.match(/^([A-Za-z0-9_.\[\]]{1,256}):(?:\s|$)/)?.[1]??'';
   // Retain only structural request paths; arbitrary parameter names can contain
   // user data. Raw upstream messages never cross this boundary.
-  const safeParam=/^(?:input|messages|tools|model|instructions|reasoning|text|response_format|tool_choice|max_output_tokens)(?:\[\d+\]|\.(?:\d+|content|type|text|role|name|parameters|schema|format|strict|effort|summary|call_id|arguments|output|encrypted_content))*$/.test(param)?param:'';
+  const safeParam=param.length<=256&&/^(?:input|messages|tools|model|instructions|system|reasoning|thinking|text|response_format|tool_choice|max_tokens|max_output_tokens)(?:\[\d{1,9}\]|\.(?:\d{1,9}|content|type|text|role|name|custom|function|parameters|input_schema|schema|format|strict|effort|summary|call_id|arguments|output|encrypted_content|thinking|signature|budget_tokens|anyOf|oneOf|allOf|items))*$/.test(param)?param:'';
   if(safeParam||['upstream_invalid_request','invalid_request_error','invalid_type','invalid_value','missing_required_parameter','unsupported_parameter','unsupported_value','invalid_parameter'].includes(code??'')||parsed?.error?.type==='invalid_request_error')return {code:'upstream_invalid_request',type:'invalid_request_error',...(safeParam?{param:safeParam}:{}),message:`上游拒绝了请求格式或参数${safeParam?`（字段：${safeParam}）`:''}。请保留此错误用于排查协议兼容性；切换账号或修改 DNS 不能修复参数错误。`};
  }
  if(message.includes('User location is not supported for the API use'))return {code:'region_not_supported',type:'region_not_supported',message:'所选账号的上游服务不支持当前地区使用 API。请查看提供商的地区支持说明；重新登录不能解决此限制。'};

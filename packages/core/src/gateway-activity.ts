@@ -1,4 +1,4 @@
-import type {CompactionReport} from './gateway-context.js';
+import type {ContextObservation,CompactionReport} from './gateway-context.js';
 import { Transform } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { randomUUID } from 'node:crypto';
@@ -12,7 +12,7 @@ export type GatewayCall={id:string;keyId:string;agent:string;model:string;protoc
  target?:string;
  /** Account or API source that served the call. */
  sourceId?:string;
- compaction?:CompactionReport;error?:{code:string;message:string}};
+ compaction?:CompactionReport;context?:ContextObservation[];error?:{code:string;message:string}};
 const number=(value:unknown)=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0?value:null;
 // Responses completion events can echo the entire tool catalog. Keep observation
 // bounded at the gateway's request-size budget, not the old 512 KiB text limit.

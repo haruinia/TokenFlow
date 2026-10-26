@@ -1,0 +1,504 @@
+{
+  "passed": true,
+  "live": false,
+  "long": true,
+  "legacyLocalComparison": true,
+  "seedBytes": 394590,
+  "seedUsageIsSynthetic": true,
+  "scope": "Installed Codex, production coexist routing, isolated login/config/history; explicit compaction and two model round trips",
+  "rounds": [
+    {
+      "phase": "official-seed",
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 5094
+    },
+    {
+      "phase": "long-seed-0",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 128
+    },
+    {
+      "phase": "long-seed-1",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 96
+    },
+    {
+      "phase": "long-seed-2",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 94
+    },
+    {
+      "phase": "long-seed-3",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 96
+    },
+    {
+      "phase": "long-seed-4",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 94
+    },
+    {
+      "phase": "long-seed-5",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 66
+    },
+    {
+      "phase": "long-seed-6",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 96
+    },
+    {
+      "phase": "long-seed-7",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 94
+    },
+    {
+      "phase": "long-seed-8",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 94
+    },
+    {
+      "phase": "long-seed-9",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 95
+    },
+    {
+      "phase": "long-seed-10",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 157
+    },
+    {
+      "phase": "long-seed-11",
+      "completed": true,
+      "markersVerified": 0,
+      "constraintsVerified": 0,
+      "durationMs": 128
+    },
+    {
+      "phase": "official-compact-1",
+      "completed": true,
+      "nativeRemote": false,
+      "gatewaySummaryCalls": 0,
+      "durationMs": 62
+    },
+    {
+      "phase": "gateway-after-official-compact",
+      "completed": true,
+      "markersVerified": 4,
+      "constraintsVerified": 0,
+      "durationMs": 64
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "completed": true,
+      "markersVerified": 5,
+      "constraintsVerified": 0,
+      "durationMs": 65
+    },
+    {
+      "phase": "gateway-before-compact",
+      "completed": true,
+      "markersVerified": 5,
+      "constraintsVerified": 0,
+      "durationMs": 96
+    },
+    {
+      "phase": "gateway-compact-1",
+      "completed": true,
+      "nativeRemote": false,
+      "gatewaySummaryCalls": 0,
+      "durationMs": 83
+    },
+    {
+      "phase": "official-after-gateway-compact",
+      "completed": true,
+      "markersVerified": 5,
+      "constraintsVerified": 0,
+      "durationMs": 110
+    },
+    {
+      "phase": "official-compact-2",
+      "completed": true,
+      "nativeRemote": false,
+      "gatewaySummaryCalls": 0,
+      "durationMs": 97
+    },
+    {
+      "phase": "gateway-second-return",
+      "completed": true,
+      "markersVerified": 5,
+      "constraintsVerified": 0,
+      "durationMs": 69
+    },
+    {
+      "phase": "gateway-add-final-requirement",
+      "completed": true,
+      "markersVerified": 6,
+      "constraintsVerified": 0,
+      "durationMs": 65
+    },
+    {
+      "phase": "gateway-final-before-compact",
+      "completed": true,
+      "markersVerified": 6,
+      "constraintsVerified": 0,
+      "durationMs": 98
+    },
+    {
+      "phase": "gateway-compact-2",
+      "completed": true,
+      "nativeRemote": false,
+      "gatewaySummaryCalls": 0,
+      "durationMs": 62
+    },
+    {
+      "phase": "official-final-return",
+      "completed": true,
+      "markersVerified": 6,
+      "constraintsVerified": 3,
+      "durationMs": 165
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-seed",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 57684,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 3,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "long-seed-0",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 58147,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-1",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 91629,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-2",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 125093,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-3",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 158557,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-4",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 192021,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-5",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 225485,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-6",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 258949,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-7",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 292432,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-8",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 325896,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-9",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 359360,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-10",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 392824,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "long-seed-11",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": true,
+      "bytes": 426233,
+      "localSummary": false,
+      "remoteTrigger": false
+    },
+    {
+      "phase": "official-compact-1",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 460037,
+      "localSummary": true,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 2,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-after-official-compact",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 74441,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 75051,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-before-compact",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 75616,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 1,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-compact-1",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": true,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 38836,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "official-after-gateway-compact",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 87334,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 1,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "official-compact-2",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 61200,
+      "localSummary": true,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 1,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-second-return",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 75666,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 1,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-add-final-requirement",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 76253,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-final-before-compact",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 76833,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-compact-2",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": true,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 40068,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "official-final-return",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 88713,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 1,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    }
+  ]
+}

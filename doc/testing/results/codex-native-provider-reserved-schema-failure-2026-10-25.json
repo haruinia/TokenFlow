@@ -1,0 +1,6 @@
+{
+  "passed": false,
+  "scope": "Real OpenAI, original collaboration namespace with plaintext message schema",
+  "error": "Turn failed in official-native-spawn: {\"message\":\"{\\n  \\\"type\\\": \\\"error\\\",\\n  \\\"error\\\": {\\n    \\\"type\\\": \\\"invalid_request_error\\\",\\n    \\\"code\\\": null,\\n    \\\"message\\\": \\\"Invalid Value: 'tools'. Function 'collaboration.followup_task' is reserved for use by this model and must match the configured schema.\\\",\\n    \\\"param\\\": \\\"tools\\\"\\n  },\\n  \\\"status\\\": 400\\n}\",\"codexErrorInfo\":\"other\",\"additionalDetails\":null,\"misalignment\":null}\n+ actual - expected\n\n+ 'failed'\n- 'completed'\n",
+  "gatewayCalls": 0
+}

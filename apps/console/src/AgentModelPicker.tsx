@@ -1,4 +1,4 @@
-import {useLayoutEffect,useRef,useState,useId} from 'react';
+import {useLayoutEffect,useRef,useState,useId,type ReactNode} from 'react';
 import type {LocalAgentSnapshot} from '../../../packages/core/src/cliproxy';
 import {modelGroups,type Choice} from './flow-model';
 import {qualifiedModelLabel as modelLabel} from './model-label';
@@ -6,24 +6,27 @@ import {compareNames,DragHandle,dropOrder,orderModels,useModelOrder} from './dis
 import {modelManufacturer} from './UsagePanel';
 import {ProviderIcon,providerIconKey} from './ProviderIcon';
 import {QuotaRing} from './QuotaRing';
+import {QuotaDetails,quotaPresentation} from './QuotaDetails';
 import {FlowDialog} from './FlowDialog';
 import {Icon} from './Icons';
 import {sourceSelectionState,sourceSelectionNotice} from './source-options';
 
 const same=(a:Choice,b:Choice)=>a.sourceId===b.sourceId&&a.model===b.model;
-export function AgentModelPicker({open,title,local,current,selected,onConfirm,onClose,embedded=false,busy=false,onSelectionChange,compact=false}:{compact?:boolean;embedded?:boolean;busy?:boolean;onSelectionChange?:(choices:Choice[])=>void;open:boolean;title:string;local:LocalAgentSnapshot;current?:Choice;selected:Choice[];onConfirm:(choices:Choice[])=>void;onClose:()=>void}){
+export function AgentModelPicker({open,title,local,current,selected,onConfirm,onClose,embedded=false,busy=false,onSelectionChange,compact=false,applicationOptions}:{applicationOptions?:ReactNode;compact?:boolean;embedded?:boolean;busy?:boolean;onSelectionChange?:(choices:Choice[])=>void;open:boolean;title:string;local:LocalAgentSnapshot;current?:Choice;selected:Choice[];onConfirm:(choices:Choice[])=>void;onClose:()=>void}){
  const catalogId=useId();
- const [query,setQuery]=useState(''),[draft,setDraft]=useState<Choice[]>([]),[source,setSource]=useState(''),[provider,setProvider]=useState('');
+ const [query,setQuery]=useState(''),[draft,setDraft]=useState<Choice[]>([]),[source,setSource]=useState(''),[provider,setProvider]=useState(''),[quotaOpen,setQuotaOpen]=useState(false);
  const [order,,ranks,moveModel]=useModelOrder();const displayOrder=order==='manual'?'manual':'name';
  const search=useRef<HTMLInputElement>(null),list=useRef<HTMLDivElement>(null);
  const positions=useRef(new Map<string,number>());
  const all=modelGroups(local).sort((a,b)=>Number(b.provider==='api')-Number(a.provider==='api')||compareNames(a.label,b.label));
- useLayoutEffect(()=>{if(!open)return;setQuery('');setProvider('');setDraft(selected);setSource(compact?'':current?.sourceId??selected[0]?.sourceId??all[0]?.id??'');positions.current.clear();},[open]);
+ useLayoutEffect(()=>{setQuotaOpen(false);if(!open)return;setQuery('');setProvider('');setDraft(selected);setSource(compact?'':current?.sourceId??selected[0]?.sourceId??all[0]?.id??'');positions.current.clear();},[open]);
  const releaseSearch=()=>{if(document.activeElement===search.current)search.current?.blur();};
  const updateDraft=(next:Choice[]|((items:Choice[])=>Choice[]))=>{const value=typeof next==='function'?next(draft):next;setDraft(value);onSelectionChange?.(value);};
  const q=query.trim().toLowerCase();
  const groups=all.map(group=>({...group,models:orderModels(group.models.filter(model=>!q||`${group.label} ${group.providerLabel} ${model.id} ${model.label}`.toLowerCase().includes(q)),model=>model.label,displayOrder,ranks)})).filter(group=>group.models.length);
  const active=groups.find(group=>group.id===source)??(!compact?groups[0]:undefined);
+ const quotaOverview=active?.quota?quotaPresentation(active.quota).overview:[];
+ const quotaLabel=(label:string)=>active?.provider==='antigravity'?label.replace(/^Gemini Models/i,'Gemini').replace(/^Claude and GPT models/i,'Claude / GPT').replace(/Weekly Limit Remaining/i,'周额度').replace(/Five Hour Limit Remaining/i,'5 小时'):label;
  const providers=[...new Map(groups.map(group=>[providerIconKey(group.provider),group])).entries()];
  const activeProvider=active?providerIconKey(active.provider):provider;
  const accounts=groups.filter(group=>providerIconKey(group.provider)===activeProvider);
@@ -75,7 +78,10 @@ export function AgentModelPicker({open,title,local,current,selected,onConfirm,on
    {(!compact||!!active||!groups.length)&&<section className="tfAgentPickerCatalog tfPickSource" id={catalogId} role="tabpanel" aria-label={active?.label??'模型列表'}>
     {active?<>
      <header><div className="tfAgentCatalogIdentity"><strong>{active.provider==='api'?active.accountLabel:active.providerLabel}</strong><small title={active.accountLabel}>{compact||active.provider==='api'?`${active.models.length} 个模型`:`${active.accountLabel} · ${active.models.length} 个模型`}</small></div>
-      {!!active.quota?.windows.length&&<div className="tfAgentPickerRings" aria-label={`${active.accountLabel} 额度`}>{active.quota.windows.map(window=><QuotaRing key={window.id} compact remaining={window.usedPercent===null?null:100-window.usedPercent} label={window.label}/>)}</div>}
+      {!!quotaOverview.length&&<div className="tfAgentPickerRings" aria-label={`${active.accountLabel} 额度`}>{quotaOverview.map(window=><span className="tfAgentPickerQuotaWindow" key={window.id} title={window.label}>
+       <QuotaRing compact remaining={window.usedPercent===null?null:100-window.usedPercent} label={window.label}/><span>{quotaLabel(window.label)}{window.displayValue&&<small>{window.displayValue}</small>}</span>
+      </span>)}</div>}
+      {active.quota&&<button type="button" className="textButton tfModelQuotaButton" onClick={()=>setQuotaOpen(true)}>{active.quota.status==='error'?(active.quota.windows.length?'上次额度 · 更新失败':'额度查询失败'):'额度详情'}</button>}
       <button type="button" className="textButton" disabled={!sourceChoices.length} onClick={()=>updateDraft(items=>sourceSelected?items.filter(item=>!sourceChoices.some(choice=>same(item,choice))):[...items,...sourceChoices.filter(choice=>!items.some(item=>same(item,choice)))])}>{sourceSelected?'取消全选':'全选'}</button>
      </header>
      <div ref={list} className="tfPickBody tfAgentPickerModelList" onScroll={event=>positions.current.set(key,event.currentTarget.scrollTop)}><div className="tfPickOptions">
@@ -89,6 +95,8 @@ export function AgentModelPicker({open,title,local,current,selected,onConfirm,on
     </>:<div className="tfAgentPickerEmpty"><Icon name={compact&&!q?'plus':'search'} size={24}/><strong>{compact&&!q&&groups.length?'选择来源查看模型':q?'没有匹配的模型':'还没有可用模型'}</strong>{(!compact||q||!groups.length)&&<p>{q?'试试其他模型名或账号':'在账号授权或 API 接口添加来源'}</p>}</div>}
    </section>}
   </div>
+  {open&&quotaOpen&&active?.quota&&<FlowDialog open title={`${active.providerLabel} 账号额度`} className="tfModelQuotaDialog" onClose={()=>setQuotaOpen(false)}><p className="tfHint">{active.accountLabel}</p><QuotaDetails quota={active.quota} label={active.accountLabel} compact concise/></FlowDialog>}
+  {applicationOptions&&<div className="tfAgentPicked">{applicationOptions}</div>}
   {!embedded&&<footer><span aria-live="polite">已选择 {draft.length} 个模型{unavailableCount>0&&<button type="button" className="textButton tfRemoveUnavailable" onClick={removeUnavailable}>移除不可用模型（{unavailableCount}）</button>}</span><button type="button" onClick={onClose}>取消</button><button type="button" className="primary" disabled={busy||!draft.length} onClick={()=>{onConfirm(draft);onClose();}}>应用所选模型</button></footer>}
  </>;
  if(embedded)return open?<section className={`tfAgentPicker tfInlineAgentPicker ${compact?'tfCompactPicker':''}`} aria-label={title} inert={busy} aria-busy={busy}>{content}</section>:null;

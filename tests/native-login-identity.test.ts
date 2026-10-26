@@ -28,3 +28,11 @@ it('matches official domestic endpoint aliases without mixing international or e
  expect(matches('qoder',{accountId:'qoder-id'},{accountId:'qoder-id'})).toBe(true);
  expect(matches('qoder',{},{accountId:'qoder-id'})).toBe(false);
 });
+it('keeps the matching Codex account selected only when the connection explicitly enables coexistence',()=>{
+ expect(officialLoginSelected('codex',true,true,true)).toBe(true);
+ expect(officialLoginSelected('codex',false,true,true)).toBe(false);
+ expect(officialLoginHeld('codex',true,false,true)).toBe(true);
+ expect(officialLoginSelected('codex',true,true,false)).toBe(false);
+ expect(officialLoginHeld('codex',true,false,false)).toBe(false);
+ expect(officialLoginSelected('claude',true,true,true)).toBe(false);
+});

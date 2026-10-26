@@ -1,12 +1,12 @@
 import {it,expect,vi,beforeEach} from 'vitest';
-const sdk=vi.hoisted(()=>({query:vi.fn(),descriptions:[] as string[],callbacks:[] as Array<(args:Record<string,unknown>)=>unknown>}));
+const sdk=vi.hoisted(()=>({query:vi.fn(),descriptions:[] as string[],callbacks:[] as Array<(args:Record<string,unknown>)=>unknown>,listTools:undefined as undefined|(()=>Promise<any>)}));
 vi.mock('../packages/codebuddy-runtime/node_modules/@tencent-ai/agent-sdk/lib/index.js',()=>({
  query:sdk.query,
  tool:(_name:unknown,description:string,schema:{parse:(value:unknown)=>Record<string,unknown>},callback:(args:Record<string,unknown>)=>unknown)=>{sdk.descriptions.push(description);sdk.callbacks.push(args=>callback(schema.parse(args)));return {};},
- createSdkMcpServer:()=>({instance:{close:async()=>{}}}),
+ createSdkMcpServer:()=>({instance:{close:async()=>{},server:{setRequestHandler:(_schema:unknown,handler:()=>Promise<any>)=>{sdk.listTools=handler;}}}}),
 }));
 import {runOfficialSDK} from '../packages/codebuddy-runtime/index.js';
-beforeEach(()=>{sdk.callbacks.length=0;sdk.descriptions.length=0;sdk.query.mockReset();});
+beforeEach(()=>{sdk.callbacks.length=0;sdk.descriptions.length=0;sdk.query.mockReset();sdk.listTools=undefined;});
 
 it.each([false,true,undefined])('hands back client proposals with parallelToolCalls=%s without running commands',async parallelToolCalls=>{
  const command='printf should-only-run-on-client';let options:Record<string,any>={};
@@ -35,10 +35,10 @@ it('accepts client tools whose schema is not a plain object',async()=>{
   yield {type:'result',is_error:true,subtype:'error_max_turns'};
  })());
  const union={anyOf:[{type:'object',properties:{threadId:{type:'string'}},required:['threadId']},{type:'object',properties:{projectId:{type:'string'}},required:['projectId']}]};
- const result=await runOfficialSDK({token:'fixture',region:'china',model:'test',prompt:'Use client tools',tools:[{name:'union',parameters:union},{name:'unconvertible',parameters:{type:'object',properties:{x:{$ref:'#/$defs/missing'}}}}],signal:new AbortController().signal,cwd:'/tmp',configDir:'/tmp'});
+ const result=await runOfficialSDK({token:'fixture',region:'china',model:'test',prompt:'Use client tools',tools:[{name:'union',parameters:union},{name:'conditional',parameters:{type:'object',if:{required:['threadId']},then:{properties:{threadId:{type:'string'}}}}}],signal:new AbortController().signal,cwd:'/tmp',configDir:'/tmp'});
  expect(result.failed).toBe(false);
- expect(sdk.descriptions[0]).toContain(JSON.stringify(union));
- expect(result.calls.map(call=>call.name)).toEqual(['union','unconvertible']);
+ expect((await sdk.listTools!()).tools[0].inputSchema).toEqual({...union,type:'object'});
+ expect(result.calls.map(call=>call.name)).toEqual(['union','conditional']);
  expect(result.calls[0]!.arguments).toBe(JSON.stringify(args));
 });
 
@@ -141,6 +141,20 @@ const completeToolTurn=(names=['mcp__token_flow__client_0'])=>[
  {type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'end_turn'},usage:{input_tokens:0,output_tokens:0}}},
  {type:'stream_event',event:{type:'message_stop'}},
 ];
+const schemaCases=[
+ {label:'oneOf required-only branches',parameters:{type:'object',properties:{selection:{type:'object',properties:{id:{type:'string'},name:{type:'string'}},oneOf:[{required:['id']},{required:['name']}]}},required:['selection']},args:{selection:{id:'synthetic'}}},
+ {label:'tuple permits additional unspecified items',parameters:{type:'object',properties:{items:{type:'array',prefixItems:[{type:'string'}]}},required:['items']},args:{items:['synthetic',7]}},
+ {label:'tuple permits fewer prefix items absent minItems',parameters:{type:'object',properties:{items:{type:'array',prefixItems:[{type:'string'}]}},required:['items']},args:{items:[]}},
+ {label:'RFC3339 offset datetime',parameters:{type:'object',properties:{at:{type:'string',format:'date-time'}},required:['at']},args:{at:'2026-10-24T01:58:40-07:00'}},
+ {label:'relative URI reference',parameters:{type:'object',properties:{uri:{type:'string',format:'uri-reference'}},required:['uri']},args:{uri:'../synthetic'}},
+ {label:'default annotation does not insert missing args',parameters:{type:'object',properties:{optional:{type:'integer',default:7}}},args:{}},
+];
+it.each(schemaCases)('preserves original JSON Schema semantics: $label',async({parameters,args})=>{
+ const events:any[]=completeToolTurn();const deltas=events.filter(m=>m.event.delta?.type==='input_json_delta');deltas[0].event.delta.partial_json=JSON.stringify(args);deltas[1].event.delta.partial_json='';
+ sdk.query.mockImplementation(()=>(async function*(){for(const event of events)yield event;})());
+ const result=await runOfficialSDK({token:'fixture',region:'china',model:'test',prompt:'Use the synthetic tool',tools:[{name:'fixture',parameters}],signal:new AbortController().signal,cwd:'/tmp',configDir:'/tmp'});
+ expect(result.failed).toBe(false);expect(JSON.parse(result.calls[0]!.arguments)).toEqual(args);
+});
 it('hands off the whole validated streamed tool turn before SDK follow-up inference',async()=>{
  let followup=false,closed=false;
  sdk.query.mockImplementation(()=> (async function*(){try{
@@ -161,12 +175,28 @@ it.each(['unknown','invalid_args','unfinished','wrong_model','parallel','stream_
  sdk.query.mockImplementation(()=>(async function*(){for(const event of events)yield event;})());
  await expect(runOfficialSDK({token:'fixture',region:'china',model:'test',prompt:'Read fixture',tools:[{name:'read_fixture',parameters:{type:'object',properties:{step:{type:'integer'}},required:['step']}}],parallelToolCalls:fault==='parallel'?false:undefined,signal:new AbortController().signal,cwd:'/tmp',configDir:'/tmp'})).rejects.toThrow();
 });
+it.each(['unknown_name','unfinished_block','invalid_json','invalid_args','truncated_turn','parallel_limit','orphan_delta'] as const)('reports safe %s tool diagnostics while still rejecting the proposal',async toolIssue=>{
+ const events:any[]=completeToolTurn(toolIssue==='parallel_limit'?['mcp__token_flow__client_0','mcp__token_flow__client_0']:toolIssue==='unknown_name'?['private_tool_name']:undefined);
+ if(toolIssue==='unfinished_block')events.splice(events.findIndex(m=>m.event.type==='content_block_stop'),1);
+ if(toolIssue==='invalid_json')events.find(m=>m.event.delta?.partial_json==='7}').event.delta.partial_json=']';
+ if(toolIssue==='invalid_args')events.find(m=>m.event.delta?.partial_json==='7}').event.delta.partial_json='"private_argument"}';
+ if(toolIssue==='truncated_turn')events.find(m=>m.event.delta?.stop_reason==='tool_use').event.delta.stop_reason='max_tokens';
+ if(toolIssue==='orphan_delta')events.splice(1,0,{type:'stream_event',event:{type:'content_block_delta',index:99,delta:{type:'input_json_delta',partial_json:'private_argument'}}});
+ sdk.query.mockImplementation(()=>(async function*(){for(const event of events)yield event;})());const diagnostics:unknown[]=[];
+ await expect(runOfficialSDK({token:'private_token',region:'china',model:'test',prompt:'private_prompt',tools:[{name:'fixture',parameters:{type:'object',properties:{step:{type:'integer'}},required:['step']}}],parallelToolCalls:toolIssue==='parallel_limit'?false:undefined,onDiagnostic:event=>diagnostics.push(event),signal:new AbortController().signal,cwd:'/tmp',configDir:'/tmp'})).rejects.toThrow();
+ expect(diagnostics).toContainEqual(expect.objectContaining({event:'failure',reason:'tool_protocol',toolIssue}));expect(JSON.stringify(diagnostics)).not.toMatch(/private_/);
+});
 it('does not return a streamed proposal twice when the MCP callback was already delivered',async()=>{
  sdk.query.mockImplementation(()=>(async function*(){await sdk.callbacks[0]!({step:7});for(const event of completeToolTurn())yield event;})());
  const result=await runOfficialSDK({token:'fixture',region:'china',model:'test',prompt:'Read fixture',tools:[{name:'read_fixture',parameters:{type:'object',properties:{step:{type:'integer'}},required:['step']}}],signal:new AbortController().signal,cwd:'/tmp',configDir:'/tmp'});
  expect(result.calls).toHaveLength(1);expect(result.failed).toBe(false);
  // A late callback during shutdown cannot append to the handed-off result.
  await sdk.callbacks[0]!({step:8});expect(result.calls).toHaveLength(1);
+});
+it('rejects arbitrary tool diagnostic counters even when the error supplies a known issue',async()=>{
+ const diagnostics:unknown[]=[];sdk.query.mockImplementation(()=>(async function*(){throw Object.assign(Error('private_error'),{sdkToolIssue:'unknown_name',sdkToolBlocks:'private_counter',sdkUnfinishedToolBlocks:-1});})());
+ await expect(runOfficialSDK({token:'private_token',region:'china',model:'test',prompt:'private_prompt',tools:[],onDiagnostic:event=>diagnostics.push(event),signal:new AbortController().signal,cwd:'/tmp',configDir:'/tmp'})).rejects.toThrow();
+ const failure=diagnostics.find((event:any)=>event.event==='failure');expect(failure).toMatchObject({toolIssue:'unknown_name'});expect(failure).not.toHaveProperty('toolBlocks');expect(failure).not.toHaveProperty('unfinishedToolBlocks');expect(JSON.stringify(diagnostics)).not.toMatch(/private_/);
 });
 it('does not hide unrelated errors mixed with an incorrectly tagged turn limit',async()=>{
  sdk.query.mockImplementation(()=>(async function*(){await sdk.callbacks[0]!({step:7});throw Object.assign(new Error('Max turns (1) exceeded'),{name:'ExecutionError',subtype:'error_during_execution',errors:['Max turns (1) exceeded','upstream disconnected']});})());
