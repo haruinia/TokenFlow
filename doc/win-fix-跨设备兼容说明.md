@@ -168,3 +168,25 @@ Windows 上判断"某个同名进程属于哪个应用"不能只看 exe 名字�
 > 环境注意：在部分宿主环境（如 WorkBuddy 沙箱会话）下，Electron 的 GPU 进程会以 0xC0000005 崩溃、且环境变量 `ELECTRON_RUN_AS_NODE=1` 会让 Electron 退化为纯 Node。跑 UI 检查需：
 > `env -u ELECTRON_RUN_AS_NODE npx electron --no-sandbox --disable-gpu --disable-gpu-sandbox --in-process-gpu scripts/<xxx-ui-check>.cjs`
 > 这属于本机环境限制，与代码无关；真机直接 `node scripts/run-all-windows-e2e.mjs` 即可。
+
+### 2026-10-26：合并 origin/main（77d93c9），提交 75a92ca
+
+**纳入内容**：macOS 侧 37 个提交（272 文件、+20393/-567），集中在 Codex 双入口与原生 Agent 集成（官方/网关模型共存、混合启动器、跨提供方委派）、用量对账审计、控制台加载布局与 API 来源排序。
+
+**冲突处理（6 个文件、11 个冲突块）**：
+
+| 冲突点 | 处理方式 |
+| --- | --- |
+| `apps/desktop/src/qoder-crypto.ts`（两侧重写） | 采用 main 的**会话复用架构**（一个客户端一条长连接），但保留 win-fix 的 Windows 输入通道修复：子进程端不用 `readline/process.stdin`（Windows GUI 主进程收不到管道数据），改为 `readSync(0)` 分帧 NDJSON + `writeSync(1)` 回包；spawn 环境仍用 `delete ELECTRON_RUN_AS_NODE`（显式 `undefined` 会被序列化成字符串） |
+| `agent-connections.ts`（3 处） | 采用 main 的 `codexRecovery` 恢复逻辑（已内含"Codex 就地改写后按字段还原"），保留 `updateDeepseekEnv()`（DeepSeek 欢迎页跳过）与 `approval?.revision` 可选容错 |
+| `agent-installation.ts`（2 处） | 合并导入（`basename` + `posix/win32`），保留 `AGENT_INSTALL_DIRS` 与 `envRoots()` |
+| `service.ts` | 恢复路由同时保留 win-fix 的 `overwrite` 容错与 main 的第三参数 `hybrid=false`（恢复时强制经典重启） |
+| `scripts/clean-package.mjs` | 采用 main 的 `artifacts/` 保护（对账日志与审计证据不可删）与 `root` 参数，保留 Windows `cmd rmdir` 容错与被占用时跳过 |
+| `tests/usage-ledger.test.ts`、`tests/usage-overview.test.ts` | 取 win-fix 的写法：账本夹具锚定"今天"（prune 读真实时钟）；连通用例保留更完整的 hint 断言（当前实现与之匹配） |
+
+**验证（2026-10-26，Windows 实机）**：
+
+- `tsc --noEmit` 通过；`npm run build` 通过。
+- `tests/windows-agent-lifecycle.test.ts` **45/45 通过**。
+- `agent-installation` + `agent-processes` 共 10 项失败；在 `origin/main`（77d93c9）上用 worktree 跑同样测试，**失败集合完全一致**，属 main 自带的本机预存在失败，合并零回归。
+- Windows 兼容关键项抽查在位：`noAsar`、`AGENT_INSTALL_DIRS`/`windowsRegistryApp`、`updateDeepseekEnv`、`build.win.icon`、`asarUnpack`、`ELECTRON_RUN_AS_NODE` 删除写法。
