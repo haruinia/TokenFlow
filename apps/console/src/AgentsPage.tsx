@@ -1,3 +1,4 @@
+import {AgentAccountSkeleton,AgentFieldSkeleton} from './AgentLoading';
 import {officialLoginHeld} from '../../shared/native-login-identity';
 import {hasNativeLogin} from './native-login-visibility';
 import {OfficialAccountIdentity,UnpooledNativeAccount} from './OfficialAccountIdentity';
@@ -27,7 +28,7 @@ import { compactTokens, formatTokens, percentText, rangeLabel, totalsOf } from '
 import type { UsageData } from './usage-data';
 import { UsageFold, modelManufacturer } from './UsagePanel';
 import {DragHandle,dropOrder,orderModels,useModelOrder} from './display-order';
-import { isSourceSelectionAvailable, sourceSelectionState, sourceSelectionNotice, sourceLabel, sourceOptions } from './source-options';
+import { isSourceSelectionAvailable, sourceSelectionState, sourceLabel, sourceOptions } from './source-options';
 import { qualifiedModelLabel as modelLabel } from './model-label';
 import { useNativeLogin } from './native-login';
 import { FlowDialog } from './FlowDialog';
@@ -88,13 +89,14 @@ export function AgentsPage({local,calls,usage,notify,onRepair,onAgent,localError
     const source=item.id==='workbuddy'&&workbuddyClient==='workbuddy-ai'?targets.find(entry=>entry.id==='workbuddy-ai')??item:item;
     const client=item.id==='workbuddy'?workbuddyClient:item.id==='qoder'?qoderClient:item.id;
     const desktopView=item.id==='claude'&&claudeClient==='desktop';
-    const connection=client!=='qoder-ide'&&!desktopView&&source.connection&&isSourceSelectionAvailable(available,source.connection)?source.connection:undefined;
+    const connection=client!=='qoder-ide'&&!desktopView?source.connection:undefined;
+    const labelPending=!desktopView&&(connection?sourceSelectionState(local,connection,available)==='loading'&&!local.models.some(m=>m.id===connection.model):!!logins[client]&&(!logins[client].status&&!logins[client].error||!!local.accountsLoading));
     const native=desktopView?undefined:logins[client]?.nativeLabel;
     const problem=desktopView?!!desktop.error:client!=='qoder-ide'&&!!problemOf(source,calls,available,local);
     const active=desktopView?!!desktop.status?.connected:!!(connection||native);
     return <button key={item.id} role="tab" aria-selected={target?.id===item.id} tabIndex={target?.id===item.id?0:-1} className="tfTile" onClick={()=>choose(item.id)}>
      <ProviderIcon provider={item.id} size={30}/>
-     <span className="tfTileText"><strong>{client==='workbuddy-ai'?'WorkBuddyAI':client==='qoder-ide'?'Qoder IDE':item.name}</strong><small>{desktopView?'Claude Desktop':`${item.id==='claude'?'Claude CLI · ':''}${connection?modelLabel(local,connection.model):native?`本机 · ${native}`:client==='qoder-ide'?'本机用量':source.connection?'模型不可用':'未接入'}`}</small></span>
+     <span className="tfTileText"><strong>{client==='workbuddy-ai'?'WorkBuddyAI':client==='qoder-ide'?'Qoder IDE':item.name}</strong><small>{labelPending?<AgentFieldSkeleton/>:desktopView?'Claude Desktop':`${item.id==='claude'?'Claude CLI · ':''}${connection?modelLabel(local,connection.model):native?`本机 · ${native}`:client==='qoder-ide'?'本机用量':source.connection?'模型不可用':'未接入'}`}</small></span>
      <i className={`dot ${problem?'bad':active?'ok':''}`} aria-label={problem?'有问题':active?'使用中':desktopView&&!desktop.status?'正在读取':'未接入'}/>
     </button>;
    })}
@@ -147,16 +149,19 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
  const [draftDirty,setDraftDirty]=useState(()=>{try{return localStorage.getItem(`token-flow.agent.models.pending.${target.id}`)==='true';}catch{return false;}});
  const saveDraft=(choices:Choice[],dirty=true)=>{setDraftModels(choices);setDraftDirty(dirty);try{localStorage.setItem(`token-flow.agent.models.${target.id}`,JSON.stringify(choices));localStorage.setItem(`token-flow.agent.models.pending.${target.id}`,String(dirty));}catch{}};
 
- const current=connection&&isSourceSelectionAvailable(available,connection)?{sourceId:connection.sourceId,model:connection.model}:undefined;
+ const current=connection?{sourceId:connection.sourceId,model:connection.model}:undefined;
  const isCurrent=(choice:Choice)=>!!current&&current.sourceId===choice.sourceId&&current.model===choice.model;
  const models:Choice[]=draftDirty?draftModels:connection?.selections??(connection?[{sourceId:connection.sourceId,model:connection.model}]:draftModels.length?draftModels:target.backups.find(record=>record.selections)?.selections??[]);
  const unavailableModels=models.filter(choice=>sourceSelectionState(local,choice,available)==='unavailable');
- const selectionNotice=sourceSelectionNotice(local,models,available);
+
  const visibleProblem=problem===unavailableSelectionMessage&&!unavailableModels.length?'':problem;
  const shownModels=orderModels(models,choice=>modelLabel(local,choice.model),modelOrder==='manual'?'manual':'name',modelRanks);const modelIds=shownModels.map(item=>item.model);
  const moveAgentModel=(from:string,to:string,items:readonly string[],after=false)=>{if(from===to||!items.includes(from)||!items.includes(to))return;moveModel(from,to,items,after);const ids=items.filter(id=>id!==from);ids.splice(ids.indexOf(to)+(after?1:0),0,from);saveDraft(ids.flatMap(id=>models.filter(choice=>choice.model===id)));};
  const accounts=(login?.accounts??[]).filter(account=>account.local||!hidden.includes(`account:${account.id}`));
  const hiddenCount=(login?.accounts.length??0)-accounts.length;
+ const accountsPending=!!login&&((!login.status&&!login.error)||(!!local.accountsLoading||local.state==='starting')&&!!login.nativeLabel&&!login.nativeCurrent);
+ const showAccounts=!!login&&(hasNativeLogin(login)||accountsPending);
+ const accountRowsPending=accountsPending;
  // Statistics follow the Agent itself, even after its connection Key was replaced by a model switch.
  const rows=usage.combinedRows.filter(row=>row.target===target.id);
  const allAgentRows=usage.allRows.filter(row=>row.day===localDay(new Date())).filter(row=>row.target===target.id);
@@ -313,7 +318,6 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
    {programError&&<p className="tfError" role="alert">{programError}</p>}
    <footer><button disabled={busy} onClick={()=>{setProgramOpen(false);pendingSelection.current=undefined;}}>稍后再说</button><button className="primary" disabled={busy} onClick={()=>void manageProgram()}>{busy?'正在处理…':target.installation.automatic?programAction==='install'?'下载安装':'更新到最新版本':'打开官方下载页面'}</button></footer>
   </FlowDialog>
-  {selectionNotice&&<p className="tfHint" role="status">{selectionNotice}</p>}
   {visibleProblem&&<p className="tfProblem" role="status">{visibleProblem}{configurationChanged&&<button type="button" className="textButton" disabled={busy||!running||!models.length} onClick={()=>void applySelected(shownModels)}>重新应用</button>}{problem===unavailableSelectionMessage&&<button type="button" className="textButton" disabled={busy} onClick={()=>{saveDraft(models.filter(choice=>sourceSelectionState(local,choice,available)!=='unavailable'));setOpen('');}}>移除不可用模型（{unavailableModels.length}）</button>}</p>}
   <FlowDialog className="tfRestartDialog" open={!!historyOffer} title="对话来源处理未完成" busy={busy} onClose={()=>setHistoryOffer('')}>
    <p className="tfDialogLead">{historyOffer}</p>
@@ -349,15 +353,15 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
    {restartError&&<p className="tfError" role="alert">{restartError}</p>}
    <footer><button disabled={busy} onClick={()=>setRestartOpen(false)}>稍后再说</button><button className="primary" disabled={busy||!target.installation.installed} onClick={()=>void restart()}>{busy?'正在处理…':'立即重启'}</button></footer>
   </FlowDialog>
-  {!running&&<p className="tfHint">网关未运行，暂时不能切换模型。</p>}
+  {!running&&!local.accountsLoading&&<p className="tfHint">网关未运行，暂时不能切换模型。</p>}
   {officialConfirm.dialog}
 
-  <div className={`tfAgentColumns${login&&hasNativeLogin(login)&&models.length?' hasLogin':''}`}>
-  {login&&hasNativeLogin(login)&&<section className="tfAgentSection tfOfficialAccounts" aria-label="官方登录账号">
+  <div className={`tfAgentColumns${showAccounts&&models.length?' hasLogin':''}`}>
+  {login&&showAccounts&&<section className="tfAgentSection tfOfficialAccounts" aria-label="官方登录账号">
    <header className="tfAgentSectionHead"><div className="tfGatewayTitle"><h3>官方登录账号</h3>{!models.length&&<button type="button" className="iconButton" aria-label="添加模型" title="添加模型" disabled={busy||!running||!!target.error||!available.length} onClick={()=>setPicking(true)}><Icon name="plus" size={16}/></button>}</div><NativeLoginStatus name={target.name} login={login} onRefresh={onRefreshAccounts}>{(desktopOfficial||target.id==='claude')&&login.status?.backup&&<button className="textButton" disabled={busy} onClick={()=>void restoreOfficial()}>恢复原登录</button>}</NativeLoginStatus></header>
   <ul className="tfLines" aria-label={`${target.name} 官方登录账号`}>
-   <UnpooledNativeAccount provider={target.id} login={login}/>
-   {accounts.map(account=>{
+   {accountRowsPending?Array.from({length:Math.max(1,accounts.length)},(_,index)=><AgentAccountSkeleton key={index} provider={target.id}/>):<UnpooledNativeAccount provider={target.id} login={login}/>}
+   {!accountRowsPending&&accounts.map(account=>{
     const id=`account:${account.id}`;const quota=local.quotas[account.id];
     return <li key={id} className={account.current?'on':''}>
      <div className="tfLine">
@@ -375,12 +379,15 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
   </ul>
   {hiddenCount>0&&<button className="textButton" onClick={()=>hide([])}>恢复已删除的 {hiddenCount} 项</button>}
   </section>}
-  {login&&hasNativeLogin(login)&&models.length>0&&<ColumnDivider storageKey="token-flow.layout.agent-split" label="调整账号与网关模型宽度"/>}
+  {showAccounts&&models.length>0&&<ColumnDivider storageKey="token-flow.layout.agent-split" label="调整账号与网关模型宽度"/>}
   {models.length>0&&<section className="tfAgentSection tfGatewaySection" aria-label="网关模型">
    <header className="tfAgentSectionHead"><div className="tfGatewayTitle"><h3>网关模型</h3><button className="iconButton" aria-label={models.length?'管理所选模型':'选择模型'} title={models.length?'管理所选模型':'选择模型'} disabled={busy||!running||!!target.error||(!available.length&&!models.length)} onClick={()=>setPicking(true)}><Icon name="plus" size={16}/></button>{draftDirty&&<small className="tfPendingModels">待应用</small>}</div>{target.id!=='codex'&&<label className="toggle"><input type="checkbox" role="switch" aria-label="启用网关模型" checked={gatewayPending??(!!connection&&target.configurationState==='configured'&&!draftDirty)} disabled={busy||!running||(!connection&&!models.length)} onChange={event=>{const enabled=event.target.checked;if(!enabled)saveDraft(models);setGatewayPending(enabled);void Promise.resolve(enabled?applySelected(shownModels):restore(false)).finally(()=>setGatewayPending(undefined));}}/><span>启动</span></label>}</header>
    {target.id==='claude'&&<p className="tfHint">自定义模型菜单需要 Claude Code 2.1.242 或更新版本；旧版可用 /model 模型ID 切换。接入多个模型时选择默认模型和快速模型。子代理跟随当前会话；审批和快速请求使用快速模型。IDE 与终端共享此登录配置。</p>}
   <ul className="tfLines" aria-label={`${target.name} 网关模型`}>
    {shownModels.map(choice=>{
+    const pending=sourceSelectionState(local,choice,available)==='loading';
+    const namePending=pending&&!local.models.some(model=>model.id===choice.model)&&!choice.model.startsWith('api-');
+    const sourcePending=pending&&!sourceLabel(local,choice.sourceId);
     const id=choiceId(choice);const on=isCurrent(choice);const fastOn=target.id==='claude'&&!!connection?.fastModel&&connection.fastModel!==connection.model&&choice.model===connection.fastModel&&target.configurationState==='configured'&&!draftDirty;
     const used=totalsOf(rows.filter(row=>row.model===choice.model&&(!row.sourceId||row.sourceId===choice.sourceId)));
     return <li key={id} className={`tfDragRow ${on?'on':''}`} {...dropOrder('models',choice.model,modelIds,moveAgentModel)}>
@@ -388,7 +395,7 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
       <DragHandle kind="models" id={choice.model} label={modelLabel(local,choice.model)} items={modelIds} move={moveAgentModel}/>
       <div className="tfLineMain tfModelCardMain">
        <ProviderIcon provider={modelManufacturer(choice.model,local)} size={28}/>
-       <span className="tfRowText"><strong title={modelLabel(local,choice.model)}>{modelLabel(local,choice.model)}</strong><small>{sourceLabel(local,choice.sourceId)}{used.requests?` · ${compactTokens(used.totalTokens)} tokens`:''}</small></span>
+       <span className="tfRowText"><strong title={namePending?undefined:modelLabel(local,choice.model)}>{namePending?<AgentFieldSkeleton/>:modelLabel(local,choice.model)}</strong><small>{sourcePending?<AgentFieldSkeleton short/>:<>{sourceLabel(local,choice.sourceId)}{used.requests?` · ${compactTokens(used.totalTokens)} tokens`:''}</>}</small></span>
        {on&&target.configurationState==='configured'&&<b className="tfUsing">{target.id==='pi'?'已导入':'默认模型'}</b>}{fastOn&&<b className="tfUsing">快速模型</b>}
       </div>
       <span className="tfActions">

@@ -62,7 +62,7 @@
     "zod": "^3.24.2"
   },
   "build": {
-    "buildVersion": "10.15.26.76",
+    "buildVersion": "10.15.26.77",
     "appId": "local.browseragent.desktop",
     "productName": "TokenFlow",
     "files": [

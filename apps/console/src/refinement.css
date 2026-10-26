@@ -726,3 +726,9 @@ body:has(dialog[open]) .tfThinkingFeedback,body:has(.tfPage .tfLoadingSkeleton) 
 .tfQuotaModelDetails>summary{cursor:pointer;width:fit-content;padding:4px 0}
 .tfQuotaModelDetails>.hint{display:block;margin:8px 0}
 .tfQuotaModelRows{display:grid;gap:12px}
+
+/* Account placeholders and loaded identities share the same flex row. */
+.tfAgentColumns div.tfLineMain{display:flex;align-items:center}
+.tfAgentFieldSkeleton{display:inline-block;vertical-align:middle;width:min(100%,24ch);height:1em}
+.tfAgentFieldSkeleton.short{width:min(100%,14ch)}
+.tfTileText .tfAgentFieldSkeleton{width:12ch;max-width:100%}
