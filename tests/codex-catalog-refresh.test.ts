@@ -13,7 +13,7 @@ const roots:string[]=[];
 afterEach(async()=>{for(const root of roots.splice(0))await rm(root,{recursive:true,force:true});});
 const sourceId='a'.repeat(24),model=`api-${sourceId}/company/gpt`;
 it('migrates only the gateway unlimited sentinel, preserving official and custom tool budgets',async()=>{
- const root=await mkdtemp(join(tmpdir(),'codex-tool-policy-'));roots.push(root);
+ const root=await mkdtemp(join(await realpath(tmpdir()),'codex-tool-policy-'));roots.push(root);
  const dir=join(root,'agent-backups');await mkdir(dir);
  const file=join(dir,'codex-models-abcd.json');
  const models=[{slug:'official',context_window:272000,truncation_policy:{mode:'bytes',limit:Number.MAX_SAFE_INTEGER}},{slug:'gateway',context_window:272000,truncation_policy:{mode:'bytes',limit:Number.MAX_SAFE_INTEGER}},{slug:'custom',context_window:272000,truncation_policy:{mode:'bytes',limit:23456}}];
