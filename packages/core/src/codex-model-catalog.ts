@@ -2,6 +2,7 @@ import { apiModelDisplayName } from '../../../apps/shared/api-endpoint.js';
 /** Match the installed Codex client's unknown-model fallback. This is client
  * scheduling metadata, not a gateway request limit or a claim about the source. */
 export const CODEX_DEFAULT_CONTEXT_WINDOW=272000;
+export const CODEX_TOOL_OUTPUT_LIMIT=10000;
 export const CODEX_DEFAULT_COMPACT_TOKEN_LIMIT=244800;
 const validWindow=(value?:number)=>typeof value==='number'&&Number.isSafeInteger(value)&&value>0?value:undefined;
 export function codexCompactionLimit(contextWindow?:number){
@@ -28,9 +29,9 @@ export function codexModelCatalog(selection:string|string[],labels:Record<string
   shell_type:'shell_command',base_instructions:'You are a coding assistant. Help the user complete their coding tasks.',
   supports_reasoning_summaries:false,support_verbosity:false,
   ...codexContextMetadata(contextWindows[model]),
-  // Codex requires this field; its schema has no unlimited variant. Use the
-  // largest exactly representable JSON integer so this catalog does not clip tools.
-  apply_patch_tool_type:'freeform',truncation_policy:{mode:'bytes',limit:Number.MAX_SAFE_INTEGER},
+  // Match native Codex unknown-model tool-output handling. Disabling this
+  // bound lets large completed logs refill the context immediately after compact.
+  apply_patch_tool_type:'freeform',truncation_policy:{mode:'bytes',limit:CODEX_TOOL_OUTPUT_LIMIT},
   // Allow attachments through image-capable transports without maintaining a
   // per-model vision allowlist. The selected upstream decides model support.
   // Cursor's current text-prompt adapter cannot carry image blocks.
