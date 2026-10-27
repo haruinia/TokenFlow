@@ -7,7 +7,7 @@ import {promisify} from 'node:util';
 import type {Target} from './agent-connections.js';
 const exec=promisify(execFile);
 const recipes={
- codex:{bin:'codex',package:'@openai/codex',download:'https://developers.openai.com/codex/app/'},
+ codex:{bin:'codex',package:'',download:'https://developers.openai.com/codex/app/'},
  'claude-desktop':{bin:'Claude',package:'',download:'https://claude.ai/download'},
  claude:{bin:'claude',package:'@anthropic-ai/claude-code',download:'https://code.claude.com/docs/en/setup'},
  pi:{bin:'pi',package:'@earendil-works/pi-coding-agent',download:'https://pi.dev/docs/latest/quickstart'},
@@ -98,9 +98,9 @@ async function desktopInstallation(target:Target|'claude-desktop'|'workbuddy-ai'
 }
 async function detectInstallation(target:Target|'claude-desktop'|'workbuddy-ai'):Promise<AgentInstallation>{
  const recipe=recipes[target];
- const desktop=await desktopInstallation(target);if(desktop&&(target!=='codex'))return desktop;
- // DeepSeek is the official desktop app; Pi is the official coding-agent package.
- if(target==='deepseek'||target==='claude-desktop'||target==='workbuddy-ai')return {installed:false,channel:'missing',download:recipe.download,automatic:false,...agentCompatibility(target)};
+ // This product exposes desktop clients except for Claude Code CLI and Pi.
+ // A matching command on PATH is not evidence of a desktop installation.
+ if(target!=='claude'&&target!=='pi')return await desktopInstallation(target)??{installed:false,channel:'missing',download:recipe.download,automatic:false,...agentCompatibility(target)};
  let path=await executable(recipe.bin);
  if(target==='claude'&&path&&/\.cmd$/i.test(path)){
   for(const name of ['bin/claude.exe','cli.js']){const native=join(dirname(path),'node_modules','@anthropic-ai','claude-code',name);try{await access(native,constants.F_OK);path=native;break;}catch{}}
@@ -111,7 +111,6 @@ async function detectInstallation(target:Target|'claude-desktop'|'workbuddy-ai')
   if(!version&&['pi','claude','codex'].includes(target)&&process.platform!=='win32')try{version=versionOf((await exec(path,['--version'],{timeout:3000,maxBuffer:4096})).stdout);}catch{/* Unknown version never implies an update. */}
   return {installed:true,channel:npmVersion?'npm':'other',path,version,download:recipe.download,automatic:!!npmPackage?.prefix,npmPrefix:npmPackage?.prefix};
  }
- if(desktop)return desktop;
  return {installed:false,channel:'missing',download:recipe.download,automatic:!!recipe.package};
 }
 export async function detectAgent(target:Target|'claude-desktop'|'workbuddy-ai'):Promise<AgentInstallation>{

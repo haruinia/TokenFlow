@@ -36,3 +36,8 @@ it('does not compare native and extension clients against unrelated npm releases
  for(const target of ['codex','claude'] as const)expect(await new AgentUpdates(fetcher).check(target,{...installed,channel:'other'})).toMatchObject({status:'unknown'});
  expect(fetcher).not.toHaveBeenCalled();
 });
+it('does not offer Codex CLI npm releases for the desktop download entry',async()=>{
+ const fetcher=vi.fn(async()=>Response.json({version:'9.0.0'}));
+ expect(await new AgentUpdates(fetcher).check('codex',installed)).toMatchObject({status:'unknown'});
+ expect(fetcher).not.toHaveBeenCalled();
+});

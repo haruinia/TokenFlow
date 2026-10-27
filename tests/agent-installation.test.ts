@@ -5,23 +5,23 @@ vi.mock('node:fs/promises',()=>({
  realpath:async(path:string)=>fixture.links.get(path)??path,
  readFile:async(path:string)=>{if(!fixture.files.has(path))throw Error('missing');return fixture.files.get(path);},
 }));
-vi.mock('node:child_process',()=>({execFile:(file:string,args:string[],options:{env?:{[key:string]:string}},callback:(error:Error|null,value:unknown)=>void)=>{fixture.commands.push({file,args,env:options?.env});if(fixture.fail){callback(Error('private install output must not escape'),undefined);return;}if(args.includes('install')&&args.includes('@anthropic-ai/claude-code')){fixture.links.set('/fixture/bin/claude','/fixture/lib/node_modules/@anthropic-ai/claude-code/cli.js');fixture.files.set('/fixture/lib/node_modules/@anthropic-ai/claude-code/package.json',JSON.stringify({name:'@anthropic-ai/claude-code',version:'2.1.0'}));}if(args.includes('install'))fixture.links.set('/fixture/bin/codex','/fixture/lib/node_modules/@openai/codex/bin/codex.js');callback(null,{stdout:args.includes('--version')?'2.1.0 (Claude Code)':''});}}));
+vi.mock('node:child_process',()=>({execFile:(file:string,args:string[],options:{env?:{[key:string]:string}},callback:(error:Error|null,value:unknown)=>void)=>{fixture.commands.push({file,args,env:options?.env});if(fixture.fail){callback(Error('private install output must not escape'),undefined);return;}if(args.includes('install')&&args.includes('@anthropic-ai/claude-code')){fixture.links.set('/fixture/bin/claude','/fixture/lib/node_modules/@anthropic-ai/claude-code/cli.js');fixture.files.set('/fixture/lib/node_modules/@anthropic-ai/claude-code/package.json',JSON.stringify({name:'@anthropic-ai/claude-code',version:'2.1.0'}));}if(args.includes('install')&&args.includes('@earendil-works/pi-coding-agent'))fixture.links.set('/fixture/bin/pi','/fixture/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js');callback(null,{stdout:args.includes('--version')?'2.1.0 (Claude Code)':''});}}));
 import {detectAgent,AgentInstallationManager,desktopCandidates,agentCompatibility} from '../packages/core/src/agent-installation';
 afterEach(()=>vi.unstubAllEnvs());
-beforeEach(()=>{fixture.files.clear();fixture.links.clear();fixture.commands=[];fixture.fail=false;vi.stubEnv('PATH','/fixture/bin');fixture.links.set('/fixture/bin/npm','/fixture/node_modules/npm/bin/npm-cli.js');fixture.files.set('/fixture/lib/node_modules/@openai/codex/package.json',JSON.stringify({name:'@openai/codex',version:'1.1.0'}));});
+beforeEach(()=>{fixture.files.clear();fixture.links.clear();fixture.commands=[];fixture.fail=false;vi.stubEnv('PATH','/fixture/bin');fixture.links.set('/fixture/bin/npm','/fixture/node_modules/npm/bin/npm-cli.js');fixture.files.set('/fixture/lib/node_modules/@openai/codex/package.json',JSON.stringify({name:'@openai/codex',version:'1.1.0'}));fixture.files.set('/fixture/lib/node_modules/@earendil-works/pi-coding-agent/package.json',JSON.stringify({name:'@earendil-works/pi-coding-agent',version:'1.1.0'}));});
 it('does not confuse config files with installation, and verifies installation after its fixed npm recipe',async()=>{
- expect(await detectAgent('codex')).toMatchObject({installed:false,channel:'missing',automatic:true});
+ expect(await detectAgent('pi')).toMatchObject({installed:false,channel:'missing',automatic:true});
  const manager=new AgentInstallationManager(async()=>[]);
- const result=await manager.manage('codex','install');expect(result.installation).toMatchObject({installed:true,channel:'npm',version:'1.1.0'});
- expect(fixture.commands[0].args).toEqual(['/fixture/node_modules/npm/bin/npm-cli.js','install','--global','@openai/codex','--registry=https://registry.npmjs.org/','--ignore-scripts','--no-audit','--no-fund']);
+ const result=await manager.manage('pi','install');expect(result.installation).toMatchObject({installed:true,channel:'npm',version:'1.1.0'});
+ expect(fixture.commands[0].args).toEqual(['/fixture/node_modules/npm/bin/npm-cli.js','install','--global','@earendil-works/pi-coding-agent','--registry=https://registry.npmjs.org/','--ignore-scripts','--no-audit','--no-fund']);
  // Electron-as-node would otherwise default npm's global prefix to the app bundle.
  expect(fixture.commands[0].env?.PREFIX).toBe('/fixture');
- await manager.manage('codex','install');expect(fixture.commands).toHaveLength(1);
+ await manager.manage('pi','install');expect(fixture.commands).toHaveLength(1);
 });
 it('refuses updates during a task and returns a generic failure without raw installer output',async()=>{
- fixture.links.set('/fixture/bin/codex','/fixture/lib/node_modules/@openai/codex/bin/codex.js');
- await expect(new AgentInstallationManager(async()=>[123]).manage('codex','update')).rejects.toThrow('退出');expect(fixture.commands).toHaveLength(0);
- fixture.fail=true;await expect(new AgentInstallationManager(async()=>[]).manage('codex','update')).rejects.toThrow('安装或更新未完成');
+ fixture.links.set('/fixture/bin/pi','/fixture/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js');
+ await expect(new AgentInstallationManager(async()=>[123]).manage('pi','update')).rejects.toThrow('退出');expect(fixture.commands).toHaveLength(0);
+ fixture.fail=true;await expect(new AgentInstallationManager(async()=>[]).manage('pi','update')).rejects.toThrow('安装或更新未完成');
 });
 it('uses the official download page when it cannot safely update the discovered installation',async()=>{
  fixture.links.set('/fixture/bin/codex','/fixture/native/pi');const open=vi.fn(async()=>{});
@@ -86,12 +86,12 @@ it.runIf(process.platform==='darwin')('reads the international WorkBuddy version
 });
 
 it('updates npm clients from a custom node_modules prefix using the same fixed recipe',async()=>{
- fixture.links.set('/fixture/bin/codex','/custom/npm/lib/node_modules/@openai/codex/bin/codex.js');
- fixture.files.set('/custom/npm/lib/node_modules/@openai/codex/package.json',JSON.stringify({name:'@openai/codex',version:'1.1.0'}));
- expect(await detectAgent('codex')).toMatchObject({installed:true,channel:'npm',automatic:true});
- await new AgentInstallationManager(async()=>[]).manage('codex','update');
+ fixture.links.set('/fixture/bin/pi','/custom/npm/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js');
+ fixture.files.set('/custom/npm/lib/node_modules/@earendil-works/pi-coding-agent/package.json',JSON.stringify({name:'@earendil-works/pi-coding-agent',version:'1.1.0'}));
+ expect(await detectAgent('pi')).toMatchObject({installed:true,channel:'npm',automatic:true});
+ await new AgentInstallationManager(async()=>[]).manage('pi','update');
  const install=fixture.commands.find(command=>command.args.includes('install'))!;
- expect(install.args).toEqual(['/fixture/node_modules/npm/bin/npm-cli.js','install','--global','--prefix','/custom/npm','@openai/codex','--registry=https://registry.npmjs.org/','--ignore-scripts','--no-audit','--no-fund']);
+ expect(install.args).toEqual(['/fixture/node_modules/npm/bin/npm-cli.js','install','--global','--prefix','/custom/npm','@earendil-works/pi-coding-agent','--registry=https://registry.npmjs.org/','--ignore-scripts','--no-audit','--no-fund']);
 });
 it('allows shared Claude configuration without treating the extension runtime as a standalone CLI',async()=>{
  const claude=await detectAgent('claude');expect(claude.installed).toBe(false);
@@ -100,8 +100,23 @@ it('allows shared Claude configuration without treating the extension runtime as
 });
 
 it.runIf(process.platform!=='win32')('does not treat a local project dependency as a global npm prefix',async()=>{
- fixture.links.set('/fixture/bin/codex','/project/node_modules/@openai/codex/bin/codex.js');
- fixture.files.set('/project/node_modules/@openai/codex/package.json',JSON.stringify({name:'@openai/codex',version:'1.1.0'}));
- expect(await detectAgent('codex')).toMatchObject({installed:true,channel:'npm',automatic:false});
- const open=vi.fn(async()=>{});await new AgentInstallationManager(async()=>[],open).manage('codex','update');expect(open).toHaveBeenCalled();expect(fixture.commands.some(command=>command.args.includes('install'))).toBe(false);
+ fixture.links.set('/fixture/bin/pi','/project/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js');
+ fixture.files.set('/project/node_modules/@earendil-works/pi-coding-agent/package.json',JSON.stringify({name:'@earendil-works/pi-coding-agent',version:'1.1.0'}));
+ expect(await detectAgent('pi')).toMatchObject({installed:true,channel:'npm',automatic:false});
+ const open=vi.fn(async()=>{});await new AgentInstallationManager(async()=>[],open).manage('pi','update');expect(open).toHaveBeenCalled();expect(fixture.commands.some(command=>command.args.includes('install'))).toBe(false);
+});
+
+it.each(['codex','qoder','workbuddy'] as const)('downloads the %s desktop app even when a CLI is on PATH',async target=>{
+ fixture.links.set(`/fixture/bin/${target}`,`/fixture/lib/node_modules/@openai/codex/bin/${target}.js`);
+ const open=vi.fn(async()=>{});
+ const installation=await detectAgent(target);
+ expect(installation).toMatchObject({installed:false,channel:'missing',automatic:false});
+ await new AgentInstallationManager(async()=>[],open).manage(target,'install');
+ expect(open).toHaveBeenCalledWith(installation.download);
+ expect(fixture.commands.some(command=>command.args.includes('install'))).toBe(false);
+});
+it.runIf(process.platform==='darwin')('prefers the Codex desktop version over an npm CLI on PATH',async()=>{
+ fixture.files.set('/Applications/ChatGPT.app/Contents/Info.plist','<key>CFBundleShortVersionString</key><string>26.304.1234</string>');
+ fixture.links.set('/fixture/bin/codex','/fixture/lib/node_modules/@openai/codex/bin/codex.js');
+ expect(await detectAgent('codex')).toMatchObject({installed:true,channel:'application',version:'26.304.1234',automatic:false,path:'/Applications/ChatGPT.app'});
 });

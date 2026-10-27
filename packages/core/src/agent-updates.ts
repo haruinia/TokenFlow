@@ -29,7 +29,7 @@ export class AgentUpdates{
   const currentVersion=installed.version!;const unknown:AgentUpdate={status:'unknown',currentVersion};
   try{
    let url:string|undefined;
-   const npm:Partial<Record<Target,string>>={pi:'@earendil-works/pi-coding-agent',claude:'@anthropic-ai/claude-code',codex:'@openai/codex'};
+   const npm:Partial<Record<Target,string>>={pi:'@earendil-works/pi-coding-agent',claude:'@anthropic-ai/claude-code'};
    if(npm[target]&&installed.channel==='npm')url=`https://registry.npmjs.org/${encodeURIComponent(npm[target]!)}/latest`;
    else if(target==='deepseek'&&this.platform==='darwin'&&this.arch==='arm64')url='https://download.deepseek.com/dsh-desk/feeds/mac-arm64/nightly-mac.yml';
    else if(target==='deepseek'&&this.platform==='win32'&&this.arch==='x64')url='https://download.deepseek.com/dsh-desk/feeds/win-x64/nightly.yml';

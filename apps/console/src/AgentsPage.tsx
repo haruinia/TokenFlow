@@ -114,6 +114,7 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
  const pendingSelection=useRef<{selections:Choice[];preferred?:Choice}|undefined>(undefined);
  const programCompleted=useRef(false);
  const askProgram=(action:'install'|'update')=>{setProgramError('');programCompleted.current=false;setProgramAction(action);setProgramOpen(true);};
+ const cliClient=target.id==='claude'||target.id==='pi';
  const updateAvailable=update?.status==='available'&&update.currentVersion===target.installation.version;
  const [restartOpen,setRestartOpen]=useState(false);const [restartError,setRestartError]=useState('');
  const [restartPending,setRestartPending]=useState(false);
@@ -268,7 +269,7 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
  return <section className={`tfPanel${target.id==='workbuddy'||target.id==='workbuddy-ai'?' tfWorkBuddyPanel':''}`} aria-label={target.name}>
   <header className="tfPanelHead">
    <ProviderIcon provider={target.id} size={40}/>
-   <div><div className="tfAgentTitle"><h2>{target.name}</h2>{clientSwitch}<button className="tfAgentUpdate" disabled={busy} aria-label={`${target.installation.installed?'更新':'安装'} ${target.name}`} title={updateAvailable?`有新版本 ${update.latestVersion}，点击更新`:target.installation.installed?'下载最新版':'安装官方客户端'} onClick={()=>askProgram(target.installation.installed?'update':'install')}><Icon name="download" size={15}/>{updateAvailable&&<span className="tfUpdateDot" role="img" aria-label="有可用更新"/>}</button>{target.installation.installed&&<span className="tfAgentVersion">已安装{target.installation.version?` · ${target.installation.version}`:''}{target.installation.channel==='npm'?' · npm':target.installation.channel==='application'?' · 桌面应用':''}</span>}</div><UsageFold loaded={usage.loaded} error={usage.error} onRetry={usage.reload} title={`${target.name} 用量`} rows={allAgentRows} range="today"/></div>
+   <div><div className="tfAgentTitle"><h2>{target.name}</h2>{clientSwitch}<button className="tfAgentUpdate" disabled={busy} aria-label={`${target.installation.installed?'更新':'安装'} ${target.name}`} title={updateAvailable?`有新版本 ${update.latestVersion}，点击更新`:cliClient?(target.installation.automatic?(target.installation.installed?'更新 CLI':'安装 CLI'):'下载 CLI'):'下载桌面客户端'} onClick={()=>askProgram(target.installation.installed?'update':'install')}><Icon name="download" size={15}/>{updateAvailable&&<span className="tfUpdateDot" role="img" aria-label="有可用更新"/>}</button>{target.installation.installed&&<span className="tfAgentVersion">已安装{target.installation.version?` · ${target.installation.version}`:''}{target.installation.channel==='npm'?' · npm':target.installation.channel==='application'?' · 桌面应用':''}</span>}</div><UsageFold loaded={usage.loaded} error={usage.error} onRetry={usage.reload} title={`${target.name} 用量`} rows={allAgentRows} range="today"/></div>
    <div className="tfRow">
     {!models.length&&!(login&&hasNativeLogin(login))&&<button type="button" className="iconButton" aria-label="选择模型" title="选择模型" disabled={busy||!running||!!target.error||!available.length} onClick={()=>setPicking(true)}><Icon name="plus" size={16}/></button>}
     {desktopRestart&&<button type="button" className="textButton" disabled={busy||!target.installation.installed} onClick={()=>{setRestartError('');setRestartOpen(true);}}>{restartPending?'重启生效':'重启…'}</button>}
@@ -310,7 +311,7 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
   </FlowDialog>
   {!target.installation.installed&&<p className="tfHint" role="status">{target.installation.supported===false?target.installation.reason:target.id==='claude'?'未检测到独立 Claude CLI；仍可为本机 VS Code 扩展应用共享配置。':'未检测到程序，选择模型时会提示安装。'}</p>}
   <FlowDialog className="tfRestartDialog tfProgramDialog" open={programOpen} title={`${programAction==='install'?'安装':'更新'} ${target.name}`} busy={busy} onClose={()=>{setProgramOpen(false);if(!programCompleted.current)pendingSelection.current=undefined;}}>
-   <p className="tfDialogLead">{target.installation.supported===false?target.installation.reason:target.installation.automatic?`将通过 npm 官方包${programAction==='install'?'下载并安装':'更新'} ${target.name}。配置和接入备份会保留。`:`将打开 ${target.name} 的官方下载页面，安装完成后会自动识别。`}</p>
+   <p className="tfDialogLead">{target.installation.supported===false?target.installation.reason:target.installation.automatic?`将通过 npm 官方包${programAction==='install'?'下载并安装':'更新'} ${target.name}。配置和接入备份会保留。`:`将打开 ${target.name} ${cliClient?'CLI':'桌面客户端'}的官方下载页面，安装完成后会自动识别。`}</p>
    {programAction==='update'&&<p className="tfHint">请先保存工作并退出此 Agent。</p>}
    {busy&&<p className="tfHint" role="status">正在执行安装并检查程序，请稍候…</p>}
    {programError&&<p className="tfError" role="alert">{programError}</p>}
