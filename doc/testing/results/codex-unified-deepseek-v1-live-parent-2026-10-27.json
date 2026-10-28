@@ -1,0 +1,76 @@
+{
+  "engine": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+  "scope": "native engine, real official parent and Qiniu DeepSeek child",
+  "catalogContext": false,
+  "nativeV1": true,
+  "loaded": 2,
+  "advertised": false,
+  "spawnResults": [],
+  "childCreated": true,
+  "childProvider": "token_flow",
+  "parentRelation": true,
+  "childStatus": "completed",
+  "childReply": [
+    "CHILD_PROBE_OK 323"
+  ],
+  "calls": [
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false
+    },
+    {
+      "model": "api-731ee387f7aff3e89a4133d7/deepseek/deepseek-v4.1-flash-1017",
+      "compact": false,
+      "taskMarkerPresent": true,
+      "encryptedAgentMessage": false,
+      "toolNames": []
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false
+    },
+    {
+      "model": "api-731ee387f7aff3e89a4133d7/deepseek/deepseek-v4.1-flash-1017",
+      "compact": true,
+      "taskMarkerPresent": true,
+      "encryptedAgentMessage": false,
+      "toolNames": []
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false
+    },
+    {
+      "model": "api-731ee387f7aff3e89a4133d7/deepseek/deepseek-v4.1-flash-1017",
+      "compact": false,
+      "taskMarkerPresent": true,
+      "encryptedAgentMessage": false,
+      "toolNames": []
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false
+    }
+  ],
+  "firstChildTaskVisible": true,
+  "compactStatus": "completed",
+  "followupReply": "FOLLOWUP_OK 323",
+  "nativeFollowupAfterCompact": true,
+  "transportErrors": []
+}

@@ -760,13 +760,13 @@ it('keeps official Codex catalog metadata and ChatGPT authentication alongside g
  expect(first).toMatchObject({codexCoexist:true,officialModelSlugs:['gpt-fixture']});
  const current=parse(await readFile(paths.codex,'utf8')) as any;
  expect(current.model_providers.token_flow).toEqual({name:'TokenFlow',base_url:'http://127.0.0.1:9527/codex/v1',wire_api:'responses',http_headers:{'x-tokenflow-client-key':'gateway-key'},requires_openai_auth:true,supports_websockets:false,capabilities:{remote_compaction:'v2'}});
- const catalog=JSON.parse(await readFile(current.model_catalog_json,'utf8'));expect(catalog.models[0]).toEqual(official.models[0]);expect(catalog.models.map((model:any)=>model.slug)).toEqual(['gpt-fixture','fixture/gateway']);
+ const catalog=JSON.parse(await readFile(current.model_catalog_json,'utf8'));expect(catalog.models[0]).toEqual({...official.models[0],multi_agent_version:'v1'});expect(catalog.models.map((model:any)=>model.slug)).toEqual(['gpt-fixture','fixture/gateway']);
  expect(catalog.tokenflow_gateway_models).toEqual(['fixture/gateway']);expect(await readFile(auth,'utf8')).toBe(login);
  current.model='gpt-fixture';current.profiles.work.model='gpt-fixture';await writeFile(paths.codex,stringify(current));
  expect((await connections.status())[0]).toMatchObject({configurationState:'configured',drift:false});expect((await connections.review(first.id)).checks.every(check=>check.ok)).toBe(true);
  current.model_providers.token_flow.http_headers['x-tokenflow-client-key']='external-key';await writeFile(paths.codex,stringify(current));expect((await connections.status())[0].drift).toBe(true);expect((await connections.review(first.id)).checks.find(check=>check.name==='客户端 Key 未被覆盖')?.ok).toBe(false);current.model_providers.token_flow.http_headers['x-tokenflow-client-key']='gateway-key';await writeFile(paths.codex,stringify(current));
  const probe=vi.fn(async()=>64000);await connections.refreshCodexCompactionLimits(probe);expect(probe).toHaveBeenCalledTimes(1);expect(probe).toHaveBeenCalledWith('fixture/gateway');
- expect(JSON.parse(await readFile(current.model_catalog_json,'utf8')).models[0]).toEqual(official.models[0]);
+ expect(JSON.parse(await readFile(current.model_catalog_json,'utf8')).models[0]).toEqual({...official.models[0],multi_agent_version:'v1'});
  const second=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,replaceId:first.id,origin:'http://127.0.0.1:9527',...selections[0],selections,keyId:randomUUID(),key:'standalone-key'});
  const standalone=parse(await readFile(paths.codex,'utf8')) as any;expect(standalone.model_providers.token_flow.experimental_bearer_token).toBe('standalone-key');expect(standalone.model_providers.token_flow.http_headers).toBeUndefined();expect(standalone.model_providers.token_flow.requires_openai_auth).toBe(false);
  expect(standalone.model_providers.token_flow.capabilities).toBeUndefined();

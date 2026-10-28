@@ -250,14 +250,15 @@ it('repairs gateway-born reasoning in checkpoint histories even without a compac
  const saved=JSON.parse((await readFile(f.file,'utf8')).split('\n')[1]!).payload;
  expect(JSON.stringify(saved)).not.toContain('encrypted_content');expect(saved).not.toHaveProperty('replacement_history_metadata');expect(saved.replacement_history.slice(-2)).toEqual(history.slice(1));
 });
-it('normalizes Codex agent_message items and strips encrypted_content blocks for SDK providers',()=>{
- const normalized=portableCodexItem({
+it('rejects encrypted agent tasks instead of forwarding their routing prefix as the task',()=>{
+ expect(()=>portableCodexItem({
   type:'agent_message',
   id:'amsg_test',
   author:'/root/tool_routing',
   recipient:'/root',
   content:[{type:'input_text',text:'Subagent routing note'},{type:'encrypted_content',encrypted_content:'gAAAAABsecret'}],
- });
+ })).toThrow('当前网关模型无法读取');
+ const normalized=portableCodexItem({type:'agent_message',content:[{type:'input_text',text:'Subagent routing note'}]});
  expect(normalized).toEqual([{type:'message',role:'developer',content:[{type:'input_text',text:'Subagent routing note'}]}]);
  const parsed=parseCodeBuddyInput('responses',{model:'workbuddy/deepseek-v4.1-flash',input:normalized});
  expect(parsed.systemPrompt).toContain('Subagent routing note');expect(parsed.prompt).not.toContain('Subagent routing note');

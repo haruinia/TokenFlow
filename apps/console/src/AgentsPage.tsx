@@ -282,6 +282,7 @@ function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,local,us
    <p>已选 {gatewayConfirm?.selections.length??0} 个网关模型。</p>
    <label className="toggle"><input type="checkbox" checked={!!gatewayConfirm?.coexist} disabled={busy} onChange={event=>setGatewayConfirm(value=>value?{...value,coexist:event.target.checked}:value)}/> 同时使用官方账号模型</label>
    <p className="tfHint">{gatewayConfirm?.coexist?'官方模型保留在列表上方，TokenFlow 模型排在后面。':'模型列表仅显示所选网关模型，官方登录保留。'} 使用时需保持 TokenFlow 运行。</p>
+   {gatewayConfirm?.coexist&&<p className="tfHint">支持按模型名称和来源派发子代理。官方与网关模型统一使用 Codex 原生明文子代理通信，任务仍由 Codex 管理。</p>}
    <p className="tfHint">{desktopRestart?'应用后将备份配置并重启 Codex，请先结束正在进行的任务。':'请完全退出 Codex 后应用，完成后重新打开。'}</p>
    <footer><button disabled={busy} onClick={()=>setGatewayConfirm(undefined)}>取消</button><button className="primary" disabled={busy||!gatewayConfirm?.selections.length} onClick={()=>{const selected=gatewayConfirm;if(!selected)return;setGatewayConfirm(undefined);void connectSelected(selected.selections,selected.preferred,undefined,undefined,!!selected.coexist);}}>{desktopRestart?'应用并重启 Codex':'已退出，应用配置'}</button></footer>
   </FlowDialog>

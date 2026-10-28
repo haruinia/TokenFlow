@@ -24,11 +24,31 @@ export function portableCodexItem(item:Item):Item[]{
  // not a conversation message. The current request supplies its own tools.
  if(item.type==='additional_tools'||(item.type==='message'&&item.role==='developer'&&Array.isArray(item.tools)&&item.content===undefined))return [];
  if(item.type==='compaction'||item.type==='item_reference')throw failure();
+ // Codex's ResponseItem protocol also uses FunctionCallOutput for standalone
+ // notifications (call_id is optional), including cross-chat deliveries. The
+ // gateway Responses protocol requires paired tool outputs. Translate this
+ // distinct event kind at the Codex boundary, before inference or compaction;
+ // never fabricate a call or relax validation of an actual call_id.
+ if(item.type==='function_call_output'&&item.call_id==null){
+  const source=[item.namespace,item.name].filter(value=>typeof value==='string'&&value).join('.');
+  const heading={type:'input_text',text:`External tool notification${source?' from '+source:''}:`};
+  const content=typeof item.output==='string'?[{type:'input_text',text:item.output}]:Array.isArray(item.output)?item.output.map((part:Item)=>{
+   if(object(part)&&['text','input_text','output_text'].includes(part.type)&&typeof part.text==='string')return {type:'input_text',text:part.text};
+   if(object(part)&&part.type==='input_image')return structuredClone(part);
+   throw failure();
+  }):undefined;
+  if(!content)throw failure();
+  return [{type:'message',role:'user',content:[heading,...content]}];
+ }
  if(item.type==='reasoning'){
   const text=(Array.isArray(item.summary)?item.summary:[]).filter((p:Item)=>object(p)&&typeof p.text==='string').map((p:Item)=>p.text).join('\n');
   return text?[{type:'message',role:'assistant',content:[{type:'output_text',text}]}]:[];
  }
  if(item.type==='agent_message'){
+  // V2's readable prefix is routing metadata, not a plaintext copy of the
+  // encrypted task. Dropping its ciphertext silently turns a valid dispatch
+  // into an empty task. Gateway models cannot consume this native payload.
+  if(Array.isArray(item.content)&&item.content.some((p:Item)=>object(p)&&p.type==='encrypted_content'&&p.encrypted_content))throw new GatewayContextError('Codex 原生子代理消息包含加密任务，当前网关模型无法读取。请使用原生明文子代理协议或支持该加密消息的模型；任务内容未被丢弃。',422,undefined,'codex_encrypted_agent_message');
   const text=(Array.isArray(item.content)?item.content:[]).filter((p:Item)=>object(p)&&typeof p.text==='string').map((p:Item)=>p.text).join('\n');
   return text?[{type:'message',role:'developer',content:[{type:'input_text',text}]}]:[];
  }

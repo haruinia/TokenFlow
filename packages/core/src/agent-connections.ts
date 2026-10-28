@@ -13,6 +13,7 @@ import { parseDocument as parseYAMLDocument, stringify as stringifyYAML } from '
 import { detectAgent } from './agent-installation.js';
 import {mergeCodexCatalog,type OfficialCodexCatalog} from './codex-coexist.js';
 import { codexModelCatalog, codexContextMetadata, CODEX_TOOL_OUTPUT_LIMIT } from './codex-model-catalog.js';
+import {configureNativeUnifiedAgents,nativePlaintextAgentCatalog} from './codex-unified-agent-catalog.js';
 import { apiModelDisplayName } from '../../../apps/shared/api-endpoint.js';
 import { deepseekConfigPath,deepseekHome } from './deepseek-config.js';
 import {WindowsAgentLifecycle} from './windows-agent-lifecycle.js';
@@ -589,9 +590,12 @@ export class AgentConnections {
       // Include display metadata so a renamed menu does not reuse the legacy cached path.
       if(input.officialCatalog&&input.target!=='codex')throw conflict('官方模型共存仅支持 Codex。');
       const gatewayCatalog=input.target==='codex'?codexModelCatalog(selectedModels??input.model,input.modelLabels,input.modelContextWindows):undefined;
-      const catalog=gatewayCatalog&&input.officialCatalog?mergeCodexCatalog(gatewayCatalog,input.officialCatalog):gatewayCatalog;
+      const merged=gatewayCatalog&&input.officialCatalog?mergeCodexCatalog(gatewayCatalog,input.officialCatalog):gatewayCatalog;
+      const unified=!!input.officialCatalog&&!input.codexDirectHybrid;
+      const catalog=merged&&unified?nativePlaintextAgentCatalog(merged):merged;
       const catalogPath=catalog?this.catalogPath(JSON.stringify(catalog)):undefined;
       let after:string;try{after=connectedConfig(input.target,original,input.origin,input.model,input.key,catalogPath,selectedModels,input.modelLabels,input.fastModel,!!input.officialCatalog&&!input.codexDirectHybrid);}catch{throw conflict('配置格式无法安全解析，未修改原文件。');}
+      if(unified&&catalog){const doc=parse(after);configureNativeUnifiedAgents(doc,catalog);const profile=codexProfile(doc);if(profile)configureNativeUnifiedAgents(profile,catalog,String(doc.developer_instructions));after=stringify(doc);}
       if(input.codexDirectHybrid){
         if(!input.officialCatalog?.models.length)throw conflict('官方模型目录缺失，未启用直连混合模式。');
         const doc=parse(after) as any,prior=parse(original??'') as any;
@@ -628,9 +632,10 @@ export class AgentConnections {
     if(!Array.isArray(cached.models))throw conflict('Codex 共存模型目录无法读取，请重新应用后再切换账号。');
     const gatewayModels=gatewaySlugs.map(slug=>cached.models.find((model:{slug:string})=>model.slug===slug));
     if(gatewayModels.some(model=>!model))throw conflict('Codex 网关模型目录不完整，请重新应用后再切换账号。');
-    const catalog=mergeCodexCatalog({...cached,models:gatewayModels},official),catalogPath=this.catalogPath(JSON.stringify(catalog));
+    const merged=mergeCodexCatalog({...cached,models:gatewayModels},official);
+    const catalog=record.codexCoexist?nativePlaintextAgentCatalog(merged):merged,catalogPath=this.catalogPath(JSON.stringify(catalog));
     const allowed=new Set([...official.models.map(model=>model.slug),...gatewaySlugs]);
-    const update=(config:{[key:string]:any})=>{config.model_catalog_json=catalogPath;if(!allowed.has(config.model))config.model=record.codexDirectHybrid?official.models[0].slug:record.model;};
+    const update=(config:{[key:string]:any})=>{config.model_catalog_json=catalogPath;if(!allowed.has(config.model))config.model=record.codexDirectHybrid?official.models[0].slug:record.model;if(record.codexCoexist)configureNativeUnifiedAgents(config,catalog);};
     update(doc);if(profile)update(profile);
     // Keep the ownership baseline: copying current user settings into `after` would
     // make a later gateway restore mistake those settings for fields we created.
