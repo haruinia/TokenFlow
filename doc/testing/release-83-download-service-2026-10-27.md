@@ -17,4 +17,4 @@ Commands:
 
 Logs: `~/Library/Logs/TokenFlow/downloads-4180.log` and `downloads-4180-error.log`. Serving survives terminal closure; a sleeping/offline computer cannot serve LAN requests.
 
-The normal TokenFlow UI apply dialog has been prepared with the current 14 selected gateway models and official-account coexistence enabled. Applying it uses the product's backup/restart flow to activate the new native plaintext agent configuration. Codex restart completion must be verified after that action.
+The normal TokenFlow UI apply/restart action completed. A later read-only verification confirmed the active provider is `token_flow`, `/codex/v1` is selected, native `multi_agent=true` / `multi_agent_v2=false`, all catalog entries use v1, and the managed directory is present. Subsequent protocol investigations run in isolated homes and do not reapply production configuration.

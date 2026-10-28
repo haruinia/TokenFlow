@@ -1,0 +1,105 @@
+{
+  "engine": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+  "childModel": "qoder/gfmodel",
+  "scope": "native engine, real official parent and configured gateway child",
+  "catalogContext": false,
+  "nativeV1": true,
+  "productConfig": true,
+  "loaded": 2,
+  "advertised": true,
+  "spawnResults": [],
+  "childCreated": true,
+  "childProvider": "token_flow",
+  "parentRelation": true,
+  "childStatus": "failed",
+  "childError": {
+    "message": "stream disconnected before completion: 上游返回限流或容量不足，请稍后重试或选择其他模型。",
+    "codexErrorInfo": "other",
+    "additionalDetails": null,
+    "misalignment": null
+  },
+  "childReply": [],
+  "calls": [
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false,
+      "httpStatus": 200
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false,
+      "httpStatus": 200
+    },
+    {
+      "model": "qoder/gfmodel",
+      "compact": false,
+      "taskMarkerPresent": true,
+      "encryptedAgentMessage": false,
+      "toolNames": [],
+      "httpStatus": 200
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false,
+      "httpStatus": 200
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false,
+      "httpStatus": 200
+    },
+    {
+      "model": "qoder/gfmodel",
+      "compact": false,
+      "taskMarkerPresent": true,
+      "encryptedAgentMessage": false,
+      "toolNames": [],
+      "httpStatus": 200
+    },
+    {
+      "model": "qoder/gfmodel",
+      "compact": false,
+      "taskMarkerPresent": true,
+      "encryptedAgentMessage": false,
+      "toolNames": [],
+      "httpStatus": 200
+    },
+    {
+      "model": "qoder/gfmodel",
+      "compact": false,
+      "taskMarkerPresent": true,
+      "encryptedAgentMessage": false,
+      "toolNames": [],
+      "httpStatus": 200
+    },
+    {
+      "model": "qoder/gfmodel",
+      "compact": false,
+      "taskMarkerPresent": true,
+      "encryptedAgentMessage": false,
+      "toolNames": [],
+      "httpStatus": 200
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false,
+      "httpStatus": 200
+    },
+    {
+      "model": "qoder/gfmodel",
+      "compact": false,
+      "taskMarkerPresent": true,
+      "encryptedAgentMessage": false,
+      "toolNames": [],
+      "httpStatus": 200
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false,
+      "httpStatus": 200
+    }
+  ],
+  "firstChildTaskVisible": true,
+  "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'failed'\n- 'completed'\n",
+  "transportErrors": []
+}

@@ -456,3 +456,26 @@ it('expands a stored gateway compaction response ID before an official continuat
  const converted=await f.migration.forOfficial({model:'gpt-official',previous_response_id:compact.id,input:[{role:'user',content:'NEXT_AFTER_CHECKPOINT'}]},[]);
  expect(converted).not.toHaveProperty('previous_response_id');expect(JSON.stringify(converted)).not.toContain('tfctx1.');expect(JSON.stringify(converted)).toContain('original tool result');expect(JSON.stringify(converted)).toContain('NEXT_AFTER_CHECKPOINT');
 });
+
+it('converts inline gateway reasoning on return without requiring a checkpoint or previous response ID',async()=>{
+ const f=await fixture();
+ const native={type:'reasoning',id:'rs_native',encrypted_content:'official-signed-state',summary:[]};
+ const foreign={type:'reasoning',id:'rs_chatcmpl_fixture',encrypted_content:'',summary:[{type:'summary_text',text:'Gateway visible summary'}]};
+ const body={model:'gpt-official',input:[native,foreign,{type:'message',role:'assistant',phase:'final_answer',content:[{type:'output_text',text:'ok'}]}]};
+ const converted=await f.migration.forOfficial(body,[]);
+ expect(converted.input.filter(i=>i.type==='reasoning')).toEqual([native]);
+ expect(JSON.stringify(converted)).toContain('Gateway visible summary');expect(converted.input.at(-1)).toMatchObject({phase:'final_answer'});
+ expect(body.input[1]).toBe(foreign);
+});
+
+it('keeps native opaque state while converting marked foreign ciphertext and IDs, including paired tool calls',async()=>{
+ const f=await fixture();const native={type:'reasoning',id:'rs_official',encrypted_content:'native-opaque',summary:[]};
+ const foreign={type:'reasoning',id:'tfitem_foreign',encrypted_content:'foreign-opaque',summary:[{type:'summary_text',text:'visible foreign summary'}]};
+ const call={type:'function_call',id:'tfitem_call',call_id:'shared',name:'read',arguments:'{}'};
+ const result={type:'function_call_output',call_id:'shared',output:'result'};
+ const message={type:'message',id:'tfitem_reply',role:'assistant',phase:'final_answer',content:[{type:'output_text',text:'answer'}]};
+ const body={model:'official',input:[native,foreign,call,result,message]};const converted=await f.migration.forOfficial(body,[]);
+ expect(converted.input).toContainEqual(native);expect(JSON.stringify(converted)).not.toContain('foreign-opaque');expect(JSON.stringify(converted)).toContain('visible foreign summary');
+ expect(converted.input).toContainEqual({type:'function_call',call_id:'shared',name:'read',arguments:'{}'});expect(converted.input).toContainEqual(result);
+ expect(converted.input.at(-1)).toMatchObject({phase:'final_answer'});expect(converted.input.at(-1)).not.toHaveProperty('id');expect(body.input[4]).toHaveProperty('id');
+});

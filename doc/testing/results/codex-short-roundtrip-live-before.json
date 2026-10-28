@@ -1,0 +1,79 @@
+{
+  "passed": false,
+  "live": true,
+  "long": false,
+  "short": true,
+  "legacyLocalComparison": false,
+  "seedBytes": 0,
+  "seedUsageIsSynthetic": false,
+  "scope": "Installed Codex, production coexist routing, isolated login/config/history; three turns without compaction",
+  "error": "Turn failed in official-short-return: {\"message\":\"{\\\"error\\\":{\\\"code\\\":\\\"upstream_invalid_request\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"param\\\":\\\"input\\\",\\\"message\\\":\\\"上游拒绝了请求格式或参数（字段：input）。请保留此错误用于排查协议兼容性；切换账号或修改 DNS 不能修复参数错误。\\\"}}\",\"codexErrorInfo\":\"other\",\"additionalDetails\":null,\"misalignment\":null}\n+ actual - expected\n\n+ 'failed'\n- 'completed'\n",
+  "rounds": [
+    {
+      "phase": "official-seed",
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 3983
+    },
+    {
+      "phase": "gateway-short",
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 37954
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-seed",
+      "route": "official",
+      "model": "gpt-6.1-sol",
+      "fixtureSeed": false,
+      "bytes": 51483,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 2939,
+      "usage": {
+        "input_tokens": 10053,
+        "output_tokens": 13,
+        "total_tokens": 10066,
+        "cached_tokens": 0
+      }
+    },
+    {
+      "phase": "gateway-short",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "qoder/dfmodel",
+      "bytes": 72561,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 37871,
+      "usage": {
+        "input_tokens": 14732,
+        "output_tokens": 123,
+        "total_tokens": 14855,
+        "cached_tokens": 0
+      }
+    },
+    {
+      "phase": "official-short-return",
+      "route": "official",
+      "model": "gpt-6.1-sol",
+      "fixtureSeed": false,
+      "bytes": 111119,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 400,
+      "error": {
+        "message": "The encrypted content for item rs_5da923b6-a704-41ca-ae5b-cd17fde998ea_0_0 could not be verified. Reason: Encrypted content could not be decrypted or parsed.",
+        "type": "invalid_request_error",
+        "param": "input",
+        "code": "invalid_encrypted_content"
+      }
+    }
+  ]
+}

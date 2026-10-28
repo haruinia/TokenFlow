@@ -18,7 +18,7 @@ const oauth=(id:string)=>({account_id:id,access_token:`fixture-access-${id}`,ref
 const catalog=(slug:string)=>({models:[{slug,display_name:slug,visibility:'list',truncation_policy:{mode:'bytes',limit:1000}}]});
 async function setup(hybrid=false){
  if(hybrid)vi.spyOn(CodexBridgeInstallation.prototype,'preflight').mockResolvedValue({app:'/fixture/Codex.app',binary:'/fixture/codex',node:'/fixture/node'});
- const root=await realpath(await mkdtemp(join(tmpdir(),'coexist-account-')));clean.push(()=>rm(root,{recursive:true,force:true}));
+ const root=await realpath(await mkdtemp(join(tmpdir(),'coexist-account-')));clean.push(()=>rm(root,{recursive:true,force:true,maxRetries:3}));
  const config=join(root,'codex/config.toml'),auth=join(root,'codex/auth.json');await mkdir(join(root,'codex'));await mkdir(join(root,'cliproxy/auth'),{recursive:true});await writeFile(config,'model="original"\n');const originalAuth=JSON.stringify({auth_mode:'chatgpt',tokens:oauth('original')});await writeFile(auth,originalAuth);
  await writeFile(join(root,'cliproxy/fixture-accounts.json'),JSON.stringify(['a','b'].map(id=>({name:`${id}.json`,provider:'codex',status:'active',models:[`model-${id}`]}))));for(const id of ['a','b'])await writeFile(join(root,`cliproxy/auth/${id}.json`),JSON.stringify(oauth(id)));
  const allocator=createServer();await new Promise<void>(r=>allocator.listen(0,'127.0.0.1',r));const port=(allocator.address() as {port:number}).port;await new Promise<void>(r=>allocator.close(()=>r()));

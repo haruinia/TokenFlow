@@ -1,3 +1,4 @@
+import {isGatewayCodexItem} from './codex-response-protocol.js';
 import {createHash,randomUUID} from 'node:crypto';
 import {dirname,join,relative,basename} from 'node:path';
 import {mkdir,readdir,readFile,writeFile,rename,stat,rm,copyFile,chmod} from 'node:fs/promises';
@@ -145,10 +146,19 @@ export class CodexContext {
  /** Coexisting official routes understand native opaque state, but cannot
   * decrypt our local checkpoints or resolve gateway-owned response IDs. */
  async forOfficial<T extends Record<string,unknown>>(body:T,scopes:ContextScope[]):Promise<T>{
-  return this.context.forOfficial(body,[codexContextScope,...scopes],item=>{
-   if(item.type==='compaction'||item.type==='reasoning'&&typeof item.encrypted_content==='string'&&item.encrypted_content&&!/^rs_chatcmpl[-_]/.test(String(item.id)))return [item];
+  const restored=await this.context.forOfficial(body,[codexContextScope,...scopes],item=>{
+   if(item.type==='compaction'||!isGatewayCodexItem(item)&&item.type==='reasoning'&&typeof item.encrypted_content==='string'&&item.encrypted_content&&!/^rs_chatcmpl[-_]/.test(String(item.id)))return [item];
    return portableCodexItem(item);
   });
+  if(!Array.isArray(restored.input))return restored;
+  let changed=false;
+  const input=restored.input.flatMap((item:Item)=>{
+   // Codex sends full inline history with store=false. These are not native
+   // encrypted reasoning items, even without a private response/checkpoint.
+   if(isGatewayCodexItem(item)||item.type==='reasoning'&&(!item.encrypted_content||/^rs_chatcmpl[-_]/.test(String(item.id)))){changed=true;return portableCodexItem(item);}
+   return [item];
+  });
+  return changed?{...restored,input}:restored;
  }
  /** Called before leaving the gateway. Restore plaintext checkpoints only after
   * Codex has exited; compare bytes again and back up before atomic replacement. */

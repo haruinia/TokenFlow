@@ -38,3 +38,24 @@ it.each([false,true])('journals unified agent configuration and restores the ori
  }
  await connections.restore(record.id);expect(await readFile(config,'utf8')).toBe(original);
 });
+
+it('places complete source-qualified discovery at the native tool, including deferred exec descriptions, without changing schemas',async()=>{
+ const {nativeAgentDiscovery}=await import('../packages/core/src/codex-unified-agent-catalog.js');
+ const catalog={models:[...official.models,{slug:'qoder/gfmodel',display_name:'TF · qoder/GLM-5.3-Flash',tokenflow_source:'Qoder'},{slug:'api-qiniu/flash',display_name:'TF · 七牛 · DeepSeek Flash',tokenflow_source:'七牛'}],tokenflow_gateway_models:['qoder/gfmodel','api-qiniu/flash']};
+ const directory=nativeAgentDirectory(catalog);expect(directory).toContain('"source":"Qoder"');expect(directory).toContain('"source":"七牛"');
+ const params={type:'object',properties:{model:{type:'string'}},required:['message']};
+ const body={input:[{role:'developer',content:[{type:'input_text',text:directory}]}],tools:[{type:'namespace',name:'collaboration',tools:[{type:'function',name:'spawn_agent',description:'Five example models.',parameters:params}]},{type:'function',name:'exec',description:'Call tools.multi_agent_v1__spawn_agent from JS.'}]};
+ const result=nativeAgentDiscovery(body);
+ expect(result.tools[0].tools?.[0].description).toContain('qoder/gfmodel');expect(result.tools[0].tools?.[0].parameters).toBe(params);
+ expect(result.tools[1].description).toContain('api-qiniu/flash');expect(body.tools[1].description).not.toContain('api-qiniu/flash');
+ expect(nativeAgentDiscovery(result)).toBe(result);
+ const refreshed=nativeAgentDiscovery({...result,input:[{role:'developer',content:[{type:'input_text',text:nativeAgentDirectory({models:[{slug:'new-account-model'}]})}]}]});expect(refreshed.tools[0].tools?.[0].description).toContain('new-account-model');expect(refreshed.tools[0].tools?.[0].description).not.toContain('qoder/gfmodel');
+ expect(nativeAgentDiscovery({tools:body.tools,input:[{role:'user',content:directory}]}).tools).toBe(body.tools);
+});
+
+it('uses stable source prefixes in the picker across repeated account refreshes without changing dispatch IDs',()=>{
+ const original={models:[{slug:'official-a',display_name:'Official A'},{slug:'qoder/gfmodel',display_name:'TF · qoder/GLM-5.3-Flash',tokenflow_source:'qoder'}],tokenflow_gateway_models:['qoder/gfmodel']};
+ const once=nativePlaintextAgentCatalog(original),twice=nativePlaintextAgentCatalog(once);
+ expect(twice).toEqual(once);expect(once.models.map(m=>m.slug)).toEqual(original.models.map(m=>m.slug));
+ expect(once.models.map(m=>m.display_name)).toEqual(['OpenAI 官方 · Official A','TF · qoder · GLM-5.3-Flash']);
+});

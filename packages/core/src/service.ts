@@ -1,3 +1,5 @@
+import {codexGatewayResponse} from './codex-response-protocol.js';
+import {nativeAgentDiscovery} from './codex-unified-agent-catalog.js';
 import {CodexBridgeInstallation} from './codex-bridge-installation.js';
 import {codexCoexistStatus,loadOfficialCodexCatalog,loadOfficialCodexCatalogForAuth,officialCodexHeaders,officialCodexURL,type OfficialCodexCatalog,type CodexOfficialFetch} from './codex-coexist.js';
 import {gatewayDecoding} from './gateway-decoding.js';
@@ -466,7 +468,7 @@ export async function createDesktopService(options:ServiceOptions) {
     try{
       const local=await localSnapshot(),catalog=local.models;
       const modelContextWindows=input.target==='codex'?Object.fromEntries((await Promise.all(selections.map(async item=>[item.model,await compactionModelWindow(item.model,catalog,connections.paths.codex)] as const))).filter((entry):entry is readonly [string,number]=>entry[1]!==undefined)):undefined;
-      const record=await connections.apply({...input,codexDirectHybrid:hybrid,modelLabels:Object.fromEntries(selections.map(item=>[item.model,modelLabel(catalog,item.model,local.apiSources)])),modelContextWindows,officialCatalog,keyId:created.key.id,key:created.apiKey,origin});
+      const record=await connections.apply({...input,codexDirectHybrid:hybrid,modelLabels:Object.fromEntries(selections.map(item=>[item.model,modelLabel(catalog,item.model,local.apiSources)])),modelSourceNames:Object.fromEntries(selections.map(item=>[item.model,local.apiSources?.find(source=>item.model.startsWith(`api-${source.id}/`))?.name??catalog.find(model=>model.id===item.model)?.provider??item.model.split('/')[0]])),modelContextWindows,officialCatalog,keyId:created.key.id,key:created.apiKey,origin});
       fixedRoutes.set(record.keyId,{target:record.target,sourceId:record.sourceId,model:record.model,fastModel:record.fastModel,selections:record.selections,modelAliases:record.modelAliases,codexCoexist:record.codexCoexist,codexDirectHybrid:record.codexDirectHybrid,officialModelSlugs:record.officialModelSlugs});
       if(input.replaceId){const previous=(await connections.status()).flatMap(t=>t.backups).find(r=>r.id===input.replaceId);if(previous){fixedRoutes.delete(previous.keyId);if(gatewayKeys.list().some(k=>k.id===previous.keyId))await gatewayKeys.remove(previous.keyId);}}
       if(input.target==='codex'&&!hybrid)await codexThreads.migrate(input.model,allowedModels);
@@ -1128,7 +1130,7 @@ export async function createDesktopService(options:ServiceOptions) {
     };
     reply.raw.once('close',()=>{if(!reply.raw.writableFinished)abort.abort();});
     try{
-      const body=await codexContext.forOfficial(req.body as Record<string,unknown>,await codexContextScopes());
+      const body=nativeAgentDiscovery(await codexContext.forOfficial(req.body as Record<string,unknown>,await codexContextScopes()));
       const response=await (options.codexOfficialFetch??inferenceFetch)(officialCodexURL(path),{method:'POST',headers,body:JSON.stringify(body),signal:abort.signal,redirect:'error'});
       if(!response.ok){const error=upstreamError(response.status,await readUpstreamError(response));record(response.status,providerUsage(undefined),{code:error.code??error.type,message:error.message});return reply.code(response.status).send({error});}
       const contentType=response.headers.get('content-type')??'application/json';reply.code(response.status).header('content-type',contentType).header('cache-control','no-store');
@@ -1281,7 +1283,7 @@ export async function createDesktopService(options:ServiceOptions) {
         return clock.watch(await workbuddySDK.response(sdkSourceId,route,body,clock.signal));
       }:send;
       const dispatch=async(route:string,body:unknown)=>{
-        const forward=nativeCodexReceiver&&route.startsWith('responses')?codexWebSearch(body as Record<string,any>):body;
+        const forward=nativeCodexReceiver&&route.startsWith('responses')?codexWebSearch(fixed?.codexCoexist?nativeAgentDiscovery(body as Record<string,any>):body as Record<string,any>):body;
         if(!initialCompaction)return transport(route,forward);
         const clock=upstreamRequest();const cancel=()=>clock.abort();abort.signal.addEventListener('abort',cancel,{once:true});if(abort.signal.aborted)clock.abort();
         const detach=()=>abort.signal.removeEventListener('abort',cancel);
@@ -1289,7 +1291,7 @@ export async function createDesktopService(options:ServiceOptions) {
       };
       const sessionId=req.headers['session_id']??req.headers['session-id'];
       const importedHistory=fixed?.target==='codex'?await codexThreads.bootstrapHistory(typeof sessionId==='string'?sessionId:undefined):undefined;
-      const response=bridgeContext?await gatewayContext.response(path,req.body as {model:string},client?.id??'workspace',client?.modelSources?.[model]??client?.sourceId??apiSource?.id??upstreamURL,dispatch,fixed?.target==='codex'?{rebuildsInstructions:true,prepareHybridHistory:fixed.codexDirectHybrid,bootstrapHistory:importedHistory?.revision,bootstrapRecordedAt:importedHistory?.recordedAt,contextWindowTokens:await compactionModelWindow(model,proxy.snapshot().models,connections.paths.codex),scope:codexContextScope,threadId:typeof sessionId==='string'?sessionId:undefined,normalize:portableCodexItem,recover:async item=>codexContext.recover(item,await codexContextScopes())}:undefined,{signal:abort.signal,onContextObservation:report=>{if(contextObservations.length>=128)contextObservations.shift();contextObservations.push(report);},onCancel:()=>abort.abort(),onInitialCompaction:active=>{initialCompaction=active;},onCompaction:report=>{compaction=report;},onBillingUsage:usage=>{billingUsage=providerUsage(usage);},onError:error=>{contextFailureStatus=error.statusCode;callError={code:error.code,message:error.message};},onUsageIncomplete:()=>{contextUsageIncomplete=true;if(compaction)compaction={...compaction,unmetered:true};}}):await dispatch(path,req.body);
+      const response=bridgeContext?await gatewayContext.response(path,req.body as {model:string},client?.id??'workspace',client?.modelSources?.[model]??client?.sourceId??apiSource?.id??upstreamURL,dispatch,fixed?.target==='codex'?{adaptResponse:codexGatewayResponse,rebuildsInstructions:true,prepareHybridHistory:fixed.codexDirectHybrid,bootstrapHistory:importedHistory?.revision,bootstrapRecordedAt:importedHistory?.recordedAt,contextWindowTokens:await compactionModelWindow(model,proxy.snapshot().models,connections.paths.codex),scope:codexContextScope,threadId:typeof sessionId==='string'?sessionId:undefined,normalize:portableCodexItem,recover:async item=>codexContext.recover(item,await codexContextScopes())}:undefined,{signal:abort.signal,onContextObservation:report=>{if(contextObservations.length>=128)contextObservations.shift();contextObservations.push(report);},onCancel:()=>abort.abort(),onInitialCompaction:active=>{initialCompaction=active;},onCompaction:report=>{compaction=report;},onBillingUsage:usage=>{billingUsage=providerUsage(usage);},onError:error=>{contextFailureStatus=error.statusCode;callError={code:error.code,message:error.message};},onUsageIncomplete:()=>{contextUsageIncomplete=true;if(compaction)compaction={...compaction,unmetered:true};}}):await dispatch(path,req.body);
       if(!response.ok){
         if(response.status===401){const failedSource=client?.modelSources?.[model!]??client?.sourceId;if(failedSource)refreshFailedSource(failedSource);}
         await settle(billingUsage??{inputTokens:null,outputTokens:null},contextUsageIncomplete||!!compaction?.unmetered||response.status>=500);

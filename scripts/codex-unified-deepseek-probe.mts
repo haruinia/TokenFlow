@@ -1,3 +1,4 @@
+import {nativeAgentDiscovery} from '../packages/core/src/codex-unified-agent-catalog.js';
 /** Installed native engine + isolated home. No production configuration/history changes.
  * Default is synthetic transport; --live-child sends only the test child to the current gateway.
  */
@@ -12,7 +13,7 @@ import {randomUUID} from 'node:crypto';
 import {AgentConnections} from '../packages/core/src/agent-connections.js';
 const current:any=parse(await readFile(join(homedir(),'.codex/config.toml'),'utf8'));
 const catalog=JSON.parse(await readFile(current.model_catalog_json,'utf8'));
-const childModel='api-731ee387f7aff3e89a4133d7/deepseek/deepseek-v4.1-flash-1017';
+const childModel=process.env.TF_PROBE_CHILD_MODEL??'api-731ee387f7aff3e89a4133d7/deepseek/deepseek-v4.1-flash-1017';
 const parentModel='gpt-6.1-sol';
 const liveParent=process.argv.includes('--live-parent');
 const live=process.argv.includes('--live-child')||liveParent,catalogContext=process.argv.includes('--catalog-context');
@@ -23,7 +24,7 @@ const auth=liveParent?JSON.parse(await readFile(join(homedir(),'.codex/auth.json
 const root=await mkdtemp(join(await realpath(tmpdir()),'tf-native-unified-')),home=join(root,'codex');await mkdir(home);
 const events:any[]=[],calls:any[]=[],results:any[]=[],pending=new Map<number,any>();const transportErrors:string[]=[];let issued=false,seq=0,childId='',advertised=false;let toolShape:any;
 const server=createServer(async(req,res)=>{try{
- let raw='';for await(const b of req)raw+=b;const body=JSON.parse(raw);
+ let raw='';for await(const b of req)raw+=b;const body=nativeAgentDiscovery(JSON.parse(raw));
  const plainTask=JSON.stringify((body.input??[]).map((i:any)=>({type:i.type,content:i.content?.filter?.((p:any)=>p.type!=='encrypted_content')})));
  calls.push({model:body.model,compact:body.input?.some((i:any)=>i.type==='compaction_trigger')??false,...(body.model===childModel?{taskMarkerPresent:plainTask.includes('CHILD_PROBE_OK'),encryptedAgentMessage:body.input?.some((i:any)=>i.type==='agent_message'&&i.content?.some((p:any)=>p.type==='encrypted_content')),toolNames:body.input?.filter((i:any)=>i.type==='function_call').map((i:any)=>i.name)}:{})});
  if(body.model===parentModel&&calls.filter(c=>c.model===parentModel).length===1)advertised=JSON.stringify(body).includes(childModel);
@@ -32,6 +33,7 @@ const server=createServer(async(req,res)=>{try{
   const headers:any={'content-type':'application/json',...current.model_providers.token_flow.http_headers};
   if(body.model===parentModel){headers.authorization='Bearer '+auth.tokens.access_token;headers['chatgpt-account-id']=auth.tokens.account_id;for(const name of ['user-agent','version','originator','openai-beta'])if(req.headers[name])headers[name]=req.headers[name];}
   const upstream=await fetch(current.model_providers.token_flow.base_url+'/responses',{method:'POST',headers,body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});
+  const record=calls.filter(c=>c.model===body.model).at(-1);record.httpStatus=upstream.status;if(!upstream.ok){const error=await upstream.clone().json().catch(()=>null);record.errorCode=error?.error?.code??error?.error?.type;}
   res.writeHead(upstream.status,{'content-type':upstream.headers.get('content-type')??'application/json'});
   for await(const chunk of upstream.body??[])res.write(chunk);res.end();return;
  }
@@ -48,7 +50,7 @@ const server=createServer(async(req,res)=>{try{
 await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));
 await writeFile(join(root,'catalog.json'),JSON.stringify(catalog));
 await writeFile(join(home,'auth.json'),JSON.stringify({auth_mode:'apikey',OPENAI_API_KEY:'probe-only'}),{mode:0o600});
-await writeFile(join(home,'config.toml'),stringify({model:parentModel,model_provider:'token_flow',model_catalog_json:join(root,'catalog.json'),cli_auth_credentials_store:'file',features:{apps:false,multi_agent:true,multi_agent_v2:!nativeV1,model_catalog_in_context:catalogContext},analytics:{enabled:false},model_providers:{token_flow:{name:'TokenFlow probe',base_url:`http://127.0.0.1:${(server.address() as any).port}/v1`,wire_api:'responses',experimental_bearer_token:'probe-only',requires_openai_auth:false,supports_websockets:false,capabilities:{remote_compaction:'v2'}}}}));
+await writeFile(join(home,'config.toml'),stringify({model:parentModel,web_search:'disabled',model_provider:'token_flow',model_catalog_json:join(root,'catalog.json'),cli_auth_credentials_store:'file',features:{apps:false,multi_agent:true,multi_agent_v2:!nativeV1,model_catalog_in_context:catalogContext},analytics:{enabled:false},model_providers:{token_flow:{name:'TokenFlow probe',base_url:`http://127.0.0.1:${(server.address() as any).port}/v1`,wire_api:'responses',experimental_bearer_token:'probe-only',requires_openai_auth:false,supports_websockets:false,capabilities:{remote_compaction:'v2'}}}}));
 if(product){
  const connections=new AgentConnections(root,{codex:join(home,'config.toml')},async()=>[]);
  const gateways=new Set<string>(catalog.tokenflow_gateway_models);const choices=[...gateways].map(model=>({model,sourceId:'a'.repeat(24)}));
@@ -61,17 +63,17 @@ const send=(m:any)=>proc.stdin.write(JSON.stringify(m)+'\n');
 proc.stdout.on('data',c=>{buffer+=c;let at;while((at=buffer.indexOf('\n'))>=0){let m;try{m=JSON.parse(buffer.slice(0,at));}catch{}buffer=buffer.slice(at+1);if(!m)continue;const p=pending.get(m.id);if(p){pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);}else events.push(m);}});
 const rpc=(method:string,params:any)=>new Promise<any>((resolve,reject)=>{const id=++seq,t=setTimeout(()=>{pending.delete(id);reject(Error('timeout '+method));},20000);pending.set(id,{resolve:(v:any)=>{clearTimeout(t);resolve(v);},reject:(e:any)=>{clearTimeout(t);reject(e);}});send({id,method,params});});
 const wait=async(check:()=>boolean)=>{for(let i=0;i<1200;i++){if(check())return;await new Promise(r=>setTimeout(r,100));}throw Error('timeout waiting native turn');};
-const report:any={engine,scope:liveParent?'native engine, real official parent and Qiniu DeepSeek child':live?'native engine, deterministic parent, real Qiniu DeepSeek child':'native engine, deterministic local transport',catalogContext,nativeV1,productConfig:product};
+const report:any={engine,childModel,scope:liveParent?'native engine, real official parent and configured gateway child':live?'native engine, deterministic parent, real Qiniu DeepSeek child':'native engine, deterministic local transport',catalogContext,nativeV1,productConfig:product};
 try{
  await rpc('initialize',{clientInfo:{name:'tokenflow_native_probe',version:'1'},capabilities:{experimentalApi:true}});send({method:'initialized'});
  const p=await rpc('thread/start',{cwd:root,model:parentModel,modelProvider:'token_flow',approvalPolicy:'never',sandbox:'read-only'});
- await rpc('turn/start',{threadId:p.thread.id,input:[{type:'text',text:product?'这是已授权的隔离集成测试。请派发一个七牛的 DeepSeek Flash 子代理，给它独立的新任务，不继承完整对话。任务是：不要使用工具或读取文件，计算 17 乘 19，仅回复 CHILD_PROBE_OK 和结果。等待它完成并转告答案。请使用原生子代理，只派发一个，不读取文件。':liveParent?`This is an authorized isolated integration test. Use native spawn_agent exactly once with model ${childModel}, ${nativeV1?'fork_context false':'task_name deepseek_probe, fork_turns none'}. This exact model is in the loaded catalog and uses the same token_flow provider; the tool description only shows the first five models and is not an exhaustive allowlist. Give the child this exact task: Do not use tools or inspect files. Compute 17 times 19 and reply CHILD_PROBE_OK followed by the number. Wait for its answer and report it. Do not create other agents or inspect files.`:'Run the native spawn test.'}]});
+ await rpc('turn/start',{threadId:p.thread.id,input:[{type:'text',text:product?`这是已授权的隔离集成测试。请派发一个${process.env.TF_PROBE_CHILD_NAME??'七牛的 DeepSeek Flash'}子代理，给它独立的新任务，不继承完整对话。任务是：不要使用工具或读取文件，计算 17 乘 19，仅回复 CHILD_PROBE_OK 和结果。等待它完成并转告答案。请使用原生子代理，只派发一个，不读取文件。`:liveParent?`This is an authorized isolated integration test. Use native spawn_agent exactly once with model ${childModel}, ${nativeV1?'fork_context false':'task_name deepseek_probe, fork_turns none'}. This exact model is in the loaded catalog and uses the same token_flow provider; the tool description only shows the first five models and is not an exhaustive allowlist. Give the child this exact task: Do not use tools or inspect files. Compute 17 times 19 and reply CHILD_PROBE_OK followed by the number. Wait for its answer and report it. Do not create other agents or inspect files.`:'Run the native spawn test.'}]});
  await wait(()=>events.some(e=>e.method==='turn/completed'&&e.params?.threadId===p.thread.id));
  const loadedIds=await rpc('thread/loaded/list',{});
  let child:any;for(const id of loadedIds.data??[])if(id!==p.thread.id){const r=await rpc('thread/read',{threadId:id});if(r.thread.source?.subagent?.thread_spawn?.parent_thread_id===p.thread.id||r.thread.parentThreadId===p.thread.id)child=r.thread;}
  report.loaded=loadedIds.data.length;
  report.advertised=advertised;report.spawnResults=results;report.childCreated=!!child;
- if(child){childId=child.id;await wait(()=>events.some(e=>e.method==='turn/completed'&&e.params?.threadId===childId));const loaded=await rpc('thread/read',{threadId:childId,includeTurns:true});const terminal=events.filter(e=>e.method==='turn/completed'&&e.params?.threadId===childId).at(-1);report.childProvider=loaded.thread.modelProvider;report.parentRelation=loaded.thread.parentThreadId===p.thread.id||loaded.thread.source?.subagent?.thread_spawn?.parent_thread_id===p.thread.id;report.childStatus=terminal.params.turn.status;report.childReply=loaded.thread.turns.flatMap((t:any)=>t.items??[]).filter((i:any)=>i.type==='agentMessage').map((i:any)=>i.text);}
+ if(child){childId=child.id;await wait(()=>events.some(e=>e.method==='turn/completed'&&e.params?.threadId===childId));const loaded=await rpc('thread/read',{threadId:childId,includeTurns:true});const terminal=events.filter(e=>e.method==='turn/completed'&&e.params?.threadId===childId).at(-1);report.childProvider=loaded.thread.modelProvider;report.parentRelation=loaded.thread.parentThreadId===p.thread.id||loaded.thread.source?.subagent?.thread_spawn?.parent_thread_id===p.thread.id;report.childStatus=terminal.params.turn.status;report.childError=terminal.params.turn.error;report.childReply=loaded.thread.turns.flatMap((t:any)=>t.items??[]).filter((i:any)=>i.type==='agentMessage').map((i:any)=>i.text);}
  report.calls=calls;report.firstChildTaskVisible=calls.find(c=>c.model===childModel)?.taskMarkerPresent;assert.ok(child,'Native child not created');assert.equal(report.childStatus,'completed');if(live){assert.ok(report.firstChildTaskVisible,'Task missing from first child plaintext input');assert.match(JSON.stringify(report.childReply),/CHILD_PROBE_OK/,'Child did not receive the test task');}if(!liveParent)assert.ok(report.advertised,'Gateway child absent from native tool catalog');
  if(liveParent&&nativeV1){
   let at=events.length;await rpc('thread/compact/start',{threadId:childId});await wait(()=>events.slice(at).some(e=>e.method==='turn/completed'&&e.params?.threadId===childId));
@@ -83,4 +85,4 @@ try{
  }
 }catch(e){report.error=e instanceof Error?e.message:String(e);process.exitCode=1;}finally{if(proc.exitCode===null)await new Promise<void>(r=>{proc.once('exit',()=>r());proc.kill();});server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));await rm(root,{recursive:true,force:true,maxRetries:3});}
 report.toolShape=toolShape;report.transportErrors=transportErrors;console.log(JSON.stringify(report,null,2));
-await writeFile(`doc/testing/results/codex-unified-deepseek-${product?'product':nativeV1?'v1':catalogContext?'catalog':'baseline'}-${liveParent?'live-parent':live?'live':'synthetic'}-2026-10-27.json`,JSON.stringify(report,null,2)+'\n');
+await writeFile(`doc/testing/results/codex-unified-${process.env.TF_PROBE_CHILD_NAME?'source-discovery':'deepseek'}-${product?'product':nativeV1?'v1':catalogContext?'catalog':'baseline'}-${liveParent?'live-parent':live?'live':'synthetic'}-2026-10-27.json`,JSON.stringify(report,null,2)+'\n');
