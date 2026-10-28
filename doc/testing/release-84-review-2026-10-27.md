@@ -32,3 +32,8 @@ An additional checkpoint regression reproduced the user's specific concern: offi
 ## Release actions
 
 Target version: 10.15.26.84. Installation, package checks, website replacement and normal Codex apply/restart receipts are recorded as they complete. Previous .83 artifacts and installed app are retained for rollback.
+
+- Installed `/Applications/TokenFlow.app` .84; app archive hash matches the build, service HTTP 200, installer left config/auth unchanged. Old .83 retained at `release/v10.15.26.84/installed-before-84.app` and `/Applications/.TokenFlow-before-84.app`.
+- Apple Silicon packaged runtime: 19 checks passed. Both architectures signed and strictly verified; both DMGs verified. Initial automatic-filesystem DMG creation returned Resource Busy; explicit HFS+ creation succeeded. Intel remains cross-built, not physical-machine-tested; packages remain unnotarized.
+- Replaced primary 4180 download links with .84 and restamped assets. Both complete downloads returned HTTP 200 with matching SHA-256; receipts in `release/v10.15.26.84/installers/website-verification.json`. Prior .83 website files retained in the site research backup directory.
+- Native Codex model application/restart is the remaining final action.
