@@ -39,3 +39,33 @@ it('honors an explicit terminal-output phase even when the source omitted it on 
  const parsed=(await codexGatewayResponse(response).text()).split('\n').filter(l=>l.startsWith('data:')).map(l=>JSON.parse(l.slice(5)));
  expect(parsed[0].item.phase).toBe('commentary');expect(parsed[1].response.output[0].phase).toBe('commentary');
 });
+it('allows a completed server search to end with a final answer',async()=>{
+ const output=[{type:'web_search_call',id:'search',status:'completed'},msg('answer')];
+ expect((await codexGatewayResponse(Response.json({status:'completed',output})).json()).output[1].phase).toBe('final_answer');
+ expect((await stream(output)).at(-1).response.output[1].phase).toBe('final_answer');
+});
+it('retains an explicit item-done phase when terminal output omits it',async()=>{
+ const item=msg('earlier','commentary'),terminal=msg('earlier');
+ const response=new Response([{type:'response.output_item.done',output_index:0,item},{type:'response.completed',response:{status:'completed',output:[terminal]}}].map(e=>'data: '+JSON.stringify(e)+'\n\n').join(''),{headers:{'content-type':'text/event-stream'}});
+ const events=(await codexGatewayResponse(response).text()).split('\n').filter(l=>l.startsWith('data:')).map(l=>JSON.parse(l.slice(5)));
+ expect(events.at(-1).response.output[0].phase).toBe('commentary');
+});
+it('marks ID-less gateway reasoning with consistent index-based identity',async()=>{
+ const reasoning={type:'reasoning',encrypted_content:'foreign-ciphertext',summary:[]};
+ const events=[{type:'response.output_item.added',output_index:0,item:reasoning},{type:'response.output_item.done',output_index:0,item:reasoning},{type:'response.completed',response:{status:'completed',output:[reasoning]}}];
+ const response=new Response(events.map(e=>'data: '+JSON.stringify(e)+'\n\n').join(''),{headers:{'content-type':'text/event-stream'}});
+ const values=(await codexGatewayResponse(response).text()).split('\n').filter(l=>l.startsWith('data:')).map(l=>JSON.parse(l.slice(5)));
+ expect(isGatewayCodexItem(values[0].item)).toBe(true);expect(values[1].item.id).toBe(values[0].item.id);expect(values[2].response.output[0].id).toBe(values[0].item.id);
+ expect(isGatewayCodexItem((await codexGatewayResponse(Response.json({status:'completed',output:[reasoning]})).json()).output[0])).toBe(true);
+});
+it('propagates cancellation while an unfinished JSON response is being read',async()=>{
+ let cancelled=false;const source=new ReadableStream<Uint8Array>({start(c){c.enqueue(new TextEncoder().encode('{'));},cancel(){cancelled=true;}});
+ const response=codexGatewayResponse(new Response(source,{headers:{'content-type':'application/json'}}));const reader=response.body!.getReader();const pending=reader.read();await reader.cancel();await pending;expect(cancelled).toBe(true);
+});
+it('does not freeze a nonterminal snapshot fallback as an explicit commentary phase',async()=>{
+ const item=msg('snapshot');
+ const events=[{type:'response.in_progress',response:{status:'in_progress',output:[item]}},{type:'response.output_item.done',output_index:0,item},{type:'response.completed',response:{status:'completed',output:[item]}}];
+ const response=new Response(events.map(e=>'data: '+JSON.stringify(e)+'\n\n').join(''),{headers:{'content-type':'text/event-stream'}});
+ const parsed=(await codexGatewayResponse(response).text()).split('\n').filter(l=>l.startsWith('data:')).map(l=>JSON.parse(l.slice(5)));
+ expect(parsed.find(e=>e.type==='response.output_item.done').item.phase).toBe('final_answer');expect(parsed.at(-1).response.output[0].phase).toBe('final_answer');
+});

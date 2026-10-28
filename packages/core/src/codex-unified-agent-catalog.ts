@@ -47,10 +47,12 @@ export function configureNativeUnifiedAgents(config:Record<string,any>,catalog:C
  * Preserve schemas, names and execution; this only augments discovery text.
  */
 export function nativeAgentDiscovery<T extends Record<string,any>>(body:T):T{
- const text=[body.instructions,...(Array.isArray(body.input)?body.input.filter((i:any)=>i.role==='developer').flatMap((i:any)=>typeof i.content==='string'?[i.content]:(i.content??[]).map((p:any)=>p.text)):[])].filter(v=>typeof v==='string').join('\n');
- const at=text.lastIndexOf(start),last=at<0?-1:text.indexOf(end,at);
- if(at<0||last<0)return body;
- const directory=text.slice(at,last+end.length);
+ const candidates=[body.instructions,...(Array.isArray(body.input)?body.input.filter((i:any)=>i.role==='developer').map((i:any)=>typeof i.content==='string'?i.content:Array.isArray(i.content)?i.content.map((p:any)=>p.text??'').join('\n'):''):[])];
+ // Current request instructions win; Codex prepends current developer policy
+ // before historical messages. Never let a replayed directory override it.
+ let directory:string|undefined;
+ for(const text of candidates){if(typeof text!=='string')continue;const at=text.indexOf(start),last=at<0?-1:text.indexOf(end,at);if(at>=0&&last>=0){directory=text.slice(at,last+end.length);break;}}
+ if(!directory)return body;
  const augment=(description:string)=>{const from=description.indexOf(start),to=from<0?-1:description.indexOf(end,from);return from>=0&&to>=0?description.slice(0,from)+directory+description.slice(to+end.length):description+'\n\n'+directory;};
  let changed=false;
  const visit=(value:any):any=>{

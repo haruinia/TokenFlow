@@ -1,4 +1,5 @@
-import {isGatewayCodexItem} from './codex-response-protocol.js';
+import {portableCodexItem,officialCodexItem} from './codex-history-items.js';
+export {portableCodexItem} from './codex-history-items.js';
 import {createHash,randomUUID} from 'node:crypto';
 import {dirname,join,relative,basename} from 'node:path';
 import {mkdir,readdir,readFile,writeFile,rename,stat,rm,copyFile,chmod} from 'node:fs/promises';
@@ -19,48 +20,6 @@ const object=(v:unknown):v is Item=>!!v&&typeof v==='object'&&!Array.isArray(v);
 // history_base.thread_id is the immutable rollout ID, not session_meta.id.
 // Reverts keep the logical thread ID and add a new rollout UUID after an underscore.
 const rolloutId=(path:string)=>{const match=/^rollout-.+-([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})(?:_([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}))?\.jsonl$/i.exec(basename(path));return match?.[2]??match?.[1];};
-export function portableCodexItem(item:Item):Item[]{
- if(!object(item))throw failure();
- // Responses Lite declarations describe the tools available in that old turn,
- // not a conversation message. The current request supplies its own tools.
- if(item.type==='additional_tools'||(item.type==='message'&&item.role==='developer'&&Array.isArray(item.tools)&&item.content===undefined))return [];
- if(item.type==='compaction'||item.type==='item_reference')throw failure();
- // Codex's ResponseItem protocol also uses FunctionCallOutput for standalone
- // notifications (call_id is optional), including cross-chat deliveries. The
- // gateway Responses protocol requires paired tool outputs. Translate this
- // distinct event kind at the Codex boundary, before inference or compaction;
- // never fabricate a call or relax validation of an actual call_id.
- if(item.type==='function_call_output'&&item.call_id==null){
-  const source=[item.namespace,item.name].filter(value=>typeof value==='string'&&value).join('.');
-  const heading={type:'input_text',text:`External tool notification${source?' from '+source:''}:`};
-  const content=typeof item.output==='string'?[{type:'input_text',text:item.output}]:Array.isArray(item.output)?item.output.map((part:Item)=>{
-   if(object(part)&&['text','input_text','output_text'].includes(part.type)&&typeof part.text==='string')return {type:'input_text',text:part.text};
-   if(object(part)&&part.type==='input_image')return structuredClone(part);
-   throw failure();
-  }):undefined;
-  if(!content)throw failure();
-  return [{type:'message',role:'user',content:[heading,...content]}];
- }
- if(item.type==='reasoning'){
-  const text=(Array.isArray(item.summary)?item.summary:[]).filter((p:Item)=>object(p)&&typeof p.text==='string').map((p:Item)=>p.text).join('\n');
-  return text?[{type:'message',role:'assistant',content:[{type:'output_text',text}]}]:[];
- }
- if(item.type==='agent_message'){
-  // V2's readable prefix is routing metadata, not a plaintext copy of the
-  // encrypted task. Dropping its ciphertext silently turns a valid dispatch
-  // into an empty task. Gateway models cannot consume this native payload.
-  if(Array.isArray(item.content)&&item.content.some((p:Item)=>object(p)&&p.type==='encrypted_content'&&p.encrypted_content))throw new GatewayContextError('Codex 原生子代理消息包含加密任务，当前网关模型无法读取。请使用原生明文子代理协议或支持该加密消息的模型；任务内容未被丢弃。',422,undefined,'codex_encrypted_agent_message');
-  const text=(Array.isArray(item.content)?item.content:[]).filter((p:Item)=>object(p)&&typeof p.text==='string').map((p:Item)=>p.text).join('\n');
-  return text?[{type:'message',role:'developer',content:[{type:'input_text',text}]}]:[];
- }
- const value=structuredClone(item);delete value.id;delete value.encrypted_content;
- if(typeof value.role==='string'){
-  value.type='message';
-  if(typeof value.content==='string')value.content=[{type:value.role==='assistant'?'output_text':'input_text',text:value.content}];
-  else if(Array.isArray(value.content))value.content=value.content.filter((p:Item)=>!object(p)||p.type!=='encrypted_content');
- }
- return [value];
-}
 /** Replays only local Codex rollout data. No credentials, cloud lookup, or model
  * call occurs here. The service enables this exclusively for its managed Codex key. */
 export class CodexContext {
@@ -146,17 +105,13 @@ export class CodexContext {
  /** Coexisting official routes understand native opaque state, but cannot
   * decrypt our local checkpoints or resolve gateway-owned response IDs. */
  async forOfficial<T extends Record<string,unknown>>(body:T,scopes:ContextScope[]):Promise<T>{
-  const restored=await this.context.forOfficial(body,[codexContextScope,...scopes],item=>{
-   if(item.type==='compaction'||!isGatewayCodexItem(item)&&item.type==='reasoning'&&typeof item.encrypted_content==='string'&&item.encrypted_content&&!/^rs_chatcmpl[-_]/.test(String(item.id)))return [item];
-   return portableCodexItem(item);
-  });
+  const restored=await this.context.forOfficial(body,[codexContextScope,...scopes],item=>officialCodexItem(item,true));
   if(!Array.isArray(restored.input))return restored;
   let changed=false;
   const input=restored.input.flatMap((item:Item)=>{
-   // Codex sends full inline history with store=false. These are not native
-   // encrypted reasoning items, even without a private response/checkpoint.
-   if(isGatewayCodexItem(item)||item.type==='reasoning'&&(!item.encrypted_content||/^rs_chatcmpl[-_]/.test(String(item.id)))){changed=true;return portableCodexItem(item);}
-   return [item];
+   const converted=officialCodexItem(item);
+   changed ||=converted.length!==1||converted[0]!==item;
+   return converted;
   });
   return changed?{...restored,input}:restored;
  }

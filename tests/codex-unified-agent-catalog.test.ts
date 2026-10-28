@@ -59,3 +59,9 @@ it('uses stable source prefixes in the picker across repeated account refreshes 
  expect(twice).toEqual(once);expect(once.models.map(m=>m.slug)).toEqual(original.models.map(m=>m.slug));
  expect(once.models.map(m=>m.display_name)).toEqual(['OpenAI 官方 · Official A','TF · qoder · GLM-5.3-Flash']);
 });
+it('gives the current instruction directory precedence over historical developer directories',async()=>{
+ const {nativeAgentDiscovery}=await import('../packages/core/src/codex-unified-agent-catalog.js');
+ const current=nativeAgentDirectory({models:[{slug:'current-model'}]}),old=nativeAgentDirectory({models:[{slug:'retired-model'}]});
+ const body={instructions:current,input:[{role:'developer',content:old}],tools:[{name:'spawn_agent',description:'Native spawn'}]};
+ const result=nativeAgentDiscovery(body);expect(result.tools[0].description).toContain('current-model');expect(result.tools[0].description).not.toContain('retired-model');
+});

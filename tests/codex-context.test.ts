@@ -479,3 +479,20 @@ it('keeps native opaque state while converting marked foreign ciphertext and IDs
  expect(converted.input).toContainEqual({type:'function_call',call_id:'shared',name:'read',arguments:'{}'});expect(converted.input).toContainEqual(result);
  expect(converted.input.at(-1)).toMatchObject({phase:'final_answer'});expect(converted.input.at(-1)).not.toHaveProperty('id');expect(body.input[4]).toHaveProperty('id');
 });
+
+it('restores official encrypted agent messages from a local checkpoint without applying gateway task rejection',async()=>{
+ const f=await fixture();
+ const task={type:'agent_message',id:'agent_native',content:[{type:'input_text',text:'Native routing prefix'},{type:'encrypted_content',encrypted_content:'native-task-ciphertext'}]};
+ const native={type:'reasoning',id:'rs_native',encrypted_content:'native-reasoning-ciphertext',summary:[]};
+ const token=f.context.encodeCheckpoint([{role:'user',content:'Task'},task,native],codexContextScope);
+ const converted=await f.migration.forOfficial({model:'official',input:[{type:'compaction',encrypted_content:token}]},[]);
+ expect(converted.input).toContainEqual(task);expect(converted.input).toContainEqual(native);
+ expect(()=>portableCodexItem(task)).toThrow('加密任务');
+});
+it('keeps ordinary foreign reasoning and native encrypted agent tasks independent in the same official request',async()=>{
+ const f=await fixture();const {codexGatewayResponse}=await import('../packages/core/src/codex-response-protocol.js');
+ const foreign=await codexGatewayResponse(Response.json({status:'completed',output:[{type:'reasoning',encrypted_content:'foreign-without-id',summary:[{type:'summary_text',text:'Visible thought summary'}]},{type:'message',role:'assistant',content:[{type:'output_text',text:'ordinary reply'}]}]})).json();
+ const agent={type:'agent_message',content:[{type:'encrypted_content',encrypted_content:'native-agent-secret'}]};
+ const converted=await f.migration.forOfficial({model:'official',input:[agent,...foreign.output]},[]);
+ expect(converted.input).toContainEqual(agent);expect(JSON.stringify(converted)).not.toContain('foreign-without-id');expect(JSON.stringify(converted)).toContain('Visible thought summary');expect(JSON.stringify(converted)).toContain('ordinary reply');
+});

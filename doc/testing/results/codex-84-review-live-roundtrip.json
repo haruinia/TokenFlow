@@ -1,0 +1,96 @@
+{
+  "passed": true,
+  "live": true,
+  "long": false,
+  "short": true,
+  "toolRound": false,
+  "legacyLocalComparison": false,
+  "seedBytes": 0,
+  "seedUsageIsSynthetic": false,
+  "scope": "Installed Codex, production coexist routing, isolated login/config/history; three turns without compaction",
+  "rounds": [
+    {
+      "phase": "official-seed",
+      "messagePhases": [
+        "final_answer"
+      ],
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 4022
+    },
+    {
+      "phase": "gateway-short",
+      "messagePhases": [
+        "final_answer"
+      ],
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 3480
+    },
+    {
+      "phase": "official-short-return",
+      "messagePhases": [
+        "final_answer"
+      ],
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 2757
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-seed",
+      "route": "official",
+      "model": "gpt-6.1-sol",
+      "fixtureSeed": false,
+      "bytes": 51836,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 2991,
+      "usage": {
+        "input_tokens": 10119,
+        "output_tokens": 14,
+        "total_tokens": 10133,
+        "cached_tokens": 0
+      }
+    },
+    {
+      "phase": "gateway-short",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "qoder/dfmodel",
+      "bytes": 74662,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 3405,
+      "usage": {
+        "input_tokens": 15244,
+        "output_tokens": 125,
+        "total_tokens": 15369,
+        "cached_tokens": 6016
+      }
+    },
+    {
+      "phase": "official-short-return",
+      "route": "official",
+      "model": "gpt-6.1-sol",
+      "fixtureSeed": false,
+      "bytes": 99522,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 2662,
+      "usage": {
+        "input_tokens": 19472,
+        "output_tokens": 49,
+        "total_tokens": 19521,
+        "cached_tokens": 8576
+      }
+    }
+  ]
+}
