@@ -29,7 +29,7 @@ export const qoderQuota: QuotaProvider = {
       if(used===undefined&&total!==undefined&&remaining!==undefined)used=Math.max(0,total-remaining);
       const ratio=num(entry.percentage);
       const usedPercent=total!==undefined&&total<=0?null:percent(used,total)??(ratio===undefined?null:clampPercent(ratio*100));
-      if(total!==undefined||used!==undefined||usedPercent!==null)windows.push({id,label,used,limit:total,usedPercent,unit:'Credits',...(total===0?{note:'此资源包未分配额度，不表示免费或无限额。'}:{})});
+      if(total!==undefined||used!==undefined||usedPercent!==null)windows.push({id,label,used,limit:total,remaining,usedPercent,unit:'Credits',...(total===0?{note:'此资源包未分配额度，不表示免费或无限额。'}:{})});
     }
 
     // 若有子列表（如不同模型的配额或周期配额）

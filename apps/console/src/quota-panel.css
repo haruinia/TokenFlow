@@ -1,35 +1,43 @@
 html[data-panel=quota],html[data-panel=quota] body{min-width:0;background:var(--surface);}
 .tfQuotaPopover{height:100dvh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);font-size:12px;line-height:1.5;overflow:hidden;}
-.tfQuotaPopoverHeader{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;flex-shrink:0;}
-.tfQuotaPopoverHeader>div{display:flex;align-items:center;gap:9px;}
-.tfQuotaPopoverHeader h1{margin:0;font-size:15px;font-weight:650;letter-spacing:-.3px;}
-.tfQuotaPopover .iconButton{width:30px;min-height:30px;padding:6px;flex-shrink:0;}
-.tfQuotaPopoverBody{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 20px;}
-.tfQuotaPopoverAccount{padding:18px 0;border-top:1px solid var(--line);}
-.tfQuotaPopoverAccount>header{display:flex;align-items:center;gap:10px;margin-bottom:18px;}
+.tfQuotaPopoverHeader{display:flex;align-items:center;justify-content:space-between;padding:12px 16px 10px;flex-shrink:0;}
+.tfQuotaPopoverHeader>div{display:flex;align-items:center;gap:7px;}
+.tfQuotaPopoverHeader h1{margin:0;font-size:13px;font-weight:600;letter-spacing:-.2px;}
+.tfQuotaPopoverStatus{font-size:10px;color:var(--muted);}
+.tfQuotaPopover .tfQuotaRefresh{display:grid;place-items:center;width:24px;height:24px;min-height:24px;padding:0;flex-shrink:0;border:0;border-radius:6px;background:transparent;color:var(--muted);}
+html[data-panel=quota] .tfQuotaPopover .tfQuotaRefresh{background:transparent;color:var(--muted);}
+.tfQuotaPopover .tfQuotaRefresh:hover:not(:disabled){background:var(--soft);color:var(--text);}
+.tfQuotaPopover .tfQuotaRefresh:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.tfQuotaPopoverBody{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 16px 4px;}
+.tfQuotaPopoverAccount{padding:14px 0 15px;border-top:1px solid color-mix(in srgb,var(--line) 65%,transparent);}
+.tfQuotaPopoverAccount>header{display:flex;align-items:center;gap:9px;margin-bottom:13px;}
 .tfQuotaPopoverAccount>header>div{flex:1;min-width:0;}
-.tfQuotaPopoverAccountTitle{display:flex;align-items:baseline;gap:8px;}
-.tfQuotaPopoverAccountTitle h2{font-size:14px;line-height:1.3;font-weight:600;margin:0;}
-.tfQuotaPopoverAccountTitle>span{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;}
-.tfQuotaPopoverAccount header p{margin:3px 0 0;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.tfQuotaPopoverWindows{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 16px;}
-.tfQuotaPopoverWindow{display:flex;align-items:center;gap:10px;min-width:0;}
-.tfQuotaPopoverWindow .quotaRing{width:54px;height:54px;}
-.tfQuotaPopoverWindow .quotaRing>span{font-size:15px;}
-.tfQuotaPopoverWindow>div{display:flex;flex-direction:column;gap:3px;min-width:0;}
-.tfQuotaPopoverWindow strong{font-size:11px;line-height:1.45;font-weight:500;overflow-wrap:anywhere;}
-.tfQuotaPopoverWindow small,.tfQuotaPopoverWindow>div>span{font-size:10px;color:var(--muted);line-height:1.5;}
-.tfQuotaPopoverUpdated{margin:14px 0 0;font-size:10px;color:var(--muted);}
-.tfQuotaPopoverMeta{font-size:11px;color:var(--muted);margin:0;}
-.tfQuotaPopoverWarning{font-size:11px;color:var(--danger);line-height:1.7;margin:0 0 12px;}
-.tfQuotaPopover>footer{display:flex;align-items:center;gap:8px;flex-shrink:0;padding:10px 12px 10px 20px;border-top:1px solid var(--line);}
-.tfQuotaPopover>footer>span{font-size:10px;color:var(--muted);margin-right:auto;}
-.tfQuotaPopover>footer .textButton{font-size:11px;min-height:30px;gap:5px;padding:4px;}
-.tfQuotaPopoverEmpty{min-height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px;color:var(--muted);}
-.tfQuotaPopoverEmpty h2{color:var(--text);font-size:14px;font-weight:500;margin:0;}
-.tfQuotaPopoverEmpty p{margin:0;font-size:12px;}
-.tfQuotaPopoverError{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--danger);padding:10px 0;}
-.tfQuotaPopoverError button{font-size:11px;white-space:nowrap;}
+.tfQuotaPopoverAccountTitle{display:flex;align-items:baseline;gap:7px;}
+.tfQuotaPopoverAccountTitle h2{font-size:12px;line-height:1.3;font-weight:600;margin:0;}
+.tfQuotaPopoverAccountTitle>span{font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px;}
+.tfQuotaPopoverAccount header p{margin:2px 0 0;color:var(--muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tfQuotaPopoverAccount header time{align-self:flex-start;flex-shrink:0;font-size:9px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:2px;}
+.tfQuotaPopoverWindows{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px;}
+.tfQuotaPopoverWindow{display:flex;align-items:center;gap:9px;min-width:0;}
+.tfQuotaPopoverWindow .quotaRing{width:44px;height:44px;}
+.tfQuotaPopoverWindow .quotaRing svg{stroke-width:4;}
+.tfQuotaPopoverWindow .quotaRing>span{font-size:12px;font-weight:600;}
+.tfQuotaPopoverWindow .quotaRing>span>small{font-size:8px;}
+.tfQuotaPopoverWindow>div{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.tfQuotaPopoverWindow strong{font-size:10px;line-height:1.45;font-weight:500;overflow-wrap:anywhere;}
+.tfQuotaPopoverWindow small,.tfQuotaPopoverWindow>div>span{font-size:9px;color:var(--muted);line-height:1.5;}
+.tfQuotaPopoverWindow.hasBalance{grid-column:1/-1;}
+.tfQuotaPopoverWindow.hasBalance>div{display:grid;grid-template-columns:auto auto;column-gap:8px;align-items:baseline;}
+.tfQuotaPopoverWindow.hasBalance strong{grid-column:1/-1;color:var(--muted);}
+.tfQuotaPopoverWindow.hasBalance b{font-size:12px;font-weight:550;font-variant-numeric:tabular-nums;}
+.tfQuotaResetCards{display:flex;align-items:center;gap:5px;margin-top:12px;padding-left:2px;color:var(--muted);font-size:10px;}
+.tfQuotaResetCards b{font-weight:550;color:var(--text);margin-left:3px;font-variant-numeric:tabular-nums;}
+.tfQuotaResetCards small{font-size:9px;}
+.tfQuotaPopoverEmpty{min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:8px;color:var(--muted);}
+.tfQuotaPopoverEmpty h2{color:var(--text);font-size:12px;font-weight:500;margin:0;}
+.tfQuotaPopoverEmpty p{margin:0;font-size:11px;}
+.tfQuotaPopoverError{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;color:var(--muted);padding:8px 0;}
+.tfQuotaPopoverError button{font-size:10px;white-space:nowrap;}
 .tfQuotaPopover .tfSkeletonCards{grid-template-columns:1fr;}
-.tfQuotaPopover .tfSkeletonBlock.card{min-height:120px;}
-@media(max-width:340px){.tfQuotaPopoverWindows{grid-template-columns:1fr;}.tfQuotaPopover>footer>span{max-width:110px;}}
+.tfQuotaPopover .tfSkeletonBlock.card{min-height:80px;}
+@media(max-width:340px){.tfQuotaPopoverWindows{grid-template-columns:1fr;}}

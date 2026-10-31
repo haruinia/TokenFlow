@@ -1,16 +1,15 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {AccountQuotaSnapshot} from '../../../packages/core/src/account-quota-snapshot';
 import {requestJSON} from './request';
-import {isProviderVisible} from './provider-visibility';
 import {QuotaRing} from './QuotaRing';
-import {quotaPresentation,quotaErrorMessage,resetLabel} from './QuotaDetails';
+import {resetLabel} from './QuotaDetails';
 import {ProviderIcon} from './ProviderIcon';
 import {Icon} from './Icons';
 import {LoadingSkeleton} from './LoadingState';
-import {quotaPanelLabel} from './quota-panel-label';
+import {panelQuotaAccounts} from './quota-panel-model';
 import './quota-panel.css';
 
-type PanelDesktop={openWorkspace:(view?:'accounts')=>Promise<void>;hideQuotaPanel:()=>Promise<void>};
+type PanelDesktop={hideQuotaPanel:()=>Promise<void>};
 const desktop=()=> (window as Window&{desktop?:PanelDesktop}).desktop;
 
 export function QuotaPanel(){
@@ -48,39 +47,26 @@ export function QuotaPanel(){
   catch{setError('额度更新未完成，保留上次结果。');}
   finally{updating.current=false;setRefreshing(false);}
  };
- const open=(view?:'accounts')=>{
-  if(desktop())void desktop()!.openWorkspace(view).catch(()=>setError('无法打开工作台，请点击 Dock 图标重试。'));
-  else window.location.href=view==='accounts'?'/?view=accounts':'/';
- };
- const accounts=snapshot?.accounts.filter(account=>isProviderVisible(account.provider))??[];
+ const accounts=panelQuotaAccounts(snapshot);
  const pending=refreshing||!!snapshot?.refreshing;
  return <div className="tfQuotaPopover">
   <header className="tfQuotaPopoverHeader">
-   <div><img src="/logo.svg" width="20" height="20" alt=""/><h1>账号额度</h1></div>
-   <button className="iconButton" aria-label="刷新额度" title="刷新额度" disabled={pending||!snapshot||snapshot.loading} onClick={()=>void refresh()}><Icon name="refresh" size={17}/></button>
+   <div><img src="/logo.svg" width="17" height="17" alt=""/><h1>剩余额度</h1></div>
+   <div><span className="tfQuotaPopoverStatus" role="status">{pending?'更新中…':snapshot&&!snapshot.loading?`${accounts.length} 个账号`:''}</span><button className="tfQuotaRefresh" aria-label="刷新额度" title="刷新额度" disabled={pending||!snapshot||snapshot.loading} onClick={()=>void refresh()}><Icon name="refresh" size={13}/></button></div>
   </header>
   <main className="tfQuotaPopoverBody" aria-label="已授权账号的剩余额度">
    {error&&<div className="tfQuotaPopoverError" role="status"><span>{error}</span><button className="textButton" onClick={()=>void read()}>重试</button></div>}
-   {!snapshot||snapshot.loading?(!error&&<LoadingSkeleton label="正在加载已授权账号" variant="cards"/>):!accounts.length?<div className="tfQuotaPopoverEmpty"><Icon name="user" size={28}/><h2>添加账号，随时查看额度</h2><p>已授权账号会显示在这里。</p><button onClick={()=>open('accounts')}>添加账号</button></div>:accounts.map(account=>{
-    const quota=snapshot.quotas[account.id];
-    const provider=snapshot.providers.find(item=>item.id===account.provider)?.label??account.provider;
-    const windows=quota?quotaPresentation(quota).overview:[];
-    const stale=quota?.status==='error';
-    const observed=stale?quota.lastSuccessfulAt:quota?.observedAt;
+   {!snapshot||snapshot.loading?(!error&&<LoadingSkeleton label="正在加载已授权账号" variant="cards"/>):!accounts.length?<div className="tfQuotaPopoverEmpty"><h2>暂无可显示的额度</h2><p>有效账号的额度更新后会显示在这里。</p></div>:accounts.map(({account,quota,provider,windows})=>{
+    const observed=quota.observedAt;
     return <section className="tfQuotaPopoverAccount" key={account.id} aria-label={`${provider} · ${account.label}`}>
-     <header><ProviderIcon provider={account.provider} size={26}/><div><div className="tfQuotaPopoverAccountTitle"><h2>{provider}</h2>{quota?.plan&&<span title={quota.plan}>{quota.plan}</span>}</div><p title={account.label}>{account.label}</p></div></header>
-     {account.authenticationRequired?<p className="tfQuotaPopoverWarning">登录已失效，请在账号授权中重新登录。</p>:account.disabled?<p className="tfQuotaPopoverMeta">账号已停用</p>:<>
-      {stale&&<p className="tfQuotaPopoverWarning">{quotaErrorMessage(quota.error)}{windows.length?' 当前为上次额度。':''}</p>}
-      {!!windows.length&&<div className="tfQuotaPopoverWindows">{windows.map(item=><div className="tfQuotaPopoverWindow" key={item.id}>
-       <QuotaRing remaining={item.usedPercent===null?null:100-item.usedPercent} label={item.label}/>
-       <div><strong title={item.label}>{quotaPanelLabel(item.label)}</strong>{item.displayValue&&<span>{item.displayValue}</span>}{item.usedPercent===null&&!item.displayValue&&<span>{item.remaining!==undefined?`余额 ${item.unit==='USD'?'$':''}${item.remaining.toLocaleString()}${item.unit&&item.unit!=='USD'?item.unit:''}`:'额度未提供'}</span>}{item.resetsAt&&<small title={new Date(item.resetsAt).toLocaleString()}>{resetLabel(item.resetsAt,true)}</small>}{item.note&&<small>{item.note}</small>}</div>
-      </div>)}</div>}
-      {!windows.length&&!stale&&<p className="tfQuotaPopoverMeta">{quota?.note??'额度暂未提供'}</p>}
-      {observed&&<p className="tfQuotaPopoverUpdated" title={new Date(observed).toLocaleString()}>{stale?'上次成功更新':'更新于'} {new Date(observed).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</p>}
-     </>}
+     <header><ProviderIcon provider={account.provider} size={21}/><div><div className="tfQuotaPopoverAccountTitle"><h2>{provider}</h2>{quota.plan&&<span title={quota.plan}>{quota.plan}</span>}</div><p title={account.label}>{account.label}</p></div><time title={`更新于 ${new Date(observed).toLocaleString()}`} dateTime={observed}>{new Date(observed).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',hour12:false})}</time></header>
+      <div className="tfQuotaPopoverWindows">{windows.map(item=><div className={`tfQuotaPopoverWindow${item.balance?' hasBalance':''}`} key={item.id}>
+       <QuotaRing remaining={item.remainingPercent} label={item.label}/>
+       <div><strong title={item.label}>{item.label}</strong>{item.balance&&<b>{item.balance}</b>}{item.total&&<span>{item.total}</span>}{item.resetsAt&&<small title={new Date(item.resetsAt).toLocaleString()}>{item.credits?`${new Date(item.resetsAt).toLocaleDateString(undefined,{month:'short',day:'numeric'})}重置`:resetLabel(item.resetsAt,true)}</small>}</div>
+      </div>)}</div>
+      {account.provider==='codex'&&quota.resetCredits!==undefined&&<div className="tfQuotaResetCards"><Icon name="copy" size={12}/><span>重置卡</span><b>{quota.resetCredits} 张</b><small>可用</small></div>}
     </section>;
    })}
   </main>
-  <footer><span role="status">{pending?'正在更新额度…':!snapshot||snapshot.loading?error?'暂不可用':'正在读取账号…':`${accounts.length} 个账号 · 圆环显示剩余`}</span><button className="textButton" onClick={()=>open('accounts')}>管理账号<Icon name="arrow" size={14}/></button><button className="iconButton" title="打开工作台" aria-label="打开工作台" onClick={()=>open()}><Icon name="workspace" size={16}/></button></footer>
  </div>;
 }

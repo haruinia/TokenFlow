@@ -39,6 +39,7 @@ export const codexQuota: QuotaProvider = {
     const credits = num(pick(record(pick(payload, 'rate_limit_reset_credits', 'rateLimitResetCredits')), 'available_count', 'availableCount'));
     if (!windows.length) throw new Error('Codex 用量接口未返回额度窗口。');
     return {plan: str(pick(payload, 'plan_type', 'planType')) ?? account.planType, windows,
+      ...(credits!==undefined&&Number.isInteger(credits)&&credits>=0?{resetCredits:credits}:{}),
       note: credits ? `可用限额重置券 ${credits} 张` : undefined};
   },
 };

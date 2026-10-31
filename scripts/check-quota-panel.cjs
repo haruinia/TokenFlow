@@ -20,7 +20,12 @@ async function run(){
  const accounts=[['personal','codex','Personal · demo@example.test'],['work','claude','Work · demo@example.test'],['anti','antigravity','Google · demo@example.test'],['unknown','qoder','一个很长的账号名称，用来核对额度面板是否正确截断而不会溢出']].map(([id,provider,label])=>({id,provider,label,disabled:false}));
  const quota=(accountId,provider,windows)=>({accountId,provider,observedAt:now,status:'ok',plan:'Pro',windows:windows.map(([label,usedPercent],i)=>({id:String(i),label,usedPercent,resetsAt:reset}))});
  const snapshot={loading:false,refreshing:false,accounts,providers:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude'},{id:'antigravity',label:'Antigravity'},{id:'qoder',label:'Qoder'}],quotas:{personal:quota('personal','codex',[['Codex · 5 小时',12],['Codex · 7 天',55]]),work:quota('work','claude',[['5 小时',92],['每周',100]]),anti:quota('anti','antigravity',[['Claude and GPT models · Weekly Limit Remaining',58],['Claude and GPT models · Five Hour Limit Remaining',1],['Gemini Models · Weekly Limit Remaining',3],['Gemini Models · Five Hour Limit Remaining',6]]),unknown:quota('unknown','qoder',[['高级模型',null]])}};
- let mode='ready',reads=0,writes=0,opened;
+ snapshot.quotas.personal.resetCredits=2;
+ accounts.push({id:'points',provider:'qoder',label:'Credits · demo@example.test',disabled:false},{id:'disabled',provider:'codex',label:'Disabled fixture',disabled:true},{id:'failed',provider:'claude',label:'Failed auth fixture',disabled:false});
+ snapshot.quotas.points={...quota('points','qoder',[]),windows:[{id:'plan',label:'套餐 Credits',unit:'Credits',used:150,limit:1000,remaining:850,usedPercent:15},{id:'addon',label:'加购 Credits',unit:'Credits',used:463.5,limit:500,remaining:36.5,usedPercent:92.7}]};
+ snapshot.quotas.disabled=quota('disabled','codex',[['每周',20]]);
+ snapshot.quotas.failed={...quota('failed','claude',[['每周',20]]),status:'error',error:'额度查询未通过认证，可刷新或重新授权。'};
+ let mode='ready',reads=0,writes=0;
  server=createServer(async(req,res)=>{
   const path=new URL(req.url,'http://127.0.0.1').pathname;
   if(path.startsWith('/api/')){
@@ -37,7 +42,6 @@ async function run(){
  tray.setToolTip('TokenFlow 额度面板 · 隔离验收');
  panel=createQuotaPanel({address,preload:join(root,'dist/preload.cjs'),icon:join(root,'dist/console/app-icon.png'),tray});
  ipcMain.handle('quota:hide',()=>panel.hide());
- ipcMain.handle('workspace:open',(_event,view)=>{opened=view;panel.hide();});
  await panel.toggle();let win=panel.window();
  const js=source=>win.webContents.executeJavaScript(source);
  async function until(source){for(let i=0;i<100;i++){if(await js(source))return;await delay(50);}throw Error(`UI wait failed: ${source}`);}
@@ -46,6 +50,9 @@ async function run(){
  assert.equal(writes,0);assert.ok(win.isVisible());assert.equal(BrowserWindow.getAllWindows().length,1);
  const errors=[];win.webContents.on('console-message',(_event,level,message)=>{if(level>=3)errors.push(message);});
  assert.equal(await js('document.documentElement.scrollWidth > innerWidth'),false);
+ assert.equal(await js('!!document.querySelector("footer")'),false);
+ assert.equal(await js('document.body.textContent.includes("850 积分")&&document.body.textContent.includes("共 1,000 积分")&&document.body.textContent.includes("2 张")'),true);
+ assert.equal(await js('/Disabled fixture|Failed auth fixture|高级模型|额度查询未通过认证/.test(document.body.textContent)'),false);
  await writeFile(join(out,'dark.png'),(await win.webContents.capturePage()).toPNG());
  await js('document.documentElement.dataset.theme="light"');await delay(100);
  await writeFile(join(out,'light.png'),(await win.webContents.capturePage()).toPNG());
@@ -58,17 +65,16 @@ async function run(){
  await delay(200);await panel.toggle();
  await js('document.querySelector(".tfQuotaPopoverBody").scrollTop=10000');await delay(100);
  await writeFile(join(out,'details.png'),(await win.webContents.capturePage()).toPNG());
- await js('document.querySelector("footer .textButton").click()');await delay(100);
- assert.equal(opened,'accounts');assert.equal(win.isVisible(),false);
+ panel.hide();assert.equal(win.isVisible(),false);
  const hiddenReads=reads;await delay(16000);assert.equal(reads,hiddenReads,'hidden panel must not poll');
- await delay(200);await panel.toggle();mode='empty';await win.webContents.reload();await until('document.body.textContent.includes("添加账号，随时查看额度")');
+ await delay(200);await panel.toggle();mode='empty';await win.webContents.reload();await until('document.body.textContent.includes("暂无可显示的额度")');
  await writeFile(join(out,'empty.png'),(await win.webContents.capturePage()).toPNG());
  mode='error';await win.webContents.reload();await until('document.body.textContent.includes("暂时无法读取额度")');
  assert.equal(await js('!!document.querySelector(".tfLoadingSkeleton")'),false);
  await writeFile(join(out,'error.png'),(await win.webContents.capturePage()).toPNG());
  await js('window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"}))');await delay(100);assert.equal(win.isVisible(),false);
  assert.deepEqual(errors,[]);
- const result={passed:true,readOnlyOnOpen:true,explicitRefresh:true,reusesWindow:true,blurDismiss:true,hiddenPollingStopped:true,manageAccounts:true,escapeDismiss:true,zeroUnknownAndLongLabels:true,consoleErrors:errors};
+ const result={passed:true,readOnlyOnOpen:true,explicitRefresh:true,reusesWindow:true,blurDismiss:true,hiddenPollingStopped:true,escapeDismiss:true,invalidAccountsHidden:true,zeroQuotaVisible:true,creditsAndResetCards:true,noFooterActions:true,consoleErrors:errors};
  await writeFile(join(out,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }
 async function cleanup(){panel?.destroy();tray?.destroy();server?.close();if(profile)await rm(profile,{recursive:true,force:true});}

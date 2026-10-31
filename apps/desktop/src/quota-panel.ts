@@ -13,7 +13,7 @@ export function createQuotaPanel(options:{address:string;preload:string;icon:str
   if(requested||Date.now()-lastBlur<180){hide();return;}
   requested=true;
   if(!window){
-   const panel=new BrowserWindow({width:400,height:580,show:false,frame:false,resizable:false,minimizable:false,maximizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,backgroundColor:'#202123',title:'TokenFlow · 账号额度',icon:options.icon,
+   const panel=new BrowserWindow({width:380,height:540,show:false,frame:false,resizable:false,minimizable:false,maximizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,backgroundColor:'#202123',title:'TokenFlow · 账号额度',icon:options.icon,
     webPreferences:{preload:options.preload,contextIsolation:true,nodeIntegration:false,sandbox:true}});
    window=panel;
    panel.webContents.setWindowOpenHandler(()=>({action:'deny'}));

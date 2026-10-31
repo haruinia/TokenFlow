@@ -858,7 +858,7 @@ export class CLIProxyManager {
       try {
         const report = await quotaProvider.fetch(call, info);
         if (signal.aborted||!this.accounts.some(a=>a.id===account.id&&!a.disabled)||!this.names.has(account.id)) return;
-        this.quotas[account.id] = {accountId: account.id, provider, status: 'ok', observedAt, plan: report.plan, windows: report.windows, note: report.note};
+        this.quotas[account.id] = {accountId: account.id, provider, status: 'ok', observedAt, plan: report.plan, windows: report.windows, note: report.note, resetCredits:report.resetCredits};
       } catch (error) {
         const is401 = error instanceof QuotaHTTPError && error.status === 401;
         const is403 = error instanceof QuotaHTTPError && error.status === 403;

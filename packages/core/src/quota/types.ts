@@ -12,7 +12,7 @@ export type QuotaWindow = {
   resetsAt?: string;
   note?: string;
 };
-export type QuotaReport = {plan?: string; windows: QuotaWindow[]; note?: string};
+export type QuotaReport = {plan?: string; windows: QuotaWindow[]; note?: string; resetCredits?:number};
 
 export type QuotaRequest = {method: 'GET' | 'POST'; url: string; header: Record<string, string>; data?: string};
 export type QuotaResponse = {statusCode: number; header: Record<string, string[]>; body: string};
@@ -30,5 +30,5 @@ export type QuotaProvider = {
 /** 归一化后的单账号额度快照，进入 UI。 */
 export type AccountQuota = {
   accountId: string; provider: LoginProviderId | 'cursor'; status: 'ok' | 'error';
-  observedAt: string; lastSuccessfulAt?: string; plan?: string; windows: QuotaWindow[]; note?: string; error?: string;
+  observedAt: string; lastSuccessfulAt?: string; plan?: string; windows: QuotaWindow[]; note?: string; error?: string; resetCredits?:number;
 };
