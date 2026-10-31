@@ -1,12 +1,20 @@
 import { it,expect } from 'vitest';
 import { observeUsage } from '../packages/core/src/gateway-activity.js';
 import { agentConfig } from '../apps/console/src/agent-config.js';
-async function inspect(payload:string,sse:boolean,chunkSize=7){
+async function inspect(payload:string,sse:boolean|'auto',chunkSize=7){
  let usage:unknown;const output:Buffer[]=[];const observer=observeUsage(sse,u=>{usage=u;});observer.on('data',chunk=>output.push(chunk));
  const finished=new Promise<void>((r,j)=>{observer.once('end',r);observer.once('error',j);});
  const bytes=Buffer.from(payload);for(let i=0;i<bytes.length;i+=chunkSize)observer.write(bytes.subarray(i,i+chunkSize));observer.end();await finished;
  expect(Buffer.concat(output).toString()).toBe(payload);return usage;
 }
+it('detects official response framing independently of MIME, preserving split bytes and terminal checks',async()=>{
+ const response={id:'resp-meter',object:'response',usage:{input_tokens:100,input_tokens_details:{cached_tokens:80},output_tokens:7}};
+ for(const prefix of ['',': keepalive\n\n','event: response.completed\n','\uFEFF']){
+  expect(await inspect(prefix+'data: '+JSON.stringify({type:'response.completed',response})+'\n\n','auto',1)).toMatchObject({inputTokens:100,cachedTokens:80,outputTokens:7,failed:false});
+ }
+ expect(await inspect('\n '+JSON.stringify(response),'auto',1)).toMatchObject({inputTokens:100,outputTokens:7,failed:false});
+ expect(await inspect('data: '+JSON.stringify({type:'response.created',response})+'\n\n','auto',1)).toMatchObject({failed:true});
+});
 it('settles large Responses completion frames with echoed tools without changing the stream',async()=>{
  const response={status:'completed',tools:[{type:'function',name:'read',description:'工具'.repeat(300_000)}],usage:{input_tokens:140_000,input_tokens_details:{cached_tokens:120_000},output_tokens:42}};
  const frame=`data: ${JSON.stringify({type:'response.completed',response})}\n\n`;

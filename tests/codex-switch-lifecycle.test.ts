@@ -41,6 +41,13 @@ it('uses the verified Windows lifecycle, never taskkill or the generic launcher'
  await new CodexSwitchLifecycle(async()=>[],run,launch,'win32',async()=>{},windows).change(async()=>{events.push('change');});
  expect(events).toEqual(['stop verified','change','open same installation']);expect(run).not.toHaveBeenCalled();expect(launch).not.toHaveBeenCalled();
 });
+
+it('resolves the API workspace environment after configuration changes on Windows',async()=>{
+ let home='before';const env=()=>Promise.resolve({CODEX_HOME:home,CODEX_ELECTRON_USER_DATA_PATH:home+'/desktop'});
+ const windows={stop:vi.fn(async()=>{}),open:vi.fn(async(_target:string,_env?:Record<string,string>)=>{})};
+ await new CodexSwitchLifecycle(async()=>[],undefined,undefined,'win32',async()=>{},windows).change(async()=>{home='after';},undefined,env);
+ expect(windows.open).toHaveBeenCalledWith('codex',{CODEX_HOME:'after',CODEX_ELECTRON_USER_DATA_PATH:'after/desktop'});
+});
 it.each(['unidentified process','tray still running'])('does not change configuration or launch after Windows stop fails: %s',async reason=>{
  const work=vi.fn(),run=vi.fn(async()=>{}),launch=vi.fn(async()=>({message:''}));
  const windows={stop:vi.fn(async()=>{throw Error(reason);}),open:vi.fn(async()=>{})};

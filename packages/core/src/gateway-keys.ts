@@ -131,6 +131,16 @@ export class GatewayKeys {
       entry.usedTokens=0;entry.unmeteredRequests=0;return publicKey(entry);
     });
   }
+  detachSource(sourceId:string){return this.mutate(entries=>{
+    for(const entry of entries){
+      const removed=entry.models.filter(model=>entry.sourceId===sourceId||entry.modelSources?.[model]===sourceId||model.startsWith(`api-${sourceId}/`));
+      if(!removed.length)continue;
+      entry.models=entry.models.filter(model=>!removed.includes(model));
+      if(entry.modelSources)for(const model of removed)delete entry.modelSources[model];
+      if(entry.sourceId===sourceId)delete entry.sourceId;
+    }
+    for(let i=entries.length-1;i>=0;i--)if(!entries[i]!.models.length)entries.splice(i,1);
+  });}
   remove(id: string) {return this.mutate(entries => {
     const index = entries.findIndex(key => key.id === id);
     if (index < 0) throw Object.assign(new Error('Key 不存在'), {statusCode:404});

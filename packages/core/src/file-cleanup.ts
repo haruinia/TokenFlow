@@ -1,9 +1,11 @@
 import {createHash,randomUUID} from 'node:crypto';
+import type {Stats} from 'node:fs';
 import {lstat,opendir,realpath} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {dirname,isAbsolute,join,relative,resolve,sep} from 'node:path';
 import type {CleanupEntry,CleanupSnapshot,CleanupMethod,CleanupScanScope} from '../../../apps/shared/file-cleanup.js';
 import {cleanupCatalog,type CleanupRule} from './file-cleanup-catalog.js';
+import {inspectArtifactEvidence} from './file-cleanup-evidence.js';
 import {fileCleanupGuidance} from './file-cleanup-guidance.js';
 import {artifactLocations,discoverCleanupArtifacts} from './file-cleanup-artifacts.js';
 import {cleanupPathKey,type CleanupUserFolders} from './file-cleanup-paths.js';
@@ -13,16 +15,18 @@ export type FileCleanupOptions={
  home?:string;platform?:NodeJS.Platform;env?:NodeJS.ProcessEnv;
  trashItem?:(path:string)=>Promise<void>;deleteItem?:(path:string)=>Promise<void>;pickDirectory?:()=>Promise<string|undefined>;reveal?:(path:string)=>Promise<void>;
  maxEntries?:number;maxItemMs?:number;maxScanMs?:number;maxDiscoveryDirectories?:number;diskRoots?:()=>Promise<string[]>;
+ runningExecutables?:()=>Promise<string[]>;
  applicationRoots?:string[];userFolders?:CleanupUserFolders;executablePath?:string;
 };
 const failure=(message:string,statusCode=409)=>Object.assign(new Error(message),{statusCode});
 const within=(parent:string,path:string)=>{const rel=relative(parent,path);return rel===''||(!isAbsolute(rel)&&rel!=='..'&&!rel.startsWith(`..${sep}`));};
 const overlaps=(a:string,b:string)=>within(a,b)||within(b,a);
 const errorCode=(error:unknown)=>(error as NodeJS.ErrnoException).code;
-type Measured={bytes:number;files:number;complete:boolean;fingerprint:string;modifiedAt?:string;issue?:string};
-type Candidate={rule:CleanupRule;fingerprint:string};
+type Measured={bytes:number;files:number;complete:boolean;fingerprint:string;rootIdentity?:string;blockedReason?:string;modifiedAt?:string;issue?:string};
+type Candidate={rule:CleanupRule;fingerprint:string;rootIdentity:string;complete:boolean};
+const rootIdentity=(info:Stats)=>JSON.stringify([info.dev,info.ino,info.birthtimeMs,info.isDirectory(),info.isFile()]);
 
-/** Metadata-only scans. Mutations accept scan IDs, never client supplied paths or commands. */
+/** Metadata scans with bounded application/package evidence reads. Mutations accept scan IDs, never client supplied paths or commands. */
 export class FileCleanup {
  private readonly home:string;
  private state:CleanupSnapshot;
@@ -99,12 +103,20 @@ export class FileCleanup {
   // Refuse symbolic links in ancestors as well as at the candidate root.
   const platform=this.options.platform??process.platform;
   if(cleanupPathKey(actual,platform)!==cleanupPathKey(absolute,platform))throw failure('路径含符号链接，已跳过。');
-  if((await lstat(absolute)).isSymbolicLink())throw failure('路径含符号链接，已跳过。');
+  const info=await lstat(absolute);
+  if(info.isSymbolicLink())throw failure('路径含符号链接，已跳过。');
+  return info;
  }
  private async measure(path:string,signal:AbortSignal,deadline:number):Promise<Measured>{
   let bytes=0,files=0,visited=0,modified=0,complete=true,issue:string|undefined;
   const hash=createHash('sha256'),seen=new Set<string>();
-  const check=()=>{signal.throwIfAborted();if(Date.now()>deadline||visited>=(this.options.maxEntries??200000))throw failure('目录较大，已达到扫描上限；仅展示已统计部分，不允许清理。');};
+  let identity:string;
+  try{identity=rootIdentity(await this.canonical(path));}catch(error){
+   signal.throwIfAborted();
+   const blockedReason=error instanceof Error&&'statusCode' in error?error.message:'无法确认所选路径，请重新扫描。';
+   return {bytes,files,complete:false,fingerprint:hash.digest('hex'),blockedReason};
+  }
+  const check=()=>{signal.throwIfAborted();if(Date.now()>deadline||visited>=(this.options.maxEntries??200000))throw failure('已达到扫描上限，大小仅为已统计部分；仍可选择清理。');};
   const walk=async(file:string,depth:number):Promise<void>=>{
    check();visited++;
    try{
@@ -123,12 +135,12 @@ export class FileCleanup {
    }catch(error){
     if(signal.aborted)throw error;
     complete=false;
-    issue=errorCode(error)==='EACCES'||errorCode(error)==='EPERM'?'部分文件无法读取，未请求额外权限；不允许清理。':errorCode(error)==='ENOENT'?'扫描时目录发生变化，请重新扫描。':error instanceof Error&&'statusCode' in error?error.message:'部分文件无法统计，不允许清理。';
+    issue=errorCode(error)==='EACCES'||errorCode(error)==='EPERM'?'部分文件无法读取，大小未完整统计；仍可选择清理。':errorCode(error)==='ENOENT'?'扫描时部分文件发生变化，大小仅供参考。':error instanceof Error&&'statusCode' in error?error.message:'部分文件未能统计，大小仅供参考；仍可选择清理。';
     if(Date.now()>deadline||visited>=(this.options.maxEntries??200000))throw failure(issue);
    }
   };
-  try{await this.canonical(path);await walk(path,0);}catch(error){if(signal.aborted)throw error;complete=false;issue=error instanceof Error&&'statusCode' in error?error.message:'无法读取该目录，不允许清理。';}
-  return {bytes,files,complete,issue,fingerprint:hash.digest('hex'),modifiedAt:modified?new Date(modified).toISOString():undefined};
+  try{await walk(path,0);}catch(error){if(signal.aborted)throw error;complete=false;issue=error instanceof Error&&'statusCode' in error?error.message:'未能完整统计大小，仍可选择清理。';}
+  return {bytes,files,complete,issue,rootIdentity:identity,fingerprint:hash.digest('hex'),modifiedAt:modified?new Date(modified).toISOString():undefined};
  }
  private async scan(signal:AbortSignal){
   const rules=cleanupCatalog(this.home,this.options.platform??process.platform,this.profile,this.options.env);
@@ -156,9 +168,9 @@ export class FileCleanup {
    if(rule.risk!=='protected'&&blocked.some(root=>overlaps(root,path)))return;
    const measured=await this.measure(path,signal,Math.min(this.scanDeadline,Date.now()+(this.options.maxItemMs??20000)));
    if(measured.bytes===0&&measured.complete)return;
-   const id=randomUUID();const {fingerprint,...metadata}=measured;
+   const id=randomUUID();const {fingerprint,rootIdentity,...metadata}=measured;
    this.state.entries.push({...rule,path,id,...metadata,state:'ready'});
-   if(measured.complete)this.candidates.set(id,{rule:{...rule,path},fingerprint});
+   if(rootIdentity)this.candidates.set(id,{rule:{...rule,path},fingerprint,rootIdentity,complete:measured.complete});
   };
   for(const rule of rules)await measureRule(rule);
   const roots=[...(this.state.scanScope==='all'?this.state.diskRoots:[]),...this.state.projectRoots];
@@ -173,7 +185,17 @@ export class FileCleanup {
    this.state.warnings.push(...discovery.warnings);
   }
   if(Date.now()>this.scanDeadline)this.state.warnings.push('已达到扫描时限，结果仅覆盖已完成检查的位置。');
+  this.state.current='正在核对应用版本与重复安装包';
+  this.state.warnings.push(...await inspectArtifactEvidence(this.state.entries,{platform:this.options.platform??process.platform,signal,deadline:this.scanDeadline}));
+  const running=await this.runningPaths();
+  for(const entry of this.state.entries){const reason=this.inUse(entry.path,running);if(reason){entry.blockedReason=reason;entry.risk='protected';}}
   this.state.status='complete';this.scanFinished=Date.now();
+ }
+ private async runningPaths(){try{return await this.options.runningExecutables?.()??[];}catch{return undefined;}}
+ private inUse(path:string,running:string[]|undefined){
+  if(within(path,resolve(this.options.executablePath??process.execPath)))return '当前 TokenFlow 程序正在使用，不能在应用内清理自身。';
+  if(running===undefined&&(/\.app$/i.test(path)||/\.(exe|appimage)$/i.test(path)))return '无法核对运行中的程序，请稍后重新扫描。';
+  if(running?.some(executable=>within(path,resolve(executable))))return '此位置包含正在运行的程序，请退出后重新扫描。';
  }
  clean(scanId:string,ids:string[],confirmReview:boolean,method:CleanupMethod='trash',confirmPermanent=false,confirmProtected=false){
   if(this.busy())throw failure('扫描或清理正在进行。');
@@ -184,7 +206,9 @@ export class FileCleanup {
   if(!ids.length||ids.length>200||new Set(ids).size!==ids.length)throw failure('请选择有效且不重复的清理项。',400);
   const selected=ids.map(id=>{
    const candidate=this.candidates.get(id),entry=this.state.entries.find(e=>e.id===id);
-   if(!candidate||!entry||entry.state!=='ready'||!entry.complete)throw failure('所选项不存在或需要重新扫描。',400);
+   if(!entry||entry.state!=='ready')throw failure('所选项不存在或需要重新扫描。',400);
+   if(entry.blockedReason)throw failure(entry.blockedReason);
+   if(!candidate)throw failure('所选项不存在或需要重新扫描。',400);
    if(entry.risk==='protected'&&!confirmProtected)throw failure('请先核对受保护数据的丢失风险，再确认清理。',400);
    if(entry.risk==='review'&&!confirmReview)throw failure('请先确认需要人工判断的项目及其影响。',400);
    return {candidate,entry};
@@ -194,11 +218,17 @@ export class FileCleanup {
    for(const {candidate,entry} of selected){
     this.state.current=entry.path;
     try{
-     const current=await this.measure(candidate.rule.path,new AbortController().signal,Date.now()+(this.options.maxItemMs??20000));
-     if(!current.complete||current.fingerprint!==candidate.fingerprint)throw failure('文件已变化或无法完整校验，请重新扫描。');
-     await this.canonical(candidate.rule.path);
+     const running=await this.runningPaths(),reason=this.inUse(candidate.rule.path,running);if(reason)throw failure(reason);
+     // Incomplete size estimates do not revoke the user's choice to remove this
+     // directory. Only compare whole-tree fingerprints when both are complete.
+     if(candidate.complete){
+      const current=await this.measure(candidate.rule.path,new AbortController().signal,Date.now()+(this.options.maxItemMs??20000));
+      if(current.complete&&current.fingerprint!==candidate.fingerprint)throw failure('文件已变化，请重新扫描。');
+     }
+     if(rootIdentity(await this.canonical(candidate.rule.path))!==candidate.rootIdentity)throw failure('文件已变化，请重新扫描。');
      await perform(candidate.rule.path);
      entry.state=method==='delete'?'deleted':'trashed';this.state.result![method==='delete'?'deleted':'moved']++;this.state.result!.bytes+=entry.bytes;
+     if(!entry.complete)this.state.result!.bytesIncomplete=true;
     }catch(error){
      entry.state='failed';entry.issue=error instanceof Error&&'statusCode' in error?error.message:method==='delete'?'永久删除未完成，部分文件可能已删除。请检查文件占用或权限后重新扫描。':'无法移到系统回收站 / 废纸篓。请关闭相关应用、检查权限后重新扫描；未自动改为永久删除。';this.state.result!.failed++;
     }

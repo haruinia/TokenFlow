@@ -1,0 +1,59 @@
+{
+  "passed": true,
+  "engineVersion": "codex-cli 0.166.0-alpha.5.1",
+  "isolated": true,
+  "tokenFlowServerStarted": false,
+  "officialAuthUnchanged": true,
+  "nativeModelEfforts": [
+    "low",
+    "high",
+    "max"
+  ],
+  "nativeToolRoundtrip": true,
+  "nativeLocalCompaction": true,
+  "continuedAfterCompaction": true,
+  "continuedAfterRestart": true,
+  "configurationRestored": true,
+  "requests": [
+    {
+      "phase": "tools",
+      "path": "/responses",
+      "effort": "max",
+      "toolResult": false,
+      "toolOutputVerified": false,
+      "hasSummary": false
+    },
+    {
+      "phase": "tools",
+      "path": "/responses",
+      "effort": "max",
+      "toolResult": true,
+      "toolOutputVerified": true,
+      "hasSummary": false
+    },
+    {
+      "phase": "compact",
+      "path": "/responses",
+      "effort": "max",
+      "toolResult": true,
+      "toolOutputVerified": true,
+      "hasSummary": false
+    },
+    {
+      "phase": "continue",
+      "path": "/responses",
+      "effort": "max",
+      "toolResult": false,
+      "toolOutputVerified": false,
+      "hasSummary": true
+    },
+    {
+      "phase": "restart",
+      "path": "/responses",
+      "effort": "max",
+      "toolResult": false,
+      "toolOutputVerified": false,
+      "hasSummary": true
+    }
+  ]
+}

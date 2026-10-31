@@ -1,9 +1,17 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
-const fixture=vi.hoisted(()=>({failed:false,onlyHelpers:false,windowsCodex:false,calls:[] as string[][]}));
+const fixture=vi.hoisted(()=>({failed:false,onlyHelpers:false,windowsCodex:false,embeddedClaude:false,calls:[] as string[][]}));
 vi.mock('node:child_process',()=>{
  const execFile=Object.assign(()=>{}, {[Symbol.for('nodejs.util.promisify.custom')]:async(_file:string,args:string[])=>{
   fixture.calls.push(args);
   if(fixture.failed)throw Error('private-command-secret');
+  if(fixture.embeddedClaude&&_file==='tasklist')return {stdout:'"claude.exe","100"\n"claude.exe","101"\n"claude.exe","102"\n"claude.exe","103"\n'};
+  if(fixture.embeddedClaude&&_file==='powershell.exe')return {stdout:Buffer.from(args.at(-1)!,'base64').toString('utf16le').includes('ExecutablePath')?JSON.stringify([
+   {ProcessId:100,ExecutablePath:'C:\\Users\\test\\.vscode\\extensions\\anthropic.claude-code-2.1.312-win32-x64\\resources\\native-binary\\claude.exe'},
+   {ProcessId:101,ExecutablePath:'C:\\Users\\test\\AppData\\Roaming\\Claude\\claude-code\\2.1.309\\claude.exe'},
+   {ProcessId:102,ExecutablePath:'C:\\Users\\test\\.npm-global\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe'},
+   {ProcessId:103,ExecutablePath:null},
+  ]):'[]'};
+  if(fixture.embeddedClaude&&_file==='ps'&&args.includes('pid=,comm='))return {stdout:'100 /Users/test/.qoder/extensions/anthropic.claude-code-2.1.312-darwin-arm64/resources/native-binary/claude\n101 /Users/test/Library/Application Support/Claude-3p/claude-code/2.1.309/hash/claude.app/Contents/MacOS/claude\n102 /Users/test/.npm-global/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe\n103 /Users/test/.local/share/claude/versions/2.1.311\n'};
   if(fixture.onlyHelpers)return {stdout:'900 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Helpers/browser_crashpad_handler\n901 /Users/test/.codex/computer-use/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService\n'};
   if(_file==='tasklist')return {stdout:fixture.windowsCodex?'"Codex.exe","1001"\n"CodexCLI.exe","1002"\n"ChatGPT.exe","1003"\n"node.exe","555"':'"Pi Agent Desktop.exe","999"\n"node.exe","555"'};
   if(_file==='powershell.exe')return {stdout:JSON.stringify([{ProcessId:555,CommandLine:'"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\test\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\cli.js" --api-key private-command-secret'},{ProcessId:777,CommandLine:'node unrelated.js --prompt pi'}])};
@@ -11,7 +19,7 @@ vi.mock('node:child_process',()=>{
  }});return {execFile};
 });
 import {agentProcesses} from '../packages/core/src/agent-connections';
-beforeEach(()=>{fixture.failed=false;fixture.onlyHelpers=false;fixture.windowsCodex=false;fixture.calls=[];});
+beforeEach(()=>{fixture.failed=false;fixture.onlyHelpers=false;fixture.windowsCodex=false;fixture.embeddedClaude=false;fixture.calls=[];});
 const platformDescriptor=Object.getOwnPropertyDescriptor(process,'platform')!;
 afterEach(()=>{Object.defineProperty(process,'platform',platformDescriptor);vi.restoreAllMocks();});
 it('identifies a DeepSeek Node launcher without treating prompt arguments as program names or exposing them',async()=>{
@@ -40,3 +48,14 @@ it('blocks on real Codex clients but ignores crash reporters and helpers that su
 it('allows migration once the Mac desktop exits even while its crash reporter remains',async()=>{fixture.onlyHelpers=true;expect(await agentProcesses('codex')).toEqual([]);});
 
 it('does not block Claude Code installation on the Claude desktop chat app',async()=>{expect(await agentProcesses('claude')).toEqual([882,883,884]);});
+
+it('ignores independently bundled Claude runtimes only for CLI installation, retaining shared configuration guards',async()=>{
+ fixture.embeddedClaude=true;
+ expect(await agentProcesses('claude')).toEqual([100,101,102,103]);
+ expect(await agentProcesses('claude',{scope:'installation'})).toEqual([102,103]);
+});
+it('checks Windows executable paths for installation and retains unknown Claude processes as blockers',async()=>{
+ Object.defineProperty(process,'platform',{value:'win32',configurable:true});fixture.embeddedClaude=true;
+ expect(await agentProcesses('claude')).toEqual([100,101,102,103]);
+ expect(await agentProcesses('claude',{scope:'installation'})).toEqual([102,103]);
+});

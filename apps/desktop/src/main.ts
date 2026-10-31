@@ -12,7 +12,7 @@ import { createDesktopService } from '../../../packages/core/src/service.js';
 import { desktopCleanupFiles } from './file-cleanup.js';
 import {createNetworkProxy} from '../../../packages/core/src/network-proxy.js';
 import {createStartupWindow} from './startup-window.js';
-import {guardCredentialAccess,rememberedCredentialAccess,rememberCredentialAccess} from './credential-access.js';
+import {rememberedCredentialAccess,rememberCredentialAccess} from './credential-access.js';
 import {claudeKeychain} from '../../../packages/core/src/claude-accounts.js';
 import {agentPaths} from '../../../packages/core/src/agent-connections.js';
 import {workspaceWindowOptions,windowsTitleBar} from './window-options.js';
@@ -43,7 +43,7 @@ async function start() {
   const remembered=await rememberedCredentialAccess(root);
   const startup=await createStartupWindow(icon,remembered?'loading':'choice');
   // Ask only until the user has allowed a successful secure-store load. Never infer consent from credential files.
-  const allowCredentials=remembered||await startup.confirmCredentialAccess();
+  let allowCredentials=remembered||await startup.confirmCredentialAccess();
   const resetCredentialChoice=()=>{void rememberCredentialAccess(root,false).catch(()=>dialog.showErrorBox('无法保存启动偏好','请稍后重试。已有凭据不受影响。'));};
   await startup.update('正在准备网络连接…');
   // Resolve external traffic using a separate OS-proxy session. The workspace
@@ -66,7 +66,7 @@ async function start() {
     {label:'TokenFlow',submenu:[{role:'about',label:'关于 TokenFlow'},{label:'下次启动重新选择登录读取',click:resetCredentialChoice},{type:'separator'},{role:'services',label:'服务'},{type:'separator'},{role:'hide',label:'隐藏 TokenFlow'},{role:'hideOthers',label:'隐藏其他应用'},{role:'unhide',label:'显示全部'},{type:'separator'},{role:'quit',label:'退出 TokenFlow'}]},
     {role:'fileMenu',label:'文件'},{role:'editMenu',label:'编辑'},{role:'viewMenu',label:'视图'},{role:'windowMenu',label:'窗口'},
   ]));
-  if(process.platform==='darwin')app.dock?.setIcon(nativeImage.createFromPath(icon));
+  if(process.platform==='darwin')app.dock?.setIcon(nativeImage.createFromPath(join(here,'console','app-icon-mac.png')));
   await mkdir(join(root,'secrets'),{recursive:true,mode:0o700});
   const secrets=createSecrets(root,safeStorage,process.platform,allowCredentials);
   let localKey=await secrets.get('cliproxy');
@@ -80,20 +80,20 @@ async function start() {
   const token=randomBytes(32).toString('hex');
   const base=app.isPackaged?process.resourcesPath:resolve(here,'..');
   const claudeKeychainStore=process.platform==='darwin'?claudeKeychain(dirname(agentPaths().claude)):undefined;
-  const claudeCredentialStore=claudeKeychainStore?{read:guardCredentialAccess(allowCredentials,(options?:{fresh?:boolean})=>claudeKeychainStore.read(options)),write:guardCredentialAccess(allowCredentials,(value:string|null)=>claudeKeychainStore.write(value))}:undefined;
+  const claudeCredentialStore=claudeKeychainStore;
+  const reconciliation=new CodexReconciliationMonitor({root,codexHome:dirname(agentPaths().codex),allowOfficial:false,proxyURL:network.url});
   await startup.update('正在启动本地服务…');
   // Desktop conversations stay on the installed official engine. Cross-provider
   // native-agent runtime remains available only to explicitly configured probes.
-  const service=await createDesktopService({codexBridgeRuntime:join(here,'codex-provider-bridge.js'),root,token,localKey,secrets,outboundProxyURL:network.url,networkSnapshot:network.snapshot,fileCleanup:{
+  const service=await createDesktopService({nativeCredentialsOnDemand:true,onNativeCredentialAccess:provider=>{secrets.enableAccess();allowCredentials=true;if(provider==='codex')reconciliation.enableOfficial();},codexBridgeRuntime:join(here,'codex-provider-bridge.js'),root,token,localKey,secrets,outboundProxyURL:network.url,networkSnapshot:network.snapshot,fileCleanup:{
     ...desktopCleanupFiles(app,shell),
     pickDirectory:async()=>{
       const picker={title:'选择扫描位置，可选择文件夹或磁盘',properties:['openDirectory'] as ('openDirectory')[]};
       const result=window?await dialog.showOpenDialog(window,picker):await dialog.showOpenDialog(picker);
       return result.canceled?undefined:result.filePaths[0];
     },
-  },claudeCredentialStore,desktopAccounts:{crypto:guardCredentialAccess(allowCredentials,qoderCrypto)},qoderIde:{crypto:guardCredentialAccess(allowCredentials,qoderIdeCrypto)},credentialWarnings:()=>[...secrets.warnings(),...(!allowCredentials?['本次启动已跳过所有安全存储，已有凭据文件已保留；部分账号和 API 密钥暂不可用。请重启后选择“允许读取”以恢复访问。']:[])],openExternal:url=>shell.openExternal(url),proxyPort:process.env.AGENT_PROXY_PORT?Number(process.env.AGENT_PROXY_PORT):undefined,binary:process.env.CLIPROXY_BINARY?resolve(process.env.CLIPROXY_BINARY):join(base,'sidecars',`${process.platform}-${process.arch}`,process.platform==='win32'?'cliproxyapi.exe':'cliproxyapi'),uiRoot:join(here,'console')});
+  },claudeCredentialStore,desktopAccounts:{crypto:qoderCrypto},qoderIde:{crypto:qoderIdeCrypto},credentialWarnings:()=>[...secrets.warnings(),...(!allowCredentials?['本次启动未读取 TokenFlow 已保存的安全存储，部分账号和 API 密钥暂不可用。本机客户端登录仅在主动导入或切换时读取。']:[])],openExternal:url=>shell.openExternal(url),proxyPort:process.env.AGENT_PROXY_PORT?Number(process.env.AGENT_PROXY_PORT):undefined,binary:process.env.CLIPROXY_BINARY?resolve(process.env.CLIPROXY_BINARY):join(base,'sidecars',`${process.platform}-${process.arch}`,process.platform==='win32'?'cliproxyapi.exe':'cliproxyapi'),uiRoot:join(here,'console')});
   const address=await service.app.listen({host:'127.0.0.1',port:Number(process.env.AGENT_PORT??9527)});
-  const reconciliation=new CodexReconciliationMonitor({root,codexHome:dirname(agentPaths().codex),allowOfficial:allowCredentials,proxyURL:network.url});
   void reconciliation.start();
   ipcMain.handle('clipboard:write-text',(event,text:unknown)=>{
     if(!window || event.sender!==window.webContents || event.senderFrame!==window.webContents.mainFrame || new URL(event.senderFrame.url).origin!==address)throw new Error('Clipboard request denied');
@@ -145,9 +145,9 @@ async function start() {
   // Keep the gateway and menu bar alive even if the workspace is destroyed.
   app.on('window-all-closed',()=>{});
   app.on('before-quit',event=>{if(closing)return;event.preventDefault();closing=true;void reconciliation.close().finally(()=>service.app.close()).finally(()=>closeQoderCrypto()).finally(()=>network.close()).finally(()=>app.quit());});
-  // The workspace opens immediately; saved accounts, namespaced models and quotas load in the background.
+  // Load only TokenFlow-owned accounts. External client credentials require a targeted user action.
   await startup.update('正在打开工作台…');
-  void service.discoverLocal().catch(() => undefined); // Failure is exposed in the model center with a retry action.
+  void service.discoverLocal().catch(() => undefined); // On-demand mode loads saved accounts only.
   await show();
   startup.close();
 }

@@ -48,7 +48,7 @@ export async function createNetworkProxy(){return {url:'http://127.0.0.1:1',inst
 export function desktopCleanupFiles(){return {};}
 export function agentPaths(){return {claude:join(root,'claude/settings.json'),codex:join(root,'codex/config.toml')};}
 export class CodexReconciliationMonitor{
- constructor(options){assert.equal(options.root,root);assert.equal(options.allowOfficial,allowed);}
+ constructor(options){assert.equal(options.root,root);assert.equal(options.allowOfficial,false);}
  async start(){state.events.push('recorder-started');}
  async close(){state.events.push('recorder-stopped');}
 }
@@ -67,12 +67,10 @@ export async function createDesktopService(options){
  loaded={accounts:snapshot.accounts.map(account=>({id:account.id,label:account.label})),models:snapshot.models.length,
   sourceCount:entries.length,sourceHasKey:entries[0]?.hasKey,sourceKey:digest(await sources.keyFor(entries[0].id)),
   internalKey:digest(options.localKey),exportedKey:digest(await options.secrets.get('gateway-key-fixture'))};
- // Polling and client operations after the startup decision must not bypass the same guard.
+ // Startup may restore TokenFlow-owned credentials, but must not inspect external clients.
+ assert.equal(options.nativeCredentialsOnDemand,true);
  for(let attempt=0;attempt<2;attempt++)await sources.list();
- for(const operation of [()=>options.desktopAccounts.crypto('decrypt','fixture'),()=>options.qoderIde.crypto('decrypt','fixture'),
-  ...(options.claudeCredentialStore?[()=>options.claudeCredentialStore.read()]:[])]){
-  if(allowed)await operation();else await assert.rejects(operation,/本次启动未允许/);
- }
+ assert.equal(state.clientReads,0);
  return {app:{listen:async()=> 'http://127.0.0.1:9527',close:async()=>{await cursor.close();await sources.close();state.events.push('service-closed');}},discoverLocal:async()=>{}};
 }
 

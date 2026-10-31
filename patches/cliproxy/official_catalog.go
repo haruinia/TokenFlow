@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 	runtimeexecutor "github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -46,8 +46,24 @@ func metadataText(a *coreauth.Auth, key string) string {
 }
 
 func officialCatalogFingerprint(a *coreauth.Auth) [32]byte {
+	return officialCatalogFingerprintForClient(a, officialCatalogUserAgent(a))
+}
+
+// A captured client identity must key the cache AND be sent on the request.
+// Otherwise the background Hub version updater can publish old permissions
+// under a new version, or keep serving the old catalog after a version change.
+var officialAntigravityUserAgent = runtimeexecutor.TokenFlowAntigravityUserAgent
+
+func officialCatalogUserAgent(a *coreauth.Auth) string {
+	if a != nil && strings.EqualFold(a.Provider, "antigravity") {
+		return officialAntigravityUserAgent(a)
+	}
+	return ""
+}
+
+func officialCatalogFingerprintForClient(a *coreauth.Auth, userAgent string) [32]byte {
 	mode, _ := json.Marshal([]any{a.Attributes["using_api"], a.Metadata["using_api"], a.Attributes["auth_kind"], a.Metadata["auth_kind"]})
-	return sha256.Sum256([]byte(a.Provider + "\x00" + metadataText(a, "jwt") + "\x00" + metadataText(a, "provider") + "\x00" + metadataText(a, "zcode_client_version") + "\x00" + metadataText(a, "access_token") + "\x00" + metadataText(a, "base_url") + "\x00" + metadataText(a, "enterprise_id") + "\x00" + metadataText(a, "enterpriseId") + "\x00" + metadataText(a, "uid") + "\x00" + a.ProxyURL + "\x00" + metadataText(a, "project_id") + "\x00" + metadataText(a, "domain") + "\x00" + string(mode) + "\x00" + codexCatalogVersion(a)))
+	return sha256.Sum256([]byte(a.Provider + "\x00" + metadataText(a, "jwt") + "\x00" + metadataText(a, "provider") + "\x00" + metadataText(a, "zcode_client_version") + "\x00" + metadataText(a, "access_token") + "\x00" + metadataText(a, "base_url") + "\x00" + metadataText(a, "enterprise_id") + "\x00" + metadataText(a, "enterpriseId") + "\x00" + metadataText(a, "uid") + "\x00" + a.ProxyURL + "\x00" + metadataText(a, "project_id") + "\x00" + metadataText(a, "domain") + "\x00" + string(mode) + "\x00" + codexCatalogVersion(a) + "\x00" + userAgent))
 }
 
 func (s *Service) refreshOfficialAccountCatalog(ctx context.Context, id string, force bool) map[string]any {
@@ -93,6 +109,9 @@ func (s *Service) officialCatalogStatus(a *coreauth.Auth) map[string]any {
 	}
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
+	if entry.fingerprint != officialCatalogFingerprint(a) {
+		return result
+	}
 	result["checkedAt"] = entry.checked.UTC().Format(time.RFC3339)
 	if entry.succeeded && time.Since(entry.successful) < 15*time.Minute {
 		result["status"] = "stale"
@@ -108,7 +127,8 @@ func (s *Service) officialAccountModels(ctx context.Context, a *coreauth.Auth, f
 	if s == nil || a == nil || metadataText(a, "access_token") == "" {
 		return initialOfficialCatalog(a, fallback)
 	}
-	fingerprint := officialCatalogFingerprint(a)
+	userAgent := officialCatalogUserAgent(a)
+	fingerprint := officialCatalogFingerprintForClient(a, userAgent)
 	// Serialize refreshes so config reloads and polling do not duplicate requests.
 	// No application credentials or model permissions are persisted by discovery.
 	s.officialCatalogMu.Lock()
@@ -124,7 +144,7 @@ func (s *Service) officialAccountModels(ctx context.Context, a *coreauth.Auth, f
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	if time.Since(entry.checked) >= 30*time.Second {
-		live, ok := s.fetchOfficialAccountModels(ctx, a, fallback)
+		live, ok := s.fetchOfficialAccountModelsForClient(ctx, a, fallback, userAgent)
 		entry.checked = time.Now()
 		entry.latestOK = ok
 		if ok {
@@ -132,6 +152,9 @@ func (s *Service) officialAccountModels(ctx context.Context, a *coreauth.Auth, f
 			entry.models = live
 			entry.succeeded = true
 		}
+	}
+	if fingerprint != officialCatalogFingerprint(a) {
+		return nil
 	}
 	if entry.succeeded && time.Since(entry.successful) < 15*time.Minute {
 		return cloneOfficialModels(entry.models)
@@ -154,6 +177,10 @@ func cloneOfficialModels(models []*ModelInfo) []*ModelInfo {
 }
 
 func (s *Service) fetchOfficialAccountModels(ctx context.Context, a *coreauth.Auth, fallback []*ModelInfo) ([]*ModelInfo, bool) {
+	return s.fetchOfficialAccountModelsForClient(ctx, a, fallback, officialCatalogUserAgent(a))
+}
+
+func (s *Service) fetchOfficialAccountModelsForClient(ctx context.Context, a *coreauth.Auth, fallback []*ModelInfo, userAgent string) ([]*ModelInfo, bool) {
 	provider := strings.ToLower(a.Provider)
 	token := metadataText(a, "access_token")
 	base := metadataText(a, "base_url")
@@ -199,7 +226,7 @@ func (s *Service) fetchOfficialAccountModels(ctx context.Context, a *coreauth.Au
 		method = "POST"
 		payload, _ := json.Marshal(map[string]string{"project": metadataText(a, "project_id")})
 		body = string(payload)
-		headers["User-Agent"] = misc.AntigravityUserAgent()
+		headers["User-Agent"] = userAgent
 	case "codex":
 		if base == "" {
 			base = "https://chatgpt.com/backend-api/codex"
@@ -597,13 +624,31 @@ func parseOfficialCatalog(provider string, raw []byte, fallback []*ModelInfo) ([
 				break
 			}
 		}
-		if n := numberField(item, "maxInputTokens", "max_input_tokens", "inputTokenLimit", "context_length", "context_window", "maxTokens"); n > 0 {
+		if n := numberField(item, "context_length", "context_window", "contextWindow"); n > 0 {
 			m.ContextLength = n
+		}
+		if n := numberField(item, "maxInputTokens", "max_input_tokens", "inputTokenLimit"); n > 0 {
 			m.InputTokenLimit = n
 		}
 		if n := numberField(item, "maxOutputTokens", "max_output_tokens", "outputTokenLimit", "max_completion_tokens"); n > 0 {
 			m.MaxCompletionTokens = n
 			m.OutputTokenLimit = n
+		}
+		// Live discrete efforts override registry presets, including an explicit
+		// empty list. Unknown fields are not guessed from the model's name.
+		if levels, ok := item["supported_reasoning_levels"].([]any); ok {
+			thinking := &registry.ThinkingSupport{Levels: []string{}}
+			for _, raw := range levels {
+				level, _ := raw.(string)
+				if entry, ok := raw.(map[string]any); ok {
+					level = stringField(entry, "effort")
+				}
+				switch level {
+				case "none", "minimal", "low", "medium", "high", "xhigh", "max":
+					thinking.Levels = append(thinking.Levels, level)
+				}
+			}
+			m.Thinking = thinking
 		}
 		m.SupportsWebSearch = false
 		if searches, ok := data["webSearchModelIds"].([]any); ok {

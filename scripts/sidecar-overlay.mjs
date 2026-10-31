@@ -6,6 +6,7 @@ import { workbuddyRegionOverlay } from './workbuddy-region-overlay.mjs';
 import { providerLoginOverlay } from './provider-login-overlay.mjs';
 import { officialCatalogOverlay } from './official-catalog-overlay.mjs';
 import { antigravityClaudeOverlay } from './antigravity-claude-overlay.mjs';
+import { antigravityEngineOverlay } from './antigravity-engine-overlay.mjs';
 export function sidecarOverlay(test=false){
 // Build from maintained patches without rewriting the upstream checkout.
 const patchDir=mkdtempSync(join(tmpdir(),'token-flow-sidecar-'));
@@ -50,6 +51,7 @@ workbuddyRegionOverlay(replacements,patchDir);
 officialCatalogOverlay(replacements,patchDir);
 nativeImportOverlay(replacements,patchDir);
 antigravityClaudeOverlay(replacements,patchDir,test);
+antigravityEngineOverlay(replacements,patchDir,test);
 // An explicit finish reason must terminate even when reasoning used the entire
 // budget before any visible text or tool call was emitted.
 const responseSource=resolve('upstream/CLIProxyAPI/internal/translator/openai/openai/responses/openai_openai-responses_response.go');

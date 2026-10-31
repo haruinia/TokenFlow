@@ -143,7 +143,7 @@ foreach($p in $checked){if(!$p.HasExited -and $p.MainWindowHandle -ne 0){[void]$
   try{await access(win32.join(win32.dirname(path),'data'));}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return;throw failure('无法确认 Qoder IDE 的配置目录，请手动检查。');}
   throw failure('检测到 Qoder IDE 便携配置，请在 IDE 内切换账号；默认登录目录未修改。');
  }
- async open(target:WindowsTarget){
+ async open(target:WindowsTarget,env:Record<string,string>={}){
   const selected=this.selected;
   if(!selected||selected.target!==target)throw failure('缺少已确认的启动位置，请手动打开 Agent。');
   if((await this.processes(target)).length)throw failure('Agent 已重新运行，未重复打开，请检查当前模型。');
@@ -152,7 +152,8 @@ foreach($p in $checked){if(!$p.HasExited -and $p.MainWindowHandle -ne 0){[void]$
    const match=(await this.candidates(target)).some(c=>canonical(c.path)===canonical(selected.path)&&c.appId===selected.appId);
    if(!match)throw failure('商店应用注册已变化，请手动打开 Agent。');
   }
-  try{await powershell(this.run,selected.appId?`# tokenflow:open\nStart-Process -FilePath 'explorer.exe' -ArgumentList ${quote('shell:AppsFolder\\'+selected.appId)}`:`# tokenflow:open\nStart-Process -FilePath ${quote(selected.path)}`);}catch{throw failure('无法打开已确认的 Agent，请手动打开。未尝试其他同名程序。');}
+  const launchEnvironment=Object.entries(env).map(([key,value])=>{if(!/^CODEX_(HOME|ELECTRON_USER_DATA_PATH)$/.test(key))throw failure('无效的启动环境');return `$env:${key}=${quote(value)}`;}).join('\n');
+  try{await powershell(this.run,launchEnvironment?`${launchEnvironment}\n# tokenflow:open\nStart-Process -FilePath ${quote(selected.path)}`:selected.appId?`# tokenflow:open\nStart-Process -FilePath 'explorer.exe' -ArgumentList ${quote('shell:AppsFolder\\'+selected.appId)}`:`# tokenflow:open\nStart-Process -FilePath ${quote(selected.path)}`);}catch{throw failure('无法打开已确认的 Agent，请手动打开。未尝试其他同名程序。');}
   // Launch exactly once. A delayed startup is not a reason to spawn another instance.
   for(let tick=0;tick<40;tick++){
    const found=await this.processes(target);

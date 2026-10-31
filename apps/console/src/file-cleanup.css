@@ -63,6 +63,16 @@
 .tfCleanupFilters input{width:100%;min-width:0;background:transparent;border:0;font-size:12px;padding:8px 0}
 .tfCleanupItem{display:grid;grid-template-columns:16px minmax(0,1fr);column-gap:12px;padding:0;align-items:start}
 .tfCleanupItem.isTrashed{opacity:.6}
+.tfCleanupAppGroup{border-bottom:1px solid var(--line,rgba(128,128,128,.15))}
+.tfCleanupAppGroup>summary{display:flex;align-items:center;gap:16px;padding:16px 0;list-style:none;cursor:pointer}
+.tfCleanupAppGroup>summary::-webkit-details-marker{display:none}
+.tfCleanupAppGroup>summary>span{display:grid;gap:6px;flex:1;min-width:0}
+.tfCleanupAppGroup>summary strong{font-size:13px;font-weight:550;overflow-wrap:anywhere}
+.tfCleanupAppGroup>summary small{font-size:11px;line-height:1.7;color:var(--muted)}
+.tfCleanupAppGroup>summary b{font-size:13px;font-weight:500;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tfCleanupAppGroup>summary>svg{flex-shrink:0;color:var(--muted)}
+.tfCleanupAppGroup[open]>summary>svg{transform:rotate(90deg)}
+.tfCleanupAppGroup>div{padding:0 0 12px 12px}
 :root[data-theme] .tfCleanup input[type=checkbox]{appearance:none;display:grid;place-content:center;width:15px;height:15px;min-height:0;flex-shrink:0;padding:0;border:1px solid var(--muted);border-radius:3px;background:transparent;color:var(--text);box-shadow:none;cursor:pointer}
 .tfCleanup input[type=checkbox]::after{content:"";width:9px;height:7px;background:currentColor;clip-path:polygon(0 40%,14% 26%,39% 54%,84% 0,100% 14%,40% 100%);visibility:hidden}
 .tfCleanup input[type=checkbox]:checked::after{visibility:visible}
@@ -107,10 +117,6 @@
 .tfCleanupConfirm li strong{color:var(--text);font-weight:500;display:flex;gap:16px;justify-content:space-between}
 .tfCleanupConfirm li strong span{font-variant-numeric:tabular-nums;white-space:nowrap}
 .tfCleanupConfirm .tfCleanupPath{margin:0}
-.tfCleanupConfirm>label{display:flex;align-items:flex-start;gap:8px;margin:16px 0}
-.tfCleanupConfirm>label input{margin-top:4px}
-.tfCleanupConfirm>.tfCleanupPermanent{display:grid;gap:8px;max-width:300px}
-.tfCleanupPermanent>input{min-width:0;width:100%}
 .tfCleanupSectionHead{margin-bottom:24px}
 .tfCleanupSectionHead h2{font-size:16px;font-weight:500;margin:0}
 .tfCleanupProjectsHead{display:flex;justify-content:space-between;align-items:center;gap:16px}

@@ -57,7 +57,7 @@ it('uses stable source prefixes in the picker across repeated account refreshes 
  const original={models:[{slug:'official-a',display_name:'Official A'},{slug:'qoder/gfmodel',display_name:'TF · qoder/GLM-5.3-Flash',tokenflow_source:'qoder'}],tokenflow_gateway_models:['qoder/gfmodel']};
  const once=nativePlaintextAgentCatalog(original),twice=nativePlaintextAgentCatalog(once);
  expect(twice).toEqual(once);expect(once.models.map(m=>m.slug)).toEqual(original.models.map(m=>m.slug));
- expect(once.models.map(m=>m.display_name)).toEqual(['OpenAI 官方 · Official A','TF · qoder · GLM-5.3-Flash']);
+ expect(once.models.map(m=>m.display_name)).toEqual(['Official A','qoder/GLM-5.3-Flash']);
 });
 it('gives the current instruction directory precedence over historical developer directories',async()=>{
  const {nativeAgentDiscovery}=await import('../packages/core/src/codex-unified-agent-catalog.js');

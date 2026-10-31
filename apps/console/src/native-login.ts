@@ -11,7 +11,7 @@ import { sourceOptions } from './source-options';
 export type LoginProvider='codex'|'claude'|'antigravity'|'workbuddy'|'workbuddy-ai'|'qoder'|'qoder-ide'|'cursor'|'trae'|'zcode';
 export const loginNames:Record<LoginProvider,string>={codex:'Codex',claude:'Claude Code',antigravity:'Antigravity',workbuddy:'WorkBuddy','workbuddy-ai':'WorkBuddyAI',qoder:'Qoder','qoder-ide':'Qoder IDE',cursor:'Cursor',trae:'Trae',zcode:'ZCode'};
 export const clientOptions={workbuddy:[['workbuddy','WorkBuddy'],['workbuddy-ai','WorkBuddyAI']],qoder:[['qoder','Qoder'],['qoder-ide','Qoder IDE']]} as const;
-type Status={installation?:AgentInstallation;readOnly?:boolean;displayName?:string;loginState?:'signed-in'|'signed-out'|'unreadable';readError?:string;unavailableReason?:string;message?:string;organizationId?:string|null;domain?:string;enterpriseId?:string;revision:string;email?:string|null;accountId?:string|null;model?:string|null;pids:number[];backup:{state:string}|null;gatewayConnected:boolean;codexCoexist?:boolean;
+type Status={installation?:AgentInstallation;readOnly?:boolean;displayName?:string;loginState?:'signed-in'|'signed-out'|'unreadable'|'not-inspected';readError?:string;unavailableReason?:string;message?:string;organizationId?:string|null;domain?:string;enterpriseId?:string;revision:string;email?:string|null;accountId?:string|null;model?:string|null;pids:number[];backup:{state:string}|null;gatewayConnected:boolean;codexCoexist?:boolean;
  accounts:{organizationId?:string|null;domain?:string;enterpriseId?:string;id:string;email?:string|null;accountId?:string|null;switchable:boolean;reason:string}[]};
 export type LoginAccount={id:string;label:string;remaining:number|null;models:string[];switchable:boolean;reason:string;current:boolean;local:boolean};
 
@@ -34,6 +34,7 @@ export function useNativeLogin(provider:LoginProvider,local:LocalAgentSnapshot,e
  const pool=provider==='workbuddy-ai'?'workbuddy':provider==='qoder-ide'?'qoder':provider;
  const pooled=local.accounts.filter(a=>a.provider===pool&&!a.isDuplicate&&(!a.disabled||provider==='cursor')).map(a=>({...a,models:a.models??[],remaining:sourceAccounts.find(s=>s.id===a.id)?.remaining??null}));
  useEffect(()=>{setStatus(undefined);if(!enabled)return;void refresh(false,false);const reload=()=>void refresh();window.addEventListener('tokenflow:native-login-changed',reload);return()=>{requestVersion.current++;window.removeEventListener('tokenflow:native-login-changed',reload);};},[refresh,enabled]);
+ // Passive reads use TokenFlow's saved identities. External credentials are read only by explicit user actions.
  const matches=(credential:Status['accounts'][number]|undefined)=>hasNativeLogin({status,error})&&!!status&&!!credential&&(desktop?desktopIdentityMatches(provider,status,credential):provider==='trae'||provider==='zcode'?!!status.accountId&&status.accountId===credential.accountId:provider==='claude'?!!status.accountId&&status.accountId===credential.accountId&&status.organizationId===credential.organizationId:provider==='codex'?!!status.accountId&&credential.accountId===status.accountId&&(!credential.email||!status.email||credential.email===status.email):!!status.email&&(provider==='cursor'?credential.email?.toLowerCase()===status.email.toLowerCase():credential.email===status.email));
 
  const accounts:LoginAccount[]=pooled.filter(a=>!desktop||status?.accounts.some(c=>c.id===a.id)).map(a=>{
@@ -56,7 +57,7 @@ export function useNativeLogin(provider:LoginProvider,local:LocalAgentSnapshot,e
   if(status?.readOnly)throw new Error('请在官方客户端切换本机登录。');
   const account=accounts.find(a=>a.id===id);if(!account)throw new Error('账号已不可用，请刷新。');if(officialLoginHeld(provider,account.local,account.current,!!status?.codexCoexist))return '';
 
-  let latest=await requestJSON<Status>(base(provider));
+  let latest=await requestJSON<Status>(`${base(provider)}/inspect`,post({}));
   const preferred=`${provider}/${latest.model}`;
   const model=account.models.includes(preferred)?preferred:account.models[0];
   // Codex, desktop clients and Claude use server-side lifecycle checks before releasing the gateway.
@@ -70,7 +71,7 @@ export function useNativeLogin(provider:LoginProvider,local:LocalAgentSnapshot,e
   return saved.message??(latest.gatewayConnected&&!saved.gatewayConnected?`已先断开 TokenFlow 接入，${loginNames[provider]} 现在直接使用自己的登录。`:'');
  };
  const restore=async()=>{
-  const latest=await requestJSON<Status>(base(provider));
+  const latest=await requestJSON<Status>(`${base(provider)}/inspect`,post({}));
   setStatus(await requestJSON<Status>(`${base(provider)}/restore`,post(provider==='codex'?{revision:latest.revision,allowRunning:true}:provider==='claude'?{revision:latest.revision,restart:true}:{revision:latest.revision}),provider==='codex'||provider==='claude'||desktop?600000:20000));
   notifyNativeLoginChanged();
  };

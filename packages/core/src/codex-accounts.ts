@@ -130,14 +130,14 @@ export class CodexAccounts {
     if(digest(await this.files())!==revision)throw conflict('本机登录或配置已变化，请刷新后重试。');
     const pids=await this.processes();if(pids.length&&!allowRunning)throw conflict('检测到 Codex 仍在运行，请确认切换后重启。');
   }
-  async checkSwitch(input:{revision:string;allowRunning:boolean;model:string},raw:unknown){
+  async checkSwitch(input:{revision:string;allowRunning:boolean;model:string},raw:unknown,restoredConfig?:string|null){
     await this.check(input.revision,input.allowRunning);
     const c=credential.safeParse(raw);if(!c.success)throw conflict('账号缺少完整 OAuth 凭据，请重新授权。');
     if(!/^codex\/[a-zA-Z0-9._-]+$/.test(input.model)||/(?:gpt-image-|codex-auto-review)/.test(input.model))throw conflict('请选择 Codex 支持的模型。');
     if((await this.journal())?.state==='prepared')throw conflict('上次切换尚未完成，请先还原原登录。');
     const managed=await this.managedStore();
     if(managed)throw conflict(`Codex 被管理员配置强制用「${managed}」方式保存登录，写入的登录文件不会生效，未切换。`);
-    const config=parse((await this.files()).config??'');
+    const config=parse((restoredConfig===undefined?(await this.files()).config:restoredConfig)??'');
     if(config.forced_login_method&&config.forced_login_method!=='chatgpt')throw conflict('Codex 配置限制了登录方式，请先解除该限制。');
     if(config.forced_chatgpt_workspace_id&&config.forced_chatgpt_workspace_id!==c.data.account_id)throw conflict('所选账号与 Codex 限定的工作空间不一致。');
     if(config.model_providers&&typeof config.model_providers==='object'&&'openai' in config.model_providers)throw conflict('OpenAI 提供商有自定义覆盖，请先检查接口配置，未写入登录凭据。');

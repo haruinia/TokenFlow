@@ -49,7 +49,7 @@ function App(){
   document.documentElement.dataset.platform=desktop?.platform??'browser';void desktop?.setTheme?.(theme).catch(()=>{});
  },[theme]);
  const [local,setLocal]=useState<LocalAgentSnapshot>(empty);
- const [localLoaded,setLocalLoaded]=useState(false),[localError,setLocalError]=useState('');
+ const [localLoaded,setLocalLoaded]=useState(false),[localReady,setLocalReady]=useState(false),[localError,setLocalError]=useState('');
  const [notice,setNotice]=useState<Notice>();
  const [busy,setBusy]=useState(false);const lock=useRef(false);
  const [repair,setRepair]=useState<RepairSession>();const [repairOpen,setRepairOpen]=useState(false);
@@ -62,7 +62,7 @@ function App(){
 
  const refresh=useCallback(async()=>{
   let next:LocalAgentSnapshot;
-  try{next=visibleLocalAgent(await requestJSON<LocalAgentSnapshot>('/api/local-agent'));setLocal(next);setLocalLoaded(true);setLocalError('');}
+  try{next=visibleLocalAgent(await requestJSON<LocalAgentSnapshot>('/api/local-agent'));setLocal(next);setLocalLoaded(true);if(!next.accountsLoading)setLocalReady(true);setLocalError('');}
   catch(error){setLocalError('暂时无法获取账号与模型信息，请检查连接后重新加载。');throw error;}
   // Nothing to use yet: start where models are added.
   if(firstLoad.current&&next.state==='running'&&!next.accountsLoading){firstLoad.current=false;if(!next.models.length)setView('accounts');}
@@ -139,7 +139,7 @@ function App(){
    <ThinkingFeedback busy={busy}/>
    <div className="tfRequestStatus">{view!=='agents'&&localError&&<LoadError message={localError} retry={()=>refresh().catch(()=>{})}/>}</div>
    {view==='agents'&&<AgentsPage local={local} calls={calls} usage={usage} notify={setNotice} onRepair={openRepair} onAgent={setSelectedAgent} localError={localError} reloadLocal={refresh}/>}
-   {!localLoaded?(!localError&&view!=='agents'&&<div className="tfPage"><LoadingSkeleton label="正在加载账号与模型" variant={view==='usage'?'overview':'cards'}/></div>):<>
+   {!localReady?(!localError&&view!=='agents'&&<div className="tfPage"><LoadingSkeleton label="正在加载账号与模型" variant={view==='usage'?'overview':'cards'}/></div>):<>
 
    {view==='accounts'&&<AccountsPage local={local} usage={usage} disabled={busy} actions={accounts} notify={setNotice} onContext={setAccountContext}/>}
    {view==='apis'&&<div className="tfPage tfApiPage"><ApiInflow onContext={setPageContext} local={local} usage={usage} onChange={refresh} notify={setNotice}/></div>}

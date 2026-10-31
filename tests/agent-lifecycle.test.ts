@@ -90,6 +90,16 @@ it('does not offer a desktop restart for Claude Code on Windows',async()=>{
  expect(run).not.toHaveBeenCalled();
 });
 
+it('launches API Codex with its own home and Electron data, then clears that environment for an ordinary restart',async()=>{
+ let running=true;const path='/Applications/ChatGPT.app/Contents/MacOS/ChatGPT';
+ const run=vi.fn(async(file:string)=>{if(file==='/usr/bin/osascript')running=false;if(file==='/usr/bin/open')running=true;return {stdout:file==='/bin/ps'&&running?path:''};});
+ const lifecycle=new QoderLifecycle(run,'darwin',async()=>{},fixtureIdentity);
+ await lifecycle.restart('codex',{CODEX_HOME:'/tmp/API source/home',CODEX_ELECTRON_USER_DATA_PATH:'/tmp/API source/desktop'});
+ expect(run).toHaveBeenCalledWith('/usr/bin/open',['--env','CODEX_HOME=/tmp/API source/home','--env','CODEX_ELECTRON_USER_DATA_PATH=/tmp/API source/desktop','/Applications/ChatGPT.app','--args','--user-data-dir=/tmp/API source/desktop']);
+ await lifecycle.restart('codex');
+ expect(run.mock.calls.filter(([file])=>file==='/usr/bin/open').at(-1)).toEqual(['/usr/bin/open',['/Applications/ChatGPT.app']]);
+});
+
 it('matches bundle identity across renamed versions and leaves standalone ChatGPT running',async()=>{
  const legacy='/Users/test/Applications/Codex 2026.app';const chat='/Applications/ChatGPT.app';let running=true;
  const run=vi.fn(async(file:string)=>{

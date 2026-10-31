@@ -6,6 +6,7 @@ it('hides local login while loading or signed out, regardless of saved gateway a
  expect(hasNativeLogin({})).toBe(false);
  expect(hasNativeLogin({status:{email:''}})).toBe(false);
  expect(hasNativeLogin({status:{loginState:'signed-out',email:'stale@example.test'}})).toBe(false);
+ expect(hasNativeLogin({status:{loginState:'not-inspected',email:'stale@example.test'}})).toBe(false);
 });
 it('does not present unreadable credentials as a confirmed local login',()=>{
  expect(hasNativeLogin({status:{loginState:'unreadable',email:'stale@example.test'}})).toBe(false);

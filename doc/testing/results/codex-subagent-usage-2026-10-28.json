@@ -1,0 +1,95 @@
+{
+  "capturedAt": "2026-10-28T09:59:20.952Z",
+  "timezone": "America/Los_Angeles",
+  "since": "2026-10-27",
+  "files": 573,
+  "children": 248,
+  "changing": 0,
+  "withoutResponseUsage": 196,
+  "childLegacyEvents": 936,
+  "kinds": {
+    "[\"thread_spawn\"]": 53,
+    "[\"other\"]": 195
+  },
+  "uniqueResponses": 903,
+  "groups": {
+    "2026-10-28 | token_flow | gpt-6.1-sol": {
+      "requests": 320,
+      "input": 36924741,
+      "output": 165928,
+      "cachedIncludedInInput": 36328576,
+      "gatewayEvidence": 0,
+      "recentTraces": 0,
+      "nativeIndex": 0,
+      "ledgerGroups": 0,
+      "ledgerCoversTrace": 0,
+      "traceTokenMismatch": 0,
+      "unmatched": 320
+    },
+    "2026-10-28 | token_flow | api-731ee387f7aff3e89a4133d7/deepseek/deepseek-v4.1-flash-1017": {
+      "requests": 2,
+      "input": 334363,
+      "output": 865,
+      "cachedIncludedInInput": 172288,
+      "gatewayEvidence": 2,
+      "recentTraces": 2,
+      "nativeIndex": 0,
+      "ledgerGroups": 2,
+      "ledgerCoversTrace": 2,
+      "traceTokenMismatch": 0,
+      "unmatched": 0
+    },
+    "2026-10-27 | token_flow | gpt-6-luna": {
+      "requests": 376,
+      "input": 37034672,
+      "output": 155966,
+      "cachedIncludedInInput": 36255744,
+      "gatewayEvidence": 0,
+      "recentTraces": 0,
+      "nativeIndex": 0,
+      "ledgerGroups": 0,
+      "ledgerCoversTrace": 0,
+      "traceTokenMismatch": 0,
+      "unmatched": 376
+    },
+    "2026-10-27 | token_flow | api-731ee387f7aff3e89a4133d7/deepseek/deepseek-v4.1-flash-1017": {
+      "requests": 66,
+      "input": 13138484,
+      "output": 87696,
+      "cachedIncludedInInput": 12580096,
+      "gatewayEvidence": 66,
+      "recentTraces": 0,
+      "nativeIndex": 0,
+      "ledgerGroups": 0,
+      "ledgerCoversTrace": 0,
+      "traceTokenMismatch": 0,
+      "unmatched": 0
+    },
+    "2026-10-27 | token_flow | gpt-6-astra": {
+      "requests": 17,
+      "input": 3237414,
+      "output": 6839,
+      "cachedIncludedInInput": 3199488,
+      "gatewayEvidence": 0,
+      "recentTraces": 0,
+      "nativeIndex": 17,
+      "ledgerGroups": 0,
+      "ledgerCoversTrace": 0,
+      "traceTokenMismatch": 0,
+      "unmatched": 0
+    },
+    "2026-10-27 | token_flow | gpt-6.1-terra": {
+      "requests": 122,
+      "input": 6325329,
+      "output": 30235,
+      "cachedIncludedInInput": 6168704,
+      "gatewayEvidence": 0,
+      "recentTraces": 0,
+      "nativeIndex": 0,
+      "ledgerGroups": 0,
+      "ledgerCoversTrace": 0,
+      "traceTokenMismatch": 0,
+      "unmatched": 122
+    }
+  }
+}

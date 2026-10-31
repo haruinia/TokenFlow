@@ -27,3 +27,11 @@ it('backs up a rewritten prefix as a delta, preserves the old version, and handl
  for(const [snapshot,value] of [[first,original],[second,changed],[third,Buffer.concat([original,Buffer.from('after rollback')])]] as const)expect(await new CodexHistoryBackups(root).read(snapshot)).toEqual(value);
  expect((await readdir(folder)).filter(name=>name.endsWith('.jsonl'))).toHaveLength(1);
 });
+it('stores distributed same-length metadata edits without duplicating the intervening conversation',async()=>{
+ const root=await mkdtemp(join(await realpath(tmpdir()),'history-backup-'));roots.push(root);const h=new CodexHistoryBackups(root);
+ const original=Buffer.from(('protocol=v2\n'+'unchanged message\n'.repeat(5000)).repeat(8));const edited=Buffer.from(original.toString().replaceAll('protocol=v2','protocol=v1'));
+ const a=await h.capture('/fixture/history',original),b=await h.capture('/fixture/history',edited);
+ expect((await stat(join(root,'codex-history-backups',b.key,b.revision+'.delta'))).size).toBeLessThan(100);
+ expect(await h.read(a)).toEqual(original);expect(await new CodexHistoryBackups(root).read(b)).toEqual(edited);
+ const c=await h.capture('/fixture/history',Buffer.concat([edited,Buffer.from('new turn')]));expect(await h.read(c)).toEqual(Buffer.concat([edited,Buffer.from('new turn')]));
+});

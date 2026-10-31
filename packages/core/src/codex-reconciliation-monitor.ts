@@ -13,6 +13,7 @@ export class CodexReconciliationMonitor{
  private state:ReconciliationStatus={state:'stopped'};
  constructor(private options:ReconciliationMonitorOptions){}
  snapshot(){return this.state;}
+ enableOfficial(){this.options.allowOfficial=true;this.worker?.postMessage('enable-official');}
  start(){return this.starting??=this.launch();}
  private async launch(){
   if(this.closed)return;

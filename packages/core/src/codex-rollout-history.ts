@@ -26,15 +26,29 @@ export function codexUserTurnBoundary(item:Item){
  return false;
 }
 const count=(value:unknown)=>{if(!Number.isSafeInteger(value)||Number(value)<0)throw Error('Invalid Codex rollback count');return Number(value);};
-export function replayCodexHistory(rows:Item[],replacement:(row:Item)=>Item[]|undefined):Item[]{
+export function replayCodexHistory(rows:Item[],replacement:(row:Item)=>Item[]|undefined):Item[]{return replayCodexHistoryWindow(rows,replacement).history;}
+/** Track missing coverage separately from messages so a later user turn cannot
+ * disguise an unreadable earlier window. Rollbacks remove only gaps in removed
+ * turns; a complete readable checkpoint can replace the entire earlier base. */
+export function replayCodexHistoryWindow(rows:Item[],replacement:(row:Item)=>Item[]|undefined,completeBase=true):{history:Item[];complete:boolean}{
  // TurnStarted is serialized as task_started. Older rollouts may omit it;
  // those use the real user-message boundary instead of a synthetic summary.
  const hasStarts=rows.some(row=>row.type==='event_msg'&&['task_started','turn_started'].includes(row.payload?.type));
- let pending=0,selected=-1,segment:{user:boolean;checkpoint:number;turnId?:string}|undefined;
+ const survivingLegacy=new Set<number>(),survivingCheckpoints=new Set<number>();
+ let pending=0,selected=-1,boundedByLegacy=false,segment:{user:boolean;checkpoints:number[];legacy:number[];turnId?:string}|undefined;
  const finish=()=>{
   if(!segment)return;
   if(pending){if(segment.user)pending--;}
-  else if(selected<0&&segment.checkpoint>=0)selected=segment.checkpoint;
+  else {
+   for(const index of segment.legacy)survivingLegacy.add(index);
+   for(const index of segment.checkpoints)survivingCheckpoints.add(index);
+   // Decode only after rollback has decided this segment survives. An earlier
+   // unreadable checkpoint cannot invalidate a newer complete readable summary.
+   if(selected<0&&!boundedByLegacy)for(const index of segment.checkpoints){
+    if(survivingLegacy.has(index)){boundedByLegacy=true;break;}
+    if(replacement(rows[index]!)!==undefined){selected=index;break;}
+   }
+  }
   segment=undefined;
  };
  for(let index=rows.length-1;index>=0;index--){
@@ -42,24 +56,39 @@ export function replayCodexHistory(rows:Item[],replacement:(row:Item)=>Item[]|un
   if(!payload)continue;
   if(row.type==='event_msg'&&payload.type==='thread_rolled_back'){pending+=count(payload.num_turns);continue;}
   if(row.type==='compacted'||row.type==='response_item'&&payload.type==='compaction'){
-   if(replacement(row)!==undefined){segment??={user:false,checkpoint:-1};if(segment.checkpoint<0)segment.checkpoint=index;}
+   segment??={user:false,checkpoints:[],legacy:[]};segment.checkpoints.push(index);
+   if(row.type==='compacted'&&payload.replacement_history==null&&typeof payload.message==='string'&&payload.message.trim())segment.legacy.push(index);
   }
-  if(row.type==='turn_context'){segment??={user:false,checkpoint:-1};segment.turnId??=payload.turn_id;}
+  if(row.type==='turn_context'){segment??={user:false,checkpoints:[],legacy:[]};segment.turnId??=payload.turn_id;}
   const user=row.type==='response_item'&&codexUserTurnBoundary(payload)||row.type==='event_msg'&&payload.type==='user_message'||row.type==='inter_agent_communication';
-  if(user){segment??={user:false,checkpoint:-1};segment.user=true;if(!hasStarts)finish();}
+  if(user){segment??={user:false,checkpoints:[],legacy:[]};segment.user=true;if(!hasStarts)finish();}
   if(row.type==='event_msg'&&['task_started','turn_started'].includes(payload.type)&&(!segment?.turnId||!payload.turn_id||segment.turnId===payload.turn_id))finish();
+  if(selected>=0)break;
  }
  finish();
- let history:Item[]=selected>=0?[...replacement(rows[selected]!)!]:[];
- for(const row of rows.slice(selected+1)){
+ type Entry={item:Item}|{missing:true};
+ let history:Entry[]=selected>=0?replacement(rows[selected]!)!.map(item=>({item})):completeBase?[]:[{missing:true}];
+ for(const [offset,row] of rows.slice(selected+1).entries()){
   const payload=row.payload;if(!payload)continue;
-  if(row.type==='response_item'&&payload.type!=='compaction')history.push(payload);
-  else if(row.type==='inter_agent_communication')history.push({type:'agent_message',content:[{type:'input_text',text:payload.content}],author:payload.author,recipient:payload.recipient});
+  if(row.type==='response_item'&&payload.type!=='compaction')history.push({item:payload});
+  else if(row.type==='inter_agent_communication')history.push({item:{type:'agent_message',content:[{type:'input_text',text:payload.content}],author:payload.author,recipient:payload.recipient}});
+  else if(row.type==='compacted'&&payload.replacement_history==null&&typeof payload.message==='string'&&payload.message.trim()){
+   // Legacy Codex local compaction stores its readable summary in `message`.
+   // Like native replay, retain user requests and replace earlier work with
+   // that summary. Do this chronologically so later rollbacks still apply.
+   // A non-null replacement_history is authoritative, even if it is opaque.
+   history=[...history.filter(entry=>'item' in entry?entry.item.role==='user'&&codexUserTurnBoundary(entry.item):!survivingLegacy.has(selected+1+offset)),{item:{type:'message',role:'user',content:[{type:'input_text',text:payload.message}]}}];
+  }
+  else if((row.type==='compacted'||row.type==='response_item'&&payload.type==='compaction')&&survivingCheckpoints.has(selected+1+offset)){
+   // Opaque compaction is recoverable only if the preceding model-visible
+   // history is present. Missing coverage stays missing across subsequent turns.
+   if(!history.some(entry=>'item' in entry&&(entry.item.role==='user'||entry.item.type==='agent_message')))history.push({missing:true});
+  }
   else if(row.type==='event_msg'&&payload.type==='thread_rolled_back'){
    const amount=count(payload.num_turns);if(!amount)continue;
-   const positions=history.flatMap((item,index)=>codexUserTurnBoundary(item)?[index]:[]);
+   const positions=history.flatMap((entry,index)=>'item' in entry&&codexUserTurnBoundary(entry.item)?[index]:[]);
    if(positions.length)history=history.slice(0,positions[Math.max(0,positions.length-amount)]);
   }
  }
- return history;
+ return {history:history.flatMap(entry=>'item' in entry?[entry.item]:[]),complete:history.every(entry=>'item' in entry)};
 }

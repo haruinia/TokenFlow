@@ -4,7 +4,7 @@ import {basename,delimiter,dirname,isAbsolute,join,win32} from 'node:path';
 import {homedir} from 'node:os';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import type {Target} from './agent-connections.js';
+import type {Target,AgentProcessOptions} from './agent-connections.js';
 const exec=promisify(execFile);
 const recipes={
  codex:{bin:'codex',package:'',download:'https://developers.openai.com/codex/app/'},
@@ -111,6 +111,12 @@ async function detectInstallation(target:Target|'claude-desktop'|'workbuddy-ai')
   if(!version&&['pi','claude','codex'].includes(target)&&process.platform!=='win32')try{version=versionOf((await exec(path,['--version'],{timeout:3000,maxBuffer:4096})).stdout);}catch{/* Unknown version never implies an update. */}
   return {installed:true,channel:npmVersion?'npm':'other',path,version,download:recipe.download,automatic:!!npmPackage?.prefix,npmPrefix:npmPackage?.prefix};
  }
+ // An interrupted npm update can leave the package behind after retiring its command link.
+ if(target==='claude')for(const dir of dirs()){
+  const root=process.platform==='win32'?dir:join(dirname(dir),'lib');
+  const npmPackage=await packageOf(join(root,'node_modules',recipe.package,'bin','claude.exe'),recipe.package);
+  if(npmPackage?.prefix)return {installed:false,channel:'missing',download:recipe.download,automatic:true,npmPrefix:npmPackage.prefix,reason:'Claude Code 安装不完整，命令入口缺失，请重新安装修复。'};
+ }
  return {installed:false,channel:'missing',download:recipe.download,automatic:!!recipe.package};
 }
 export async function detectAgent(target:Target|'claude-desktop'|'workbuddy-ai'):Promise<AgentInstallation>{
@@ -119,7 +125,7 @@ export async function detectAgent(target:Target|'claude-desktop'|'workbuddy-ai')
 }
 export class AgentInstallationManager {
  private busy=false;
- constructor(private processes:(target:Target)=>Promise<number[]>,private openExternal?:(url:string)=>Promise<void>){}
+ constructor(private processes:(target:Target,options?:AgentProcessOptions)=>Promise<number[]>,private openExternal?:(url:string)=>Promise<void>){}
  async manage(target:Target,action:'install'|'update'){
   if(this.busy)throw failure('正在安装或更新 Agent，请稍候。');
   this.busy=true;
@@ -131,7 +137,7 @@ export class AgentInstallationManager {
    }
    if(action==='update'&&!installed.installed)throw failure('程序尚未安装，请先安装。');
    if(action==='install'&&installed.installed)return {message:'已经检测到此 Agent，无需重复安装。',installation:installed};
-   if((await this.processes(target)).length)throw failure('请先保存工作并退出此 Agent，再安装或更新。');
+   if((await this.processes(target,{scope:'installation'})).length)throw failure(target==='claude'?'请先保存工作并退出正在运行的独立 Claude CLI，再安装或更新。':'请先保存工作并退出此 Agent，再安装或更新。');
    let npm=await executable('npm');
    if(npm&&!/[\\/]npm[\\/]bin[\\/]npm-cli\.js$/.test(npm)){const cli=join(dirname(npm),'node_modules','npm','bin','npm-cli.js');try{await access(cli,constants.F_OK);npm=cli;}catch{npm=undefined;}}
    if(!npm)throw failure('没有找到可用的 Node.js/npm，请先安装 Node.js 后重试。');

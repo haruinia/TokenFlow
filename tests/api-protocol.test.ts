@@ -57,15 +57,15 @@ describe('API source protocol detection',()=>{
   const {origin}=await upstream(()=>notFound);const dead=origin.replace(/:\d+$/,':1');
   await expect(detectProtocol({baseURL:`${dead}/v1`,apiKey:'k',model:'m'})).rejects.toMatchObject({code:'api_source_unreachable'});
  });
- it('tries all protocols even when an individual endpoint disconnects',async()=>{
+ it('stops instead of changing protocols after a network failure',async()=>{
   const calls:string[]=[];
   vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
    calls.push(url);
    if(url.endsWith('/responses'))throw new TypeError('socket closed');
    return new Response(JSON.stringify(url.endsWith('/messages')?{type:'message',content:[]}:{error:'missing'}),{status:url.endsWith('/messages')?200:404});
   }));
-  await expect(detectProtocol({baseURL:'https://relay.test/custom',apiKey:'k',model:'m'})).resolves.toEqual({protocol:'messages',baseURL:'https://relay.test/custom'});
-  expect(calls).toEqual(['https://relay.test/custom/responses','https://relay.test/custom/chat/completions','https://relay.test/custom/messages']);
+  await expect(detectProtocol({baseURL:'https://relay.test/custom',apiKey:'k',model:'m'})).rejects.toMatchObject({code:'api_source_unreachable'});
+  expect(calls).toEqual(['https://relay.test/custom/responses']);
  });
  it('keeps a corporate prefix when probing the versioned Messages endpoint',async()=>{
   const {origin,calls}=await upstream(path=>path==='/company/anthropic/v1/messages'?{status:200,json:{type:'message',content:[]}}:notFound);
@@ -80,7 +80,7 @@ describe('API source protocol detection',()=>{
  it('reports all three attempted endpoints only after all fail',async()=>{
   const {origin,calls}=await upstream(()=>notFound);
   const error=await detectProtocol({baseURL:`${origin}/v1`,apiKey:'k',model:'m'}).catch(e=>e);
-  expect(calls).toEqual(['/v1/responses','/v1/chat/completions','/v1/messages']);
+  expect(calls).toEqual(['/v1/responses','/v1/chat/completions','/v1/messages','/responses','/chat/completions','/messages']);
   for(const path of calls)expect(error.message).toContain(`${origin}${path}：HTTP 404`);
  });
  it('does not send more requests after cancellation',async()=>{
@@ -91,9 +91,25 @@ describe('API source protocol detection',()=>{
  });
  it('does not cache a protocol merely because an endpoint returned a rate limit',async()=>{
   const {origin}=await upstream(path=>path==='/v1/chat/completions'?{status:200,json:{choices:[]}}:{status:429,json:{error:{message:'rate limited'}}});
-  await expect(detectProtocol({baseURL:`${origin}/v1/responses`,apiKey:'k',model:'m'})).resolves.toEqual({protocol:'chat',baseURL:`${origin}/v1`});
+  await expect(detectProtocol({baseURL:`${origin}/v1/responses`,apiKey:'k',model:'m'})).rejects.toMatchObject({code:'api_source_rate_limited'});
   const limited=await upstream(()=>({status:429,json:{error:{message:'rate limited'}}}));
   await expect(detectProtocol({baseURL:`${limited.origin}/v1`,apiKey:'k',model:'m'})).rejects.toMatchObject({code:'api_source_rate_limited'});
+ });
+ it('prefers the supplied root and can remove v1 without leaving a tenant prefix',async()=>{
+  const {origin,calls}=await upstream(path=>path==='/tenant/responses'?{status:200,json:{object:'response',output:[]}}:notFound);
+  await expect(detectProtocol({baseURL:`${origin}/tenant/v1`,apiKey:'k',model:'m'})).resolves.toEqual({protocol:'responses',baseURL:`${origin}/tenant`});
+  expect(calls.every(path=>path.startsWith('/tenant/'))).toBe(true);
+  calls.length=0;
+  await detectProtocol({baseURL:`${origin}/tenant`,apiKey:'k',model:'m'});expect(calls).toEqual(['/tenant/responses']);
+ });
+ it('tries anthropic suffixes only when hinted and retains the tenant path',async()=>{
+  const {origin,calls}=await upstream(path=>path==='/tenant/anthropic/v1/messages'?{status:200,json:{type:'message',content:[]}}:notFound);
+  await expect(detectProtocol({baseURL:`${origin}/tenant/v1`,apiKey:'k',model:'claude'})).resolves.toEqual({protocol:'messages',baseURL:`${origin}/tenant/anthropic/v1`});
+  expect(calls.every(path=>path.startsWith('/tenant/'))).toBe(true);
+ });
+ it.each([401,403,402,429,503])('stops on actionable HTTP %s without probing other endpoints',async status=>{
+  const {origin,calls}=await upstream(()=>({status,json:{error:{message:'failed'}}}));
+  await expect(detectProtocol({baseURL:origin,apiKey:'k',model:'m'})).rejects.toBeDefined();expect(calls).toEqual(['/responses']);
  });
  it('names a source after its host',()=>{
   expect(sourceNameFromURL('https://api.openai.com/v1')).toBe('openai.com');

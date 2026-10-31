@@ -1,0 +1,20 @@
+{
+  "originalDuringApi": {
+    "ok": true,
+    "provider": "openai"
+  },
+  "originalAfterRestore": {
+    "ok": true,
+    "provider": "openai"
+  },
+  "inactiveApiAfterRestore": {
+    "ok": true,
+    "provider": "api_direct_dd62b0bc79426f0b44c59c35"
+  },
+  "officialBucket": true,
+  "apiBucket": true,
+  "apiSummaryReused": true,
+  "apiRemainsIndependent": true,
+  "apiExcludedFromBackups": true,
+  "inactiveError": "api_direct_inactive"
+}

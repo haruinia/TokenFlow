@@ -24,7 +24,7 @@ const same=(a:Selection,b:Selection)=>a.model===b.model&&a.sourceId===b.sourceId
 export function ClaudeDesktopPanel({desktop,clientSwitch,local,usage,notify}:{desktop:ReturnType<typeof useClaudeDesktopStatus>;clientSwitch?:ReactNode;local:LocalAgentSnapshot;usage:UsageData;notify:Notify}){
  const {status,error,refresh}=desktop;
  const [busy,setBusy]=useState(false);const [action,setAction]=useState<Action>();const [draft,setDraft]=useState<Choice[]|null>(null);const [picking,setPicking]=useState(false);const [roleDefault,setRoleDefault]=useState('');const [roleFast,setRoleFast]=useState('');
- const [phase,setPhase]=useState<'confirm'|'working'|'saved'|'error'>('confirm');const [message,setMessage]=useState('');
+ const [phase,setPhase]=useState<'confirm'|'working'|'error'>('confirm');const [message,setMessage]=useState('');
  const openAction=(next:Action)=>{setPhase('confirm');setMessage('');setAction(next);};
  const available=sourceOptions(local);
  const models=draft??status?.selections??[];
@@ -37,7 +37,7 @@ export function ClaudeDesktopPanel({desktop,clientSwitch,local,usage,notify}:{de
   const ordered=nextAction==='connect'&&defaultChoice?[defaultChoice,...models.filter(item=>item.model!==defaultChoice.model)]:models;
   const body=nextAction==='restart'?{}:{revision:current.revision,...(nextAction==='connect'?{selections:ordered,fast:fastChoice?{sourceId:fastChoice.sourceId,model:fastChoice.model}:undefined}:{})};
   const result=await requestJSON<{message?:string}>(`/api/claude-desktop/${nextAction}`,post(body),600000);if(nextAction==='connect')setDraft(null);
-  setMessage(result.message??(nextAction==='restart'?'Claude Desktop 已重新打开。':'Claude Desktop 配置已处理。'));setPhase('saved');await refresh().catch(()=>{});
+  await refresh().catch(()=>{});setAction(undefined);notify({kind:'ok',text:result.message??(nextAction==='restart'?'Claude Desktop 已重新打开。':'Claude Desktop 配置已处理。')});
  }catch(e){setMessage(e instanceof Error?e.message:'操作未完成');setPhase('error');await refresh().catch(()=>{});}finally{setBusy(false);}};
  const download=status?.installation.download??'https://claude.ai/download';
  const restartNote=status?.automaticRestart?'请先保存工作。确认后会退出 Claude Desktop，再重新打开。':'请先退出 Claude Desktop，保存后再打开。';
@@ -65,16 +65,16 @@ export function ClaudeDesktopPanel({desktop,clientSwitch,local,usage,notify}:{de
   </div>}
   <AgentUsageDetails target="claude-desktop" local={local} usage={usage}/>
   <AgentModelPicker open={picking} title="Claude Desktop 使用的模型" local={local} current={models[0]} selected={models} onConfirm={choices=>{if(choices.length>claudeDesktopModelLimit){notify({kind:'error',text:`Claude Desktop 最多接入 ${claudeDesktopModelLimit} 个模型。`});return;}const current=models[0];const preferred=choices.find(item=>current&&same(item,current))??choices[0];const next=preferred?[preferred,...choices.filter(item=>item!==preferred)]:choices;setDraft(next);askConnect(next);}} onClose={()=>setPicking(false)}/>
-  <FlowDialog className="tfRestartDialog tfModelApplyDialog" open={!!action} title={phase==='error'?'操作未完成':phase==='saved'?'操作完成':action==='connect'?'应用模型':action==='restore'?'切回官方':'重启 Claude Desktop'} busy={busy} showBusyIndicator={false} onClose={()=>setAction(undefined)}>
+  <FlowDialog className="tfRestartDialog tfModelApplyDialog" open={!!action} title={phase==='error'?'操作未完成':action==='connect'?'应用模型':action==='restore'?'切回官方':'重启 Claude Desktop'} busy={busy} showBusyIndicator={false} onClose={()=>setAction(undefined)}>
    <div className="tfModelApplyBody">
-   {phase==='working'?<div className="tfMigrationProgress" aria-busy="true"><Thinking label={action==='restart'?'正在重新打开 Claude Desktop':'正在应用 Claude Desktop 配置'}/><p className="tfMigrationStage" role="status">{action==='restart'?'正在重新打开 Claude Desktop':'正在应用 Claude Desktop 配置'}</p></div>:phase==='saved'||phase==='error'?<p className={phase==='error'?'tfError':'tfDialogLead'} role={phase==='error'?'alert':'status'}>{message}</p>:<>
+   {phase==='working'?<div className="tfMigrationProgress" aria-busy="true"><Thinking label={action==='restart'?'正在重新打开 Claude Desktop':'正在应用 Claude Desktop 配置'}/><p className="tfMigrationStage" role="status">{action==='restart'?'正在重新打开 Claude Desktop':'正在应用 Claude Desktop 配置'}</p></div>:phase==='error'?<p className="tfError" role="alert">{message}</p>:<>
    {action==='connect'&&<><p className="tfDialogLead">{status?.connected?'用当前所选模型替换 Claude Desktop 的模型菜单。':'把所选模型接入 Claude Desktop。'}</p>{models.length>1&&<><label>默认模型<select aria-label="默认模型" value={roleDefault} onChange={event=>setRoleDefault(event.target.value)}>{models.map(item=><option key={item.model} value={item.model}>{modelLabel(local,item.model)}</option>)}</select></label><label>快速模型<select aria-label="快速模型" value={roleFast} onChange={event=>setRoleFast(event.target.value)}>{models.map(item=><option key={item.model} value={item.model}>{modelLabel(local,item.model)}</option>)}</select></label></>}<p className="tfHint">默认模型用于会话和子代理，快速模型用于审批和快速请求。</p></>}
    {action==='restore'&&<><p className="tfDialogLead">停用当前网关，切回 Claude Desktop 官方服务；不恢复以前的第三方配置。</p><p className="tfHint">原官方登录数据保留。</p></>}
    {action==='restart'&&<p className="tfDialogLead">重新打开 Claude Desktop，加载已保存的配置。</p>}
    <p className="tfHint">{restartNote}</p>
    </>}
    </div>
-   <footer>{!busy&&<><button onClick={()=>setAction(undefined)}>{phase==='confirm'?(action==='restart'?'稍后再说':'取消'):'关闭'}</button>{phase!=='saved'&&<button className="primary" onClick={()=>void apply()}>{phase==='error'?(action==='restart'?'重试重启':'重新应用'):action==='restart'?'立即重启':action==='restore'?'切回官方':status?.automaticRestart?'应用并重启':'应用'}</button>}{phase==='error'&&action!=='restart'&&status?.automaticRestart&&status.connected&&<button onClick={()=>void apply('restart')}>重启 Claude Desktop</button>}</>}</footer>
+   <footer>{!busy&&<><button onClick={()=>setAction(undefined)}>{phase==='confirm'?(action==='restart'?'稍后再说':'取消'):'关闭'}</button><button className="primary" onClick={()=>void apply()}>{phase==='error'?(action==='restart'?'重试重启':'重新应用'):action==='restart'?'立即重启':action==='restore'?'切回官方':status?.automaticRestart?'应用并重启':'应用'}</button>{phase==='error'&&action!=='restart'&&status?.automaticRestart&&status.connected&&<button onClick={()=>void apply('restart')}>重启 Claude Desktop</button>}</>}</footer>
   </FlowDialog>
  </section>;
 }

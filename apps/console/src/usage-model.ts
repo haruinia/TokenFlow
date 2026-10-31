@@ -14,7 +14,10 @@ export const rangeLabel = (id: RangeId) => id === 'all' ? '全部时间' : id ==
 /** Short form for stat captions, e.g. "近 7 天 Tokens". */
 export const rangeShort = (id: RangeId) => id === 'all' ? '累计' : rangeLabel(id);
 
+export const rowTokenTotal=(row:Pick<UsageRow,"inputTokens"|"outputTokens"|"unclassifiedTokens">)=>row.inputTokens+row.outputTokens+(row.unclassifiedTokens??0);
+
 export type UsageTotals = {
+  unclassifiedTokens:number;completeRequests:number;partialRequests:number;unknownRequests:number;conflictRequests:number;legacyRequests:number;cancelledRequests:number;truncatedRequests:number;
   requests: number; failed: number; unmeasured: number; credits:number;
   unknownCacheTokens:number;cacheWriteTokens:number;reasoningTokens:number;toolCalls:number;toolResults:number;generationMs:number;tokensPerSecond:number|null;inputTokens: number; cachedTokens: number; uncachedTokens: number; outputTokens: number; totalTokens: number;
   /** cached / input over the calls whose upstream reported cache usage; null when none did. */
@@ -23,10 +26,12 @@ export type UsageTotals = {
 };
 
 export function totalsOf(rows: readonly UsageRow[]): UsageTotals {
+  let unclassifiedTokens=0,completeRequests=0,partialRequests=0,unknownRequests=0,conflictRequests=0,legacyRequests=0,cancelledRequests=0,truncatedRequests=0;
   let requests = 0, failed = 0, unmeasured = 0, inputTokens = 0, cachedTokens = 0, cacheBase = 0, outputTokens = 0, durationMs = 0;
   let credits=0,cacheWriteTokens=0,reasoningTokens=0,toolCalls=0,toolResults=0,generationMs=0,timedOutputTokens=0;
   let last: string | undefined;let measuredRequests=0;let toolsMeasured=false;
   for (const row of rows) {
+    unclassifiedTokens+=row.unclassifiedTokens??0;completeRequests+=row.completeRequests??0;partialRequests+=row.partialRequests??(row.origin==='native'?Math.max(0,row.requests-row.unmeasured):0);unknownRequests+=row.unknownRequests??(row.origin==='native'?row.unmeasured:0);conflictRequests+=row.conflictRequests??0;legacyRequests+=row.legacyRequests??(row.origin!=='native'&&row.completeRequests===undefined?row.requests:0);cancelledRequests+=row.cancelledRequests??0;truncatedRequests+=row.truncatedRequests??0;
     if(row.origin!=='native')measuredRequests+=row.requests;
     if(row.toolCalls!==undefined||row.toolResults!==undefined)toolsMeasured=true;
     cacheWriteTokens+=row.cacheWriteTokens??0;reasoningTokens+=row.reasoningTokens??0;toolCalls+=row.toolCalls??0;toolResults+=row.toolResults??0;generationMs+=row.generationMs??0;timedOutputTokens+=row.timedOutputTokens??0;
@@ -37,9 +42,9 @@ export function totalsOf(rows: readonly UsageRow[]): UsageTotals {
     if (!last || row.last > last) last = row.last;
   }
   return {
-    credits,unknownCacheTokens:Math.max(0,inputTokens-cacheBase),cacheWriteTokens,reasoningTokens,toolCalls,toolResults,generationMs,tokensPerSecond:generationMs>0?timedOutputTokens*1000/generationMs:null,requests, failed, unmeasured, inputTokens, cachedTokens, outputTokens, durationMs, last,
+    unclassifiedTokens,completeRequests,partialRequests,unknownRequests,conflictRequests,legacyRequests,cancelledRequests,truncatedRequests,credits,unknownCacheTokens:Math.max(0,inputTokens-cacheBase),cacheWriteTokens,reasoningTokens,toolCalls,toolResults,generationMs,tokensPerSecond:generationMs>0?timedOutputTokens*1000/generationMs:null,requests, failed, unmeasured, inputTokens, cachedTokens, outputTokens, durationMs, last,
     uncachedTokens: Math.max(0, inputTokens - cachedTokens - cacheWriteTokens),
-    totalTokens: inputTokens + outputTokens,
+    totalTokens: inputTokens + outputTokens + unclassifiedTokens,
     hitRate: cacheBase > 0 ? Math.min(1, cachedTokens / cacheBase) : null,
     toolsMeasured,avgMs: measuredRequests ? Math.round(durationMs / measuredRequests) : null,
   };
@@ -59,7 +64,7 @@ export const localDay = (date: Date) => `${date.getFullYear()}-${pad(date.getMon
 /** Tokens per calendar day, oldest first, with quiet days kept as zero so the chart keeps its shape. */
 export function dailyTokens(rows: readonly UsageRow[], span: number, now = new Date()): { day: string; tokens: number }[] {
   const byDay = new Map<string, number>();
-  for (const row of rows) byDay.set(row.day, (byDay.get(row.day) ?? 0) + row.inputTokens + row.outputTokens);
+  for (const row of rows) byDay.set(row.day, (byDay.get(row.day) ?? 0) + rowTokenTotal(row));
   return Array.from({ length: span }, (_, index) => {
     const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (span - 1 - index));
     const day = localDay(date);
@@ -96,12 +101,13 @@ export function durationText(ms: number | null): string {
 
 /** Account authorization usage: gateway calls served by the platform's accounts, and local requests proven to use its official login. */
 export function spentByPlatform(row:UsageRow,platform:{id:string;accounts:readonly {id:string}[]}){
+ if(row.billingAccountHash)return platform.id==='codex';
  if(row.origin==='native')return row.channel==='official'&&(row.provider===platform.id||platform.id==='workbuddy'&&row.provider==='workbuddy-ai'||platform.id==='qoder'&&row.provider==='qoder-ide');
  return platform.accounts.some(account=>account.id===row.sourceId)||row.channel!=='api'&&row.model.startsWith(platform.id+'/');
 }
 
 /** Account or API source behind a ledger row; models served by the account catalog keep their provider prefix. */
-export const sourceKey = (row: UsageRow) => row.sourceId || (row.origin==='native'?`native:${row.provider??row.target}:${row.channel??'unknown'}:${row.nativeAccountId??''}:${row.nativeEmailHash??''}${row.nativeOrganizationId?`:${row.nativeOrganizationId}`:''}`:undefined) || (row.model.match(/^api-([a-f0-9]{24})\//)?.[1] ?? `provider:${row.model.split('/')[0]}`);
+export const sourceKey = (row: UsageRow) => (row.billingAccountHash?`codex-official:${row.billingAccountHash}`:undefined)||row.sourceId || (row.origin==='native'?`native:${row.provider??row.target}:${row.channel??'unknown'}:${row.nativeAccountId??''}:${row.nativeEmailHash??''}${row.nativeOrganizationId?`:${row.nativeOrganizationId}`:''}`:undefined) || (row.model.match(/^api-([a-f0-9]{24})\//)?.[1] ?? `provider:${row.model.split('/')[0]}`);
 
 /** Unknown token usage is not a measured zero. Credits retain their own unit. */
 export const tokenTotalText=(totals:UsageTotals,compact=false)=>totals.totalTokens===0&&totals.unmeasured>0?'未提供':(compact?compactTokens:formatTokens)(totals.totalTokens);

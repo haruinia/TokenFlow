@@ -6,6 +6,13 @@ const row = (overrides: Partial<UsageRow> = {}): UsageRow => ({
   requests: 1, failed: 0, unmeasured: 0, inputTokens: 0, cachedTokens: 0, cacheBaseTokens: 0, outputTokens: 0, durationMs: 0, last: '2026-10-12T08:00:00.000Z', ...overrides,
 });
 
+it('uses mutually exclusive measurement classes and preserves known unclassified consumption',()=>{
+ const total=totalsOf([row({requests:10,unmeasured:3,legacyRequests:10}),row({requests:2,unmeasured:1,completeRequests:1,partialRequests:1,unknownRequests:0,inputTokens:10,outputTokens:2,unclassifiedTokens:20})]);
+ expect(total).toMatchObject({requests:12,legacyRequests:10,completeRequests:1,partialRequests:1,unknownRequests:0,totalTokens:32});
+ expect(total.completeRequests+total.partialRequests+total.unknownRequests+total.conflictRequests+total.legacyRequests).toBe(total.requests);
+ expect(dailyTokens([row({unclassifiedTokens:20})],1,new Date(2026,9,12))[0].tokens).toBe(20);
+});
+
 describe('usage model', () => {
   it('reproduces the official split: total = uncached input + cache reads + output, hit rate from cache reads', () => {
     // The desktop harness reported 14,882 = 13,319 + 1,408 + 155 and a 10% cache hit.

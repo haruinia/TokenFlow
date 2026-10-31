@@ -99,6 +99,14 @@ it('refuses an unregistered running Store application before closing it',async()
  const f=fixture('codex');f.state.rows=[proc('codex',{path:'C:\\Program Files\\WindowsApps\\Codex\\Codex.exe'})];f.identity.mockResolvedValue(identities.codex);
  await expect(f.lifecycle.stop('codex')).rejects.toThrow('启动入口');expect(f.scripts().some(s=>s.includes('# tokenflow:close'))).toBe(false);
 });
+
+it('passes API isolation paths to only the verified Windows Codex process',async()=>{
+ const f=fixture('codex');await f.lifecycle.stop('codex');
+ await f.lifecycle.open('codex',{CODEX_HOME:"D:\\User's API\\home",CODEX_ELECTRON_USER_DATA_PATH:'D:\\API data'});
+ const script=f.scripts().find(s=>s.includes('# tokenflow:open'))!;
+ expect(script).toContain("$env:CODEX_HOME='D:\\User''s API\\home'");expect(script).toContain("$env:CODEX_ELECTRON_USER_DATA_PATH='D:\\API data'");
+ expect(script).toContain("Start-Process -FilePath '"+paths.codex+"'");
+});
 it('fails closed on a process-query error or malformed response',async()=>{
  const f=fixture();f.run.mockResolvedValue({stdout:'private invalid output'});
  await expect(f.lifecycle.stop('qoder')).rejects.toThrow('无法可靠检查');expect(f.run).toHaveBeenCalledOnce();

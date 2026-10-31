@@ -1,0 +1,93 @@
+{
+  "engineVersion": "codex-cli 0.166.0-alpha.5.1",
+  "scope": "installed native engine, isolated HOME, synthetic upstream; no production auth/config/history or paid requests",
+  "sameParentThreadId": true,
+  "syntheticProviderRoute": [
+    "fixture_official",
+    "token_flow",
+    "fixture_official"
+  ],
+  "usesProductMigration": true,
+  "startsFromLegacyJournal": true,
+  "changes": [
+    {
+      "target": "gateway",
+      "status": {
+        "phase": "idle",
+        "done": 0,
+        "total": 0,
+        "backups": 1,
+        "remaining": 0,
+        "restorable": 1,
+        "unavailable": 0
+      }
+    },
+    {
+      "target": "native",
+      "status": {
+        "phase": "idle",
+        "done": 0,
+        "total": 0,
+        "backups": 2,
+        "remaining": 0,
+        "restorable": 0,
+        "unavailable": 0
+      }
+    }
+  ],
+  "calls": [
+    {
+      "phase": "original-v2",
+      "model": "gpt-6.1-sol",
+      "version": "v2"
+    },
+    {
+      "phase": "gateway-v1",
+      "model": "gpt-6.1-sol",
+      "version": "v1"
+    },
+    {
+      "phase": "gateway-v1",
+      "model": "fixture/deepseek",
+      "version": "absent",
+      "childTask": true
+    },
+    {
+      "phase": "gateway-v1",
+      "model": "gpt-6.1-sol",
+      "version": "v1"
+    },
+    {
+      "phase": "gateway-v1",
+      "model": "gpt-6.1-sol",
+      "version": "v1"
+    },
+    {
+      "phase": "fresh-official",
+      "model": "gpt-6.1-sol",
+      "version": "v1"
+    },
+    {
+      "phase": "fresh-gateway",
+      "model": "fixture/deepseek",
+      "version": "v1",
+      "childTask": false
+    },
+    {
+      "phase": "fresh-after-api-official",
+      "model": "gpt-6.1-sol",
+      "version": "v1"
+    },
+    {
+      "phase": "fresh-after-api-gateway",
+      "model": "fixture/deepseek",
+      "version": "v1",
+      "childTask": true
+    },
+    {
+      "phase": "restored-v2",
+      "model": "gpt-6.1-sol",
+      "version": "v2"
+    }
+  ]
+}

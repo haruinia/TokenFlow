@@ -23,6 +23,13 @@ it('uses platform-native directories, including LocalAppData instead of roaming 
  expect(claudeDesktopDirectory('win32','C:\\Users\\test',{})).toBe('C:\\Users\\test\\AppData\\Local\\Claude-3p');
  expect(claudeDesktopDirectory('linux','/home/test',{XDG_CONFIG_HOME:'/custom/config'})).toBe('/custom/config/Claude-3p');
 });
+it('removes a source from the saved menu while running, preserving other sources',async()=>{
+ const f=await fixture(),other='b'.repeat(24),keyId=randomUUID();
+ await f.connections.connect({revision:(await f.connections.status()).revision,selections:[{sourceId,model:'claude/one'},{sourceId:other,model:'claude/two'}],keyId,key:'fixture-key',origin:'http://127.0.0.1:9527'});
+ f.running([123]);await f.connections.detachSource(sourceId);
+ expect((await f.connections.route())?.selections).toEqual([{sourceId:other,model:'claude/two'}]);
+ await f.connections.detachSource(other);expect(await f.connections.route()).toBeNull();expect(JSON.parse(await readFile(f.mode,'utf8')).deploymentMode).toBe('1p');
+});
 it('writes the official gateway profile, preserves original login files, and restores selectors while retaining later preferences',async()=>{
  const f=await fixture();const originalId=randomUUID(),hybrid={configId:originalId};
  await writeFile(f.meta,JSON.stringify({appliedId:originalId,hybridPointer:hybrid,entries:[{id:originalId,name:'Original'}]}));await writeFile(f.mode,JSON.stringify({deploymentMode:'1p',theme:'light'}));

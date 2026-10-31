@@ -64,7 +64,9 @@ it('finds the Microsoft Store Codex by its fixed package identity and tolerates 
 });
 
 it('runs the required Claude installer and verifies the executable, not just package metadata',async()=>{
- const result=await new AgentInstallationManager(async()=>[]).manage('claude','install');
+ const processes=vi.fn(async()=>[]);
+ const result=await new AgentInstallationManager(processes).manage('claude','install');
+ expect(processes).toHaveBeenCalledWith('claude',{scope:'installation'});
  expect(result.installation.installed).toBe(true);
  const install=fixture.commands.find(c=>c.args.includes('install'))!;
  expect(install.args).toContain('--ignore-scripts=false');
@@ -74,6 +76,16 @@ it('offers repair when Claude package exists but its native binary cannot start'
  fixture.links.set('/fixture/bin/claude','/fixture/lib/node_modules/@anthropic-ai/claude-code/cli.js');
  fixture.files.set('/fixture/lib/node_modules/@anthropic-ai/claude-code/package.json',JSON.stringify({name:'@anthropic-ai/claude-code',version:'2.1.0'}));fixture.fail=true;
  expect(await detectAgent('claude')).toMatchObject({installed:false,automatic:true});
+});
+it('recognizes an interrupted npm installation with a missing command link and repairs the same prefix',async()=>{
+ fixture.files.set('/fixture/lib/node_modules/@anthropic-ai/claude-code/package.json',JSON.stringify({name:'@anthropic-ai/claude-code',version:'2.1.311'}));
+ expect(await detectAgent('claude')).toMatchObject({installed:false,automatic:true,npmPrefix:'/fixture',reason:expect.stringContaining('不完整')});
+ await new AgentInstallationManager(async()=>[]).manage('claude','install');
+ expect(fixture.commands.find(c=>c.args.includes('install'))!.args).toEqual(expect.arrayContaining(['--prefix','/fixture']));
+});
+it('still refuses Claude repair when a standalone CLI is running',async()=>{
+ await expect(new AgentInstallationManager(async()=>[123]).manage('claude','install')).rejects.toThrow('独立 Claude CLI');
+ expect(fixture.commands.some(c=>c.args.includes('install'))).toBe(false);
 });
 
 it.runIf(process.platform==='darwin')('reads the international WorkBuddy version independently from the domestic client',async()=>{

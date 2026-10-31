@@ -88,12 +88,15 @@ it('allows protected data only after its risk was confirmed, for trash and perma
  }
 });
 
-it('still rejects incomplete protected data even when its risk was confirmed',async()=>{
+it('allows incomplete protected data after its risk was confirmed',async()=>{
  const trashItem=vi.fn(async()=>{}),{cleanup,put,scan}=await fixture({trashItem,maxEntries:1});
  await put('.codex/sessions/history','personal-history');const state=await scan(),entry=state.entries.find(item=>item.name==='Codex 历史会话')!;
  expect(entry.complete).toBe(false);
- expect(()=>cleanup.clean(state.scanId!,[entry.id],false,'trash',false,true)).toThrow('重新扫描');
+ expect(()=>cleanup.clean(state.scanId!,[entry.id],false)).toThrow('受保护');
  expect(trashItem).not.toHaveBeenCalled();
+ cleanup.clean(state.scanId!,[entry.id],false,'trash',false,true);await cleanup.settled();
+ expect(trashItem).toHaveBeenCalledExactlyOnceWith(entry.path);
+ expect(cleanup.snapshot().result).toMatchObject({moved:1,failed:0,bytesIncomplete:true});
 });
 
 it('requires explicit protected-data consent on both cleanup endpoints',async()=>{
@@ -156,13 +159,14 @@ it('rechecks nested metadata and reports partial failures without falling back t
  expect(cleanup.snapshot().entries.find(e=>e.name==='npm 下载缓存')?.issue).toContain('文件已变化');
 });
 
-it('bounds scans, blocks incomplete results and supports cancellation and exclusive operations',async()=>{
+it('bounds scans without blocking measured candidates, while retaining cancellation and exclusive operations',async()=>{
  const trashItem=vi.fn(async()=>{});const {cleanup,put,scan}=await fixture({maxEntries:2,trashItem});
  for(let i=0;i<5;i++)await put(`.npm/_cacache/file-${i}`);
  const state=await scan(),entry=state.entries.find(e=>e.name==='npm 下载缓存')!;
- expect(entry.complete).toBe(false);expect(()=>cleanup.clean(state.scanId!,[entry.id],false)).toThrow();
+ expect(entry.complete).toBe(false);cleanup.clean(state.scanId!,[entry.id],false);await cleanup.settled();
+ expect(trashItem).toHaveBeenCalledExactlyOnceWith(entry.path);
  cleanup.start();expect(()=>cleanup.start()).toThrow('正在进行');cleanup.cancel();await cleanup.settled();
- expect(cleanup.snapshot().status).toBe('cancelled');expect(trashItem).not.toHaveBeenCalled();
+ expect(cleanup.snapshot().status).toBe('cancelled');expect(trashItem).toHaveBeenCalledTimes(1);
 });
 
 it('offers read-only scans without native capabilities and expires old scan permissions',async()=>{

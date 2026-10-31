@@ -17,7 +17,7 @@ it('reads a complete fresh official catalog with native authorization and keeps 
  expect(result).toEqual(official);expect(calls[0]).toMatchObject({url:expect.stringContaining('https://chatgpt.com/backend-api/codex/models?'),init:{headers:{authorization:'Bearer local-oauth-secret','chatgpt-account-id':'fixture-account'},redirect:'error'}});
  const merged=mergeCodexCatalog({models:[{slug:'qoder/custom'}]},result);expect(merged.models[0]).toEqual(official.models[0]);expect(merged.tokenflow_gateway_models).toEqual(['qoder/custom']);
  expect(()=>mergeCodexCatalog({models:[{slug:'official-test'}]},result)).toThrow('重复');
- await expect(loadOfficialCodexCatalog(config,async()=>Response.json({error:{message:'secret-auth'}},{status:401}))).rejects.toMatchObject({code:'codex_coexist_unavailable'});
+ await expect(loadOfficialCodexCatalog(config,async()=>Response.json({error:{message:'secret-auth'}},{status:401}),true)).rejects.toMatchObject({code:'codex_coexist_unavailable'});
 });
 it('separates official identity from the managed gateway key and browser credentials',()=>{
  expect(officialCodexHeaders({authorization:'Bearer official','x-tokenflow-client-key':'local-secret',cookie:'browser-secret','x-api-key':'wrong','chatgpt-account-id':'account'})).toEqual({authorization:'Bearer official','content-type':'application/json','chatgpt-account-id':'account'});
@@ -34,11 +34,11 @@ it.each([
 });
 it('routes official and gateway models independently, rejects unknown IDs, and survives a service restart',async()=>{
  const {root,config}=await profile(),officialCalls:Array<{url:string;headers:Record<string,string>;body:any}>=[],gatewayCalls:Array<{headers:typeof reqHeaders;body:any}>=[];const reqHeaders:Record<string,unknown>={};
- const response=(model:string,text:string)=>({id:'resp_test',status:'completed',model,output:[{type:'message',id:'msg_test',role:'assistant',content:[{type:'output_text',text}]}],usage:{input_tokens:10,output_tokens:1,total_tokens:11}});
+ const response=(model:string,text:string)=>({object:'response',id:'resp_test',status:'completed',model,output:[{type:'message',id:'msg_test',role:'assistant',content:[{type:'output_text',text}]}],usage:{input_tokens:10,output_tokens:1,total_tokens:11}});
  const upstream=createServer(async(req,res)=>{let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);gatewayCalls.push({headers:req.headers,body});res.setHeader('content-type','application/json');res.end(JSON.stringify(response(body.model,'gateway')));});
  await new Promise<void>(r=>upstream.listen(0,'127.0.0.1',r));clean.push(()=>new Promise<void>(r=>upstream.close(()=>r())));
  const allocator=createServer();await new Promise<void>(r=>allocator.listen(0,'127.0.0.1',r));const port=(allocator.address() as {port:number}).port;await new Promise<void>(r=>allocator.close(()=>r()));
- const secretsMap=new Map<string,string>(),options={root,token:'admin',localKey:'private-relay',proxyPort:port,binary:resolve('tests/fixtures/fake-cliproxy.mjs'),agentProcesses:async()=>[],agentPaths:{codex:config,claude:join(root,'claude.json'),pi:join(root,'pi.json'),qoder:join(root,'qoder.json'),deepseek:join(root,'deepseek.json'),workbuddy:join(root,'workbuddy.json'),'workbuddy-ai':join(root,'workbuddy-ai.json')},secrets:{persistent:true,get:async(k:string)=>secretsMap.get(k)??'',set:async(k:string,v:string)=>{secretsMap.set(k,v);},remove:async(k:string)=>{secretsMap.delete(k);}},codexOfficialFetch:async(url:string,init:RequestInit)=>{if(url.includes('/models?'))return Response.json(official);const body=JSON.parse(String(init.body));officialCalls.push({url,headers:init.headers as Record<string,string>,body});return Response.json(response(body.model,'official'));}};
+ const secretsMap=new Map<string,string>(),options={root,token:'admin',localKey:'private-relay',proxyPort:port,binary:resolve('tests/fixtures/fake-cliproxy.mjs'),agentProcesses:async()=>[],agentPaths:{codex:config,claude:join(root,'claude.json'),pi:join(root,'pi.json'),qoder:join(root,'qoder.json'),deepseek:join(root,'deepseek.json'),workbuddy:join(root,'workbuddy.json'),'workbuddy-ai':join(root,'workbuddy-ai.json')},secrets:{persistent:true,get:async(k:string)=>secretsMap.get(k)??'',set:async(k:string,v:string)=>{secretsMap.set(k,v);},remove:async(k:string)=>{secretsMap.delete(k);}},codexOfficialFetch:async(url:string,init:RequestInit)=>{if(url.includes('/models?'))return Response.json(official);const body=JSON.parse(String(init.body));officialCalls.push({url,headers:init.headers as Record<string,string>,body});const result=response(body.model,'official');return body.stream?new Response('data: '+JSON.stringify({type:'response.completed',response:result})+'\n\n',{headers:{'content-type':'application/json'}}):Response.json(result);}};
  let service=await createDesktopService(options);clean.push(()=>service.app.close());const admin={host:'127.0.0.1:9527',authorization:'Bearer admin'};
  await service.proxy.start();const added=await service.app.inject({method:'POST',url:'/api/sources',headers:admin,payload:{name:'Fixture',baseURL:`http://127.0.0.1:${(upstream.address() as {port:number}).port}/v1`,protocol:'responses',models:['third-party'],apiKey:'third-party-secret'}});expect(added.statusCode,added.body).toBe(200);const source=added.json(),model=`api-${source.id}/third-party`;
  const listed=await service.app.inject({url:'/api/a2a',headers:admin});expect(listed.statusCode,listed.body).toBe(200);const status=listed.json().targets.find((t:any)=>t.id==='codex');
@@ -65,15 +65,21 @@ it('routes official and gateway models independently, rejects unknown IDs, and s
   expect(officialCalls.at(-1)?.body).toEqual(body);
  }
  expect(gatewayCalls).toHaveLength(1);
+ const streamed=await service.app.inject({method:'POST',url:'/codex/v1/responses',headers,payload:{model:'official-test',input:'child usage fixture',stream:true}});
+ expect(streamed.statusCode).toBe(200);expect(streamed.body).toContain('data: ');
+ const usage=(await service.app.inject({url:'/api/gateway/usage?days=1',headers:admin})).json().rows.filter((row:any)=>row.sourceId==='codex-official');
+ expect(usage.reduce((sum:any,row:any)=>({requests:sum.requests+row.requests,inputTokens:sum.inputTokens+row.inputTokens,outputTokens:sum.outputTokens+row.outputTokens,unmeasured:sum.unmeasured+row.unmeasured}),{requests:0,inputTokens:0,outputTokens:0,unmeasured:0})).toEqual({requests:7,inputTokens:70,outputTokens:7,unmeasured:0});
+ expect(usage.find((row:any)=>row.taskKind==='compaction')?.requests).toBe(2);
+ const facts=(await service.app.inject({url:'/api/gateway/usage/requests',headers:admin})).json().records.filter((row:any)=>row.sourceId==='codex-official');expect(facts).toHaveLength(7);expect(facts.every((row:any)=>/^[a-f0-9]{64}$/.test(row.responseHash))).toBe(true);
  expect((await service.app.inject({method:'POST',url:'/codex/v1/responses',headers:{...headers,'x-tokenflow-client-key':'bad'},payload:{model:'official-test',input:'x'}})).statusCode).toBe(401);
- await service.app.close();service=await createDesktopService(options);expect((await ask('official-test')).statusCode).toBe(200);expect(officialCalls).toHaveLength(7);
+ await service.app.close();service=await createDesktopService(options);expect((await ask('official-test')).statusCode).toBe(200);expect(officialCalls).toHaveLength(8);
 });
 it('keeps official model metadata intact and ranks clearly labelled gateway entries after it',()=>{
  const native={models:[{...official.models[0],slug:'official-a',priority:20},{...official.models[0],slug:'official-b',priority:2}]};
  const gateway={models:[{slug:'api-a/model',display_name:'Source · Model',priority:0},{slug:'api-b/model',display_name:'TokenFlow · Other',priority:1}]};
  const before=structuredClone({native,gateway}),merged=mergeCodexCatalog(gateway,native);
  expect(merged.models.slice(0,2)).toEqual(native.models);
- expect(merged.models.slice(2)).toEqual([{...gateway.models[0],display_name:'TF · Source · Model',priority:21},{...gateway.models[1],display_name:'TF · Other',priority:22}]);
+ expect(merged.models.slice(2)).toEqual([{...gateway.models[0],display_name:'Source/Model',priority:21},{...gateway.models[1],display_name:'API 来源（未命名）/Other',priority:22}]);
  expect([...merged.models].sort((a,b)=>(a.priority as number)-(b.priority as number)).map(m=>m.slug)).toEqual(['official-b','official-a','api-a/model','api-b/model']);
  expect({native,gateway}).toEqual(before);
 

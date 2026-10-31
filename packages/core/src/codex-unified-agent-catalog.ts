@@ -2,18 +2,22 @@
  * Native model IDs, tool execution, ownership, permissions and compaction stay
  * with Codex. Display names are discovery data, never routing aliases.
  */
+import { codexGatewayLabel } from './codex-model-label.js';
 type Model={slug:string;display_name?:unknown;tokenflow_source?:unknown;multi_agent_version?:unknown;visibility?:unknown;supported_reasoning_levels?:unknown};
 type Catalog={models:Model[];tokenflow_gateway_models?:string[]};
 const start='<!-- tokenflow-native-model-directory:start -->';
 const end='<!-- tokenflow-native-model-directory:end -->';
 
+/** Drop only TokenFlow's model directory when another routing mode owns discovery. */
+export function withoutNativeAgentDirectory(text:string){
+ const at=text.indexOf(start),last=at<0?-1:text.indexOf(end,at);
+ return at>=0&&last>=0?(text.slice(0,at)+text.slice(last+end.length)).trimEnd():text;
+}
+
 export function nativePlaintextAgentCatalog<T extends Catalog>(catalog:T){
  const gateways=new Set(catalog.tokenflow_gateway_models??[]);
  return {...catalog,models:catalog.models.map(model=>{
-  const source=gateways.has(model.slug)?(typeof model.tokenflow_source==='string'?model.tokenflow_source:sourceName(model)):'OpenAI 官方';
-  let name=String(model.display_name??model.slug).replace(/^(?:TF|TokenFlow) · /,'');
-  for(const prefix of [source+' · ',source+'/'])if(name.startsWith(prefix)){name=name.slice(prefix.length);break;}
-  return {...model,display_name:(gateways.has(model.slug)?'TF · ':'')+source+' · '+name,...(model.multi_agent_version==='disabled'?{}:{multi_agent_version:'v1'})};
+  return {...model,...(gateways.has(model.slug)?{display_name:codexGatewayLabel(model)}:{}),...(model.multi_agent_version==='disabled'?{}:{multi_agent_version:'v1'})};
  })};
 }
 
@@ -67,4 +71,23 @@ export function nativeAgentDiscovery<T extends Record<string,any>>(body:T):T{
  const tools=visit(body.tools);
  const input=Array.isArray(body.input)?body.input.map((i:any)=>i.type==='additional_tools'||i.role==='developer'&&Array.isArray(i.tools)?visit(i):i):body.input;
  return changed?{...body,...(tools?{tools}:{}),...(input?{input}:{})}:body;
+}
+
+/** Remove only our managed directory/feature overrides when leaving unified mode. */
+export function restoreNativeUnifiedAgents(config:Record<string,any>,before:Record<string,any>,applied:Record<string,any>){
+ const text=config.developer_instructions;
+ if(typeof text==='string'){
+  const at=text.indexOf(start),last=at<0?-1:text.indexOf(end,at);
+  if(at>=0&&last>=0){
+   if(text===applied.developer_instructions){if(before.developer_instructions===undefined)delete config.developer_instructions;else config.developer_instructions=before.developer_instructions;}
+   else{const own=(text.slice(0,at)+text.slice(last+end.length)).trimEnd();if(own.trim())config.developer_instructions=own;else delete config.developer_instructions;}
+  }
+ }
+ if(config.features&&typeof config.features==='object'){
+  for(const key of ['multi_agent','multi_agent_v2']){
+   if(applied.features?.[key]===undefined||config.features[key]!==applied.features[key])continue;
+   if(before.features?.[key]===undefined)delete config.features[key];else config.features[key]=before.features[key];
+  }
+  if(!Object.keys(config.features).length)delete config.features;
+ }
 }

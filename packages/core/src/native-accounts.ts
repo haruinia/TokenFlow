@@ -66,7 +66,7 @@ export class NativeAccounts {
     if(!this.store.restoreState&&current.model!==undefined&&current.model!==journal.before.model&&current.model!==journal.after.model)throw nativeConflict('默认模型已被其他程序修改，已保留备份，未覆盖。');
     return journal.restoreTarget??this.store.restoreState?.(current,journal.before,journal.after)??journal.before;
   }
-  async preflightRestore(revision:string){const current=await this.store.read();if(nativeDigest(current)!==revision)throw nativeConflict('本机登录或配置已变化，请刷新后重试。');this.restoreTarget(current,await this.journal());}
+  async preflightRestore(revision:string,settings?:NativeState){const current=await this.store.read();if(nativeDigest(current)!==revision)throw nativeConflict('本机登录或配置已变化，请刷新后重试。');this.restoreTarget({...current,...settings},await this.journal());}
   async switch(input:{revision:string;model?:string},raw:unknown){
     const parsed=nativeCredentialSchema.safeParse(raw);if(!parsed.success)throw nativeConflict('账号缺少完整 OAuth 凭据，请重新授权。');
     return this.locked(async()=>{

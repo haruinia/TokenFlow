@@ -57,6 +57,15 @@ it('backs up undecryptable API keys before explicit replacement and retains ciph
  expect((await readdir(join(root,'secrets'))).some(name=>name.startsWith('openai.bin.unreadable-'))).toBe(true);
  expect(await secrets.get('custom')).toBe('');
 });
+it('opens storage on an explicit import without replacing the existing internal gateway key',async()=>{
+ const root=await setup(),file=join(root,'secrets','cliproxy.bin');await writeFile(file,'encrypted:original');
+ let available=false;const decrypt=vi.fn(storage.decryptString),secrets=createSecrets(root,{...storage,isEncryptionAvailable:()=>available,decryptString:decrypt},'darwin',false);
+ expect(await secrets.get('cliproxy')).toBe('');expect(()=>secrets.enableAccess()).toThrow('不可用');
+ available=true;expect(secrets.canEncrypt()).toBe(false); // Failed explicit access does not lift the startup skip.
+ secrets.enableAccess();expect(decrypt).not.toHaveBeenCalled();
+ await secrets.set('fixture-import','fixture-credential');expect(await secrets.get('fixture-import')).toBe('fixture-credential');
+ expect(await readFile(file,'utf8')).toBe('encrypted:original');
+});
 it('stores independent Cursor SDK credentials in the encrypted credential store',async()=>{
  const root=await setup();const secrets=createSecrets(root,storage);const credential=JSON.stringify({apiKey:'fixture-cursor-key',disabled:false});await secrets.set('cursor-account',credential);expect(await secrets.get('cursor-account')).toBe(credential);expect((await readdir(join(root,'secrets')))).toContain('cursor-account.bin');await secrets.set('cursor-account','');expect(await secrets.get('cursor-account')).toBe('');
 });

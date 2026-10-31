@@ -37,7 +37,8 @@ export async function discoverCleanupArtifacts(options:ArtifactOptions){
   check();if(seen.has(path)||!(await safe(path)))return;seen.add(path);
   const dir=await opendir(path);
   for await(const entry of dir){
-   check();if(entry.isSymbolicLink()||entry.name.startsWith('.'))continue;
+   check();if(entry.isSymbolicLink())continue;
+   if(entry.name.startsWith('.')){if(root.kind==='installed'&&entry.isDirectory()&&/^\.tokenflow-before-\d+-[\w-]+$/.test(entry.name))await walk({...root,kind:'output',depth:0},join(path,entry.name),0);continue;}
    const child=join(path,entry.name);
    if(within(resolve(options.profile),resolve(child)))continue;
    if(entry.isDirectory()&&(options.platform==='darwin'?/\.app$/i.test(entry.name):root.kind==='installed')){

@@ -9,7 +9,7 @@ const options=workerData as ReconciliationMonitorOptions&{output:string};
 const interval=options.intervalMs??60000,officialInterval=options.officialIntervalMs??15*60000;
 let recorder:CodexReconciliationRecorder|undefined,stop=false,wake:(()=>void)|undefined,officialAt=0;
 const abort=new AbortController();
-parentPort?.on('message',message=>{if(message==='stop'){stop=true;abort.abort();wake?.();}});
+parentPort?.on('message',message=>{if(message==='stop'){stop=true;abort.abort();wake?.();}else if(message==='enable-official'){options.allowOfficial=true;wake?.();}});
 const publish=async(state:ReconciliationStatus)=>{
  const value={...state,at:new Date().toISOString()};parentPort?.postMessage(value);
  const path=join(options.root,'codex-reconciliation-status.json'),tmp=path+'.tmp';

@@ -50,6 +50,7 @@ export class AgentLifecycle {
   private app:typeof apps[RestartTarget]=apps.qoder;
   private target:RestartTarget='qoder';
   private macPath:string|undefined;
+  private launchEnv:Record<string,string>={};
   private identities=new Map<string,Promise<AppIdentity|undefined>>();
   constructor(private run:Run=(file,args)=>exec(file,args,{timeout:file==='/usr/bin/open'?5000:15000,maxBuffer:1024*1024,windowsHide:true}),private platform=process.platform,private wait:()=>Promise<unknown>=()=>delay(250),private inspectApp=macAppIdentity){}
   private identity(path:string){let result=this.identities.get(path);if(!result){result=this.inspectApp(path);this.identities.set(path,result);}return result;}
@@ -90,15 +91,15 @@ export class AgentLifecycle {
     if(!this.macPath)for(const path of desktopCandidates(this.target,'darwin')){
       if((await this.identity(path))?.bundle===this.app.bundle){this.macPath=path;break;}
     }
-    await this.run('/usr/bin/open',this.macPath?[this.macPath]:['-b',this.app.bundle]);
+    await this.run('/usr/bin/open',[...Object.entries(this.launchEnv).flatMap(([key,value])=>['--env',`${key}=${value}`]),...(this.macPath?[this.macPath]:['-b',this.app.bundle]),...(this.launchEnv.CODEX_ELECTRON_USER_DATA_PATH?['--args',`--user-data-dir=${this.launchEnv.CODEX_ELECTRON_USER_DATA_PATH}`]:[])]);
   }
-  async restart(target:RestartTarget='qoder'){return this.change(target,async()=>{},false);}
+  async restart(target:RestartTarget='qoder',env:Record<string,string>={}){this.launchEnv=env;return this.change(target,async()=>{},false);}
   async change(target:RestartTarget,work:()=>Promise<unknown>,requireInstallation=true){
     if(!['darwin','win32'].includes(this.platform)||this.platform==='win32'&&!('image' in apps[target]))throw failure('当前系统请完全退出并重新打开对应 Agent。');
     if(this.busy)throw failure('Agent 正在重启，请稍候。');
     this.busy=true;this.app=apps[target];this.target=target;this.macPath=undefined;this.identities.clear();
     try{
-      if(this.platform==='win32'&&target!=='claude'){const lifecycle=new WindowsAgentLifecycle(this.run,this.wait);await lifecycle.stop(target);await work();await lifecycle.open(target);return {message:`${this.app.name} 已重新打开。`};}
+      if(this.platform==='win32'&&target!=='claude'){const lifecycle=new WindowsAgentLifecycle(this.run,this.wait);await lifecycle.stop(target);await work();await lifecycle.open(target,this.launchEnv);return {message:`${this.app.name} 已重新打开。`};}
       if(await this.running()){
         await this.checkIdeProfile();
         try{await this.quit();}

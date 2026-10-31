@@ -89,12 +89,12 @@ export class ClaudeDesktopConnections{
   try{for(const key of ['profile','meta','mode'] as const){if(await readConfig(paths[key])!==before[key])throw conflict('Claude Desktop 配置被其他程序修改，已停止操作。');await writePrivate(paths[key],after[key]);done.push(key);}}
   catch(error){for(const key of done.reverse())if(await readConfig(paths[key])===after[key])await writePrivate(paths[key],before[key]);throw error;}
  }
- async connect(input:{revision:string;selections:ModelSelection[];fastModel?:string;keyId:string;key:string;origin:string;labels?:Record<string,string>}){
+ async connect(input:{revision:string;selections:ModelSelection[];fastModel?:string;keyId:string;key:string;origin:string;labels?:Record<string,string>;allowRunning?:boolean}){
   const selections=desktopSelections.parse(input.selections);
   let plan;try{plan=claudeDesktopPlan(selections,input.labels,input.fastModel);}catch(error){throw conflict(error instanceof Error?error.message:'Claude Desktop 模型过多。');}
   const origin=new URL(input.origin);if(origin.protocol!=='http:'||!['127.0.0.1','localhost','[::1]'].includes(origin.hostname))throw conflict('Claude Desktop 接入只允许本机网关。');
   return this.locked(async()=>{
-   await this.check(input.revision);if((await (this.options.processes??claudeDesktopProcesses)()).length)throw conflict('请先完全退出 Claude Desktop，再应用模型配置。');
+   await this.check(input.revision);if(!input.allowRunning&&(await (this.options.processes??claudeDesktopProcesses)()).length)throw conflict('请先完全退出 Claude Desktop，再应用模型配置。');
    const previous=await this.journal();if(previous?.state==='prepared')throw conflict('上次 Claude Desktop 接入未完成，请先切回官方后重试。');
    const active=previous?.state==='applied'?previous:null,id=active?.id??randomUUID(),before=await this.read(id);
    const meta=parse(before.meta);if(meta.entries!==undefined&&!Array.isArray(meta.entries))throw conflict('Claude Desktop 配置目录格式异常，未修改。');
@@ -105,8 +105,16 @@ export class ClaudeDesktopConnections{
    return this.status();
   });
  }
- async restore(revision:string,destination:'previous'|'native'='previous'){return this.locked(async()=>{
-  await this.check(revision);if((await (this.options.processes??claudeDesktopProcesses)()).length)throw conflict('请先完全退出 Claude Desktop，再停用网关。');
+ async detachSource(sourceId:string){
+  const journal=await this.journal();if(!journal||journal.state!=='applied'||!journal.selections.some(item=>item.sourceId===sourceId))return;
+  const selections=journal.selections.filter(item=>item.sourceId!==sourceId),status=await this.status();
+  if(!selections.length){await this.restore(status.revision,'native',true);return;}
+  const profile=parse(journal.after.profile);
+  const labels=Object.fromEntries((profile.inferenceModels??[]).map((item:any)=>[journal.modelAliases?.[item.name]??item.name,item.labelOverride??item.name]));
+  await this.connect({revision:status.revision,selections,fastModel:selections.some(item=>item.model===journal.fastModel)?journal.fastModel:undefined,keyId:journal.keyId,key:profile.inferenceGatewayApiKey,origin:profile.inferenceGatewayBaseUrl,labels,allowRunning:true});
+ }
+ async restore(revision:string,destination:'previous'|'native'='previous',allowRunning=false){return this.locked(async()=>{
+  await this.check(revision);if(!allowRunning&&(await (this.options.processes??claudeDesktopProcesses)()).length)throw conflict('请先完全退出 Claude Desktop，再停用网关。');
   const journal=await this.journal();if(!journal||journal.state==='restored')throw conflict('没有 Claude Desktop 接入备份。');
   const current=await this.read(journal.id),meta=parse(current.meta),mode=parse(current.mode);
   const partial=journal.state==='prepared'&&(['meta','mode','profile'] as const).every(k=>current[k]===journal.after[k]||current[k]===(journal.rollback??journal.before)[k]);

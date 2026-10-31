@@ -15,6 +15,7 @@ export function cleanupCatalog(home:string,platform:NodeJS.Platform,profile:stri
  const runtimes=[{name:'puppeteer',path:envPath('PUPPETEER_CACHE_DIR')??join(home,'.cache','puppeteer')},{name:'ms-playwright',path:value('PLAYWRIGHT_BROWSERS_PATH')==='0'?undefined:envPath('PLAYWRIGHT_BROWSERS_PATH')??(platform==='darwin'?join(home,'Library','Caches','ms-playwright'):platform==='win32'?join(local,'ms-playwright'):join(xdgCache,'ms-playwright'))},{name:'codex-runtimes',path:join(home,'.cache','codex-runtimes')}];
  for(const runtime of runtimes)if(runtime.path)add(runtime.path,`${runtime.name} 运行时`,'agent','review','浏览器或 Agent 下载的运行时文件。','清理后可能需要手动重新安装运行时；请先结束相关 Agent 和浏览器任务。');
  cache(envPath('UV_CACHE_DIR')??(platform==='win32'?join(local,'uv','cache'):join(xdgCache,'uv')),'uv 下载缓存','package','Python 软件包与构建下载缓存。');
+ for(const tool of ['electron','electron-builder'])cache(platform==='darwin'?join(home,'Library','Caches',tool):platform==='win32'?join(local,tool,'Cache'):join(xdgCache,tool),`${tool} 构建下载缓存`,'build','桌面应用构建时下载的运行时或打包工具，可被 AI 调试反复使用；不包含项目源码。');
  const pnpmHome=envPath('PNPM_HOME'),xdgDataHome=envPath('XDG_DATA_HOME');
  const stores=[pnpmHome?join(pnpmHome,'store'):xdgDataHome?join(xdgDataHome,'pnpm','store'):platform==='darwin'?join(home,'Library','pnpm','store'):platform==='win32'?join(local,'pnpm','store'):join(xdgData,'pnpm','store')];
  stores.push(join(home,'.pnpm-store'));

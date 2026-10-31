@@ -87,3 +87,9 @@ it('does not inherit parent gateway configuration or billing identity into anoth
  for(const thread of ['direct-child','unconfirmed-child'])p.accept({type:'token_usage_record',timestamp,payload:{thread_id:thread,response_id:thread,usage:{input_tokens:100,output_tokens:20}}});
  expect(p.rows()).toHaveLength(2);expect(p.rows().map(r=>r.channel)).toEqual(['official','unknown']);expect(p.rows().every(r=>!r.nativeAccountId&&r.model==='未标注模型')).toBe(true);
 });
+
+it('counts legacy API history once after adoption into an independent home',()=>{
+ const rows=(path:string,id:string)=>{const p=new LocalUsageParser('codex',path);p.accept({type:'session_meta',payload:{id,model_provider:'api_direct_'+'a'.repeat(24)}});p.accept({type:'turn_context',payload:{model:'deepseek'}});p.accept({type:'event_msg',timestamp:'2026-10-31T10:00:00Z',ordinal:8,payload:{type:'token_count',info:{total_token_usage:{input_tokens:100,output_tokens:20,total_tokens:120},last_token_usage:{input_tokens:100,output_tokens:20,total_tokens:120}}}});return p.rows();};
+ expect(mergeLocalUsageRows([...rows('/original/archive','chat'),...rows('/api/home','chat')])[0]).toMatchObject({requests:1,inputTokens:100,outputTokens:20,channel:'api'});
+ expect(mergeLocalUsageRows([...rows('/original/archive','chat'),...rows('/api/home','other')])[0].requests).toBe(2);
+});

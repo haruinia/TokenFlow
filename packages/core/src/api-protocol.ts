@@ -1,4 +1,4 @@
-import { normalizeApiBaseURL, protocolFromURL } from '../../../apps/shared/api-endpoint.js';
+import { apiBaseCandidates, normalizeApiBaseURL, protocolFromURL } from '../../../apps/shared/api-endpoint.js';
 import { providerSchema } from './providers.js';
 import { RunnerCoreError } from './errors.js';
 import {providerUsage} from './gateway-observation.js';
@@ -22,7 +22,7 @@ export function validateQuickSource(input:{baseURL:string;apiKey?:string;model:s
 
 type Probe={ok:boolean;status:number|null;message:string};
 export type ProtocolProbeUsage=ReturnType<typeof providerUsage>&{protocol:SourceProtocol;model:string;startedAt:string;durationMs:number;status:number};
-const clip=(value:string,key:string)=>(key.length>=8?value.split(key).join('***'):value).replace(/\s+/g,' ').slice(0,160);
+const clip=(value:string,key:string)=>(key?value.split(key).join('***'):value).replace(/\s+/g,' ').slice(0,160);
 async function readLimited(response:Response,limit=256*1024){
  const reader=response.body?.getReader();if(!reader)return '';
  const chunks:Uint8Array[]=[];let size=0;
@@ -55,9 +55,10 @@ async function probe(protocol:SourceProtocol,base:string,key:string,model:string
   if(response.ok||usage.inputTokens!==null||usage.outputTokens!==null)onUsage?.({...usage,protocol,model,startedAt:new Date(started).toISOString(),durationMs:Date.now()-started,status:response.status});
   if(response.ok)return shapes[protocol](json)?{ok:true,status:response.status,message:''}:{ok:false,status:response.status,message:'返回内容不是该协议的格式。'};
   const error=json.error as {message?:unknown}|string|undefined;
-  const message=clip(typeof error==='string'?error:typeof error?.message==='string'?error.message:typeof json.message==='string'?json.message:'',key);
+  const rawMessage=typeof error==='string'?error:typeof error?.message==='string'?error.message:typeof json.message==='string'?json.message:'';
+  const message=clip(rawMessage,key);
   // Some newer models only accept the other token-limit field; try it once before giving up on Chat.
-  if(protocol==='chat'&&response.status===400&&tokenField==='max_tokens'&&/max_completion_tokens|max_tokens/.test(message))continue;
+  if(protocol==='chat'&&response.status===400&&tokenField==='max_tokens'&&/max_completion_tokens|max_tokens/.test(rawMessage))continue;
   return {ok:false,status:response.status,message};
  }
  return {ok:false,status:400,message:''};
@@ -70,14 +71,23 @@ export async function detectProtocol(input:{baseURL:string;apiKey:string;model:s
  const hinted=/anthropic|claude/i.test(`${baseURL} ${model}`);
  const order:SourceProtocol[]=hinted?['messages','chat','responses']:['responses','chat','messages'];
  if(explicit){order.splice(order.indexOf(explicit),1);order.unshift(explicit);}
- // A bare host such as https://api.example.com usually means /v1.
- const bases=new URL(baseURL).pathname.replace(/\/+$/,'')===''?[`${baseURL}/v1`,baseURL]:/\/v\d+$/.test(new URL(baseURL).pathname)?[baseURL]:[baseURL,`${baseURL}/v1`];
+ // The supplied address wins; only bounded same-origin alternatives follow.
+ const bases=apiBaseCandidates(baseURL,hinted);
+ const deadline=AbortSignal.timeout(30000),requestSignal=AbortSignal.any([signal,deadline]);
  const failures:Probe[]=[];
  for(const base of bases)for(const protocol of order){
   if(signal.aborted)throw bad('已取消验证。','api_source_cancelled');
-  const result=await probe(protocol,base,input.apiKey.trim(),model,signal,onUsage);
-  if(result.ok)return {protocol,baseURL:base};
+  const result=await probe(protocol,base,input.apiKey.trim(),model,requestSignal,onUsage);
   if(signal.aborted)throw bad('已取消验证。','api_source_cancelled');
+  if(deadline.aborted)throw bad('模型协议验证超时，请稍后重试。','api_source_timeout');
+  if(result.ok)return {protocol,baseURL:base};
+  if(result.status===null)throw bad(result.message,'api_source_unreachable');
+  if(result.status===401||result.status===403)throw bad(`API Key 无效或没有权限（HTTP ${result.status}）。${result.message}`,'api_source_auth');
+  if(result.status===429)throw bad('接口限流（HTTP 429），请稍后重试。','api_source_rate_limited');
+  if(result.status===402)throw bad('接口额度不足（HTTP 402），请检查余额。','api_source_quota');
+  if((result.status===400||result.status===422)&&/insufficient.{0,20}(?:quota|balance|credit)|quota.{0,20}exceeded|余额不足|额度不足/i.test(result.message))throw bad('接口额度不足，请检查余额。','api_source_quota');
+  if(result.status>=500)throw bad(`上游服务暂不可用（HTTP ${result.status}），请稍后重试。`,'api_source_unavailable');
+  if(![200,201,400,404,405,415,422].includes(result.status))throw bad(`接口拒绝了请求（HTTP ${result.status}），请检查服务配置。`,'api_source_rejected');
   failures.push(result);
  }
  if(failures.every(f=>f.status===null))throw bad('无法连接或超时，请检查网络和 API 地址。','api_source_unreachable');

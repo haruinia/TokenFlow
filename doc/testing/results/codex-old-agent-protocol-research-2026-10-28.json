@@ -1,0 +1,170 @@
+{
+  "engineVersion": "0.165.0-alpha.1.2",
+  "scope": "Installed native engine with temporary HOME/CODEX_HOME, dummy API key and synthetic local SSE; no actual provider requests",
+  "initial": {
+    "status": "failed",
+    "httpStatus": 422,
+    "plaintextTaskVisible": false
+  },
+  "persistedMetadata": {
+    "sessionMeta": "v2",
+    "turnContexts": [
+      "v2",
+      "v2",
+      "v2",
+      "v2"
+    ]
+  },
+  "phases": [
+    {
+      "phase": "loaded-config-updated",
+      "newChildren": 1,
+      "protocol": "v2",
+      "childRequests": [
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        }
+      ],
+      "terminal": [
+        {
+          "root": true,
+          "status": "completed"
+        },
+        {
+          "root": false,
+          "status": "failed",
+          "httpStatus": 422
+        }
+      ]
+    },
+    {
+      "phase": "unsubscribe-resume",
+      "newChildren": 1,
+      "protocol": "v2",
+      "childRequests": [
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        }
+      ],
+      "terminal": [
+        {
+          "root": true,
+          "status": "completed"
+        },
+        {
+          "root": false,
+          "status": "failed",
+          "httpStatus": 422
+        }
+      ]
+    },
+    {
+      "phase": "restart-resume",
+      "newChildren": 1,
+      "protocol": "v2",
+      "childRequests": [
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        },
+        {
+          "encryptedAgentMessage": true,
+          "plaintextTaskVisible": false
+        }
+      ],
+      "terminal": [
+        {
+          "root": true,
+          "status": "completed"
+        },
+        {
+          "root": false,
+          "status": "failed",
+          "httpStatus": 422
+        }
+      ]
+    },
+    {
+      "phase": "fresh-thread-v1",
+      "newChildren": 1,
+      "protocol": "v1",
+      "childRequests": [
+        {
+          "encryptedAgentMessage": false,
+          "plaintextTaskVisible": true
+        }
+      ]
+    },
+    {
+      "phase": "offline-metadata-migration",
+      "protocol": "v1",
+      "childRequests": [
+        {
+          "encryptedAgentMessage": false,
+          "plaintextTaskVisible": true
+        }
+      ],
+      "changedMetadata": 5,
+      "unchangedResponseItemBytes": true
+    }
+  ],
+  "error": null
+}

@@ -760,13 +760,13 @@ it('keeps official Codex catalog metadata and ChatGPT authentication alongside g
  expect(first).toMatchObject({codexCoexist:true,officialModelSlugs:['gpt-fixture']});
  const current=parse(await readFile(paths.codex,'utf8')) as any;
  expect(current.model_providers.token_flow).toEqual({name:'TokenFlow',base_url:'http://127.0.0.1:9527/codex/v1',wire_api:'responses',http_headers:{'x-tokenflow-client-key':'gateway-key'},requires_openai_auth:true,supports_websockets:false,capabilities:{remote_compaction:'v2'}});
- const catalog=JSON.parse(await readFile(current.model_catalog_json,'utf8'));expect(catalog.models[0]).toEqual({...official.models[0],display_name:'OpenAI 官方 · gpt-fixture',multi_agent_version:'v1'});expect(catalog.models.map((model:any)=>model.slug)).toEqual(['gpt-fixture','fixture/gateway']);
+ const catalog=JSON.parse(await readFile(current.model_catalog_json,'utf8'));expect(catalog.models[0]).toEqual({...official.models[0],display_name:'gpt-fixture',multi_agent_version:'v1'});expect(catalog.models.map((model:any)=>model.slug)).toEqual(['gpt-fixture','fixture/gateway']);
  expect(catalog.tokenflow_gateway_models).toEqual(['fixture/gateway']);expect(await readFile(auth,'utf8')).toBe(login);
  current.model='gpt-fixture';current.profiles.work.model='gpt-fixture';await writeFile(paths.codex,stringify(current));
  expect((await connections.status())[0]).toMatchObject({configurationState:'configured',drift:false});expect((await connections.review(first.id)).checks.every(check=>check.ok)).toBe(true);
  current.model_providers.token_flow.http_headers['x-tokenflow-client-key']='external-key';await writeFile(paths.codex,stringify(current));expect((await connections.status())[0].drift).toBe(true);expect((await connections.review(first.id)).checks.find(check=>check.name==='客户端 Key 未被覆盖')?.ok).toBe(false);current.model_providers.token_flow.http_headers['x-tokenflow-client-key']='gateway-key';await writeFile(paths.codex,stringify(current));
  const probe=vi.fn(async()=>64000);await connections.refreshCodexCompactionLimits(probe);expect(probe).toHaveBeenCalledTimes(1);expect(probe).toHaveBeenCalledWith('fixture/gateway');
- expect(JSON.parse(await readFile(current.model_catalog_json,'utf8')).models[0]).toEqual({...official.models[0],display_name:'OpenAI 官方 · gpt-fixture',multi_agent_version:'v1'});
+ expect(JSON.parse(await readFile(current.model_catalog_json,'utf8')).models[0]).toEqual({...official.models[0],display_name:'gpt-fixture',multi_agent_version:'v1'});
  const second=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,replaceId:first.id,origin:'http://127.0.0.1:9527',...selections[0],selections,keyId:randomUUID(),key:'standalone-key'});
  const standalone=parse(await readFile(paths.codex,'utf8')) as any;expect(standalone.model_providers.token_flow.experimental_bearer_token).toBe('standalone-key');expect(standalone.model_providers.token_flow.http_headers).toBeUndefined();expect(standalone.model_providers.token_flow.requires_openai_auth).toBe(false);
  expect(standalone.model_providers.token_flow.capabilities).toBeUndefined();
@@ -789,4 +789,13 @@ it('keeps official direct and its login while declaring a separate local-summary
  expect(JSON.parse(await readFile(doc.model_catalog_json,'utf8')).models.slice(0,2)).toEqual(official.models);
  doc.model='gateway/test';doc.profiles.work.model='gateway/test';await writeFile(paths.codex,stringify(doc));expect((await connections.status())[0].configurationState).toBe('configured');expect((await connections.review(record.id)).checks.every(c=>c.ok)).toBe(true);
  const preview=await connections.restorePreview(record.id,'native');expect(preview.canRestore).toBe(true);await connections.restore(record.id,undefined,'native');expect(parse(await readFile(paths.codex,'utf8')).model_provider).toBe('openai');expect(await readFile(join(paths.codex,'../auth.json'),'utf8')).toBe(auth);
+});
+it.each([true,false,undefined])('restores native agent feature preference %s after unified mode, including profiles',async nativeV2=>{
+ const {paths,connections}=await setup();
+ const original={model:'native',developer_instructions:'User policy',profile:'work',features:{multi_agent:false,...(nativeV2===undefined?{}:{multi_agent_v2:nativeV2}),shell_tool:true},profiles:{work:{model:'native',developer_instructions:'Profile policy',features:{multi_agent:false}}}};
+ await writeFile(paths.codex,stringify(original));
+ const record=await connections.apply({target:'codex',revision:(await connections.status())[0].revision,origin:'http://127.0.0.1:9527',model:'fixture/child',sourceId:'s',keyId:randomUUID(),key:'fixture',officialCatalog:{models:[{slug:'native'}]}});
+ expect(parse(await readFile(paths.codex,'utf8'))).toHaveProperty('features.multi_agent_v2',false);
+ await connections.restore(record.id,undefined,'native');const result:any=parse(await readFile(paths.codex,'utf8'));
+ expect(result.features).toEqual(original.features);expect(result.developer_instructions).toBe('User policy');expect(result.profiles.work.features).toEqual({multi_agent:false});expect(result.profiles.work.developer_instructions).toBe('Profile policy');
 });
