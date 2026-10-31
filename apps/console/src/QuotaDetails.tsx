@@ -24,7 +24,7 @@ export function quotaPresentation(quota:AccountQuota):{overview:DisplayWindow[];
 }
 
 const formatAmount = (value: number, unit?: string) => unit === 'USD' ? `$${value.toFixed(2)}` : `${Math.round(value).toLocaleString()}${unit ?? ''}`;
-const resetLabel = (iso: string,concise=false) => {
+export const resetLabel = (iso: string,concise=false) => {
   const ms = Date.parse(iso) - Date.now();
   if (Number.isNaN(ms)) return '';
   if (ms <= 0) return '已重置';

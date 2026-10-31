@@ -1,4 +1,5 @@
 import {ExpiredAccountNotice} from './ExpiredAccountNotice';
+import {QuotaPanel} from './QuotaPanel';
 import type {MaintenanceContext} from '../../../packages/core/src/maintenance-conversations';
 import {ThinkingFeedback,LoadingSkeleton,LoadError} from './LoadingState';
 import {SidebarDivider} from './SidebarDivider';
@@ -40,7 +41,8 @@ const used:[View,string,IconName][]=[['agents','本地 Agent','model'],['proxy',
 const secondary:[View,string,IconName][]=[['usage','用量总览','tokens'],['activity','活动','history'],['cleanup','文件清理','workspace'],['settings','设置','sliders']];
 
 function App(){
- const [view,setView]=useState<View>('agents');
+ const [view,setView]=useState<View>(()=>new URLSearchParams(window.location.search).get('view')==='accounts'?'accounts':'agents');
+ useEffect(()=>{const open=()=>setView('accounts');window.addEventListener('token-flow:open-accounts',open);return()=>window.removeEventListener('token-flow:open-accounts',open);},[]);
  const [pageSelections,setPageSelections]=useState<Partial<Record<View,MaintenanceContext>>>({});
  const setPageContext=useCallback((context:MaintenanceContext)=>setPageSelections(current=>({...current,[context.page]:context})),[]);
  const [theme,setTheme]=useState<'dark'|'light'>(()=>{try{return localStorage.getItem('token-flow.appearance')==='light'?'light':'dark';}catch{return 'dark';}});
@@ -154,4 +156,4 @@ function App(){
   <RepairChat selectionContext={pageSelections[view]} range={usage.range} page={view} accountContext={accountContext} local={local} session={repair} selectedAgent={selectedAgent} open={repairOpen} onToggle={setRepairOpen} onNew={()=>setRepair({id:Date.now()})}/>
  </div>;
 }
-createRoot(document.getElementById('root')!).render(<App/>);
+createRoot(document.getElementById('root')!).render(new URLSearchParams(window.location.search).get('panel')==='quota'?<QuotaPanel/>:<App/>);

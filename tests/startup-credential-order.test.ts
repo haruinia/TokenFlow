@@ -8,6 +8,7 @@ import {rememberedCredentialAccess,rememberCredentialAccess} from '../apps/deskt
 const fixture=vi.hoisted(()=>({
  root:'',events:[] as string[],available:true,decide:(_allowed:boolean)=>{},decision:Promise.resolve(false),
  paint:()=>{},painting:Promise.resolve(),openWorkspace:()=>{},workspaceReady:Promise.resolve(),
+ windowEvents:new Map<string,(event:{preventDefault:()=>void})=>void>(),
 }));
 const storage=vi.hoisted(()=>({
  isEncryptionAvailable:vi.fn(()=>{fixture.events.push('storage-available');return fixture.available;}),
@@ -27,7 +28,8 @@ vi.mock('electron',()=>({
  BrowserWindow:class{
   constructor(){fixture.events.push('workspace-create');}
   webContents={setWindowOpenHandler:vi.fn(),on:vi.fn(),session:{setPermissionRequestHandler:vi.fn()}};
-  on=vi.fn();
+  on=vi.fn((name:string,handler:(event:{preventDefault:()=>void})=>void)=>fixture.windowEvents.set(name,handler));
+  hide(){fixture.events.push('workspace-hide');}
   async loadURL(){fixture.events.push('workspace-loading');await fixture.workspaceReady;fixture.events.push('workspace-loaded');}
   show(){fixture.events.push('workspace-show');}
   focus(){fixture.events.push('workspace-focus');}
@@ -55,11 +57,21 @@ const recorder=vi.hoisted(()=>({options:[] as {allowOfficial:boolean}[]}));
 vi.mock('../packages/core/src/codex-reconciliation-monitor.js',()=>({CodexReconciliationMonitor:class {constructor(options:{allowOfficial:boolean}){recorder.options.push(options);}enableOfficial(){fixture.events.push('recorder-enable-official');}async start(){fixture.events.push('recorder-start');}async close(){fixture.events.push('recorder-stop');}}}));
 
 beforeEach(async()=>{
+ fixture.windowEvents.clear();
  vi.resetModules();vi.clearAllMocks();recorder.options=[];fixture.root=await mkdtemp(join(tmpdir(),'tokenflow-startup-order-'));fixture.events=[];
  await mkdir(join(fixture.root,'secrets'));await writeFile(join(fixture.root,'secrets/cliproxy.bin'),'fixture-local-key');
  fixture.decision=new Promise(resolve=>{fixture.decide=resolve;});
  fixture.painting=new Promise(resolve=>{fixture.paint=resolve;});
  fixture.workspaceReady=new Promise(resolve=>{fixture.openWorkspace=resolve;});
+});
+
+it('closing the workspace keeps the service and Dock available in the background',async()=>{
+ fixture.available=true;await rememberCredentialAccess(fixture.root,true);
+ await import('../apps/desktop/src/main.js');fixture.paint();fixture.openWorkspace();
+ await expect.poll(()=>fixture.events.includes('startup-close')).toBe(true);
+ const preventDefault=vi.fn();fixture.windowEvents.get('close')!({preventDefault});
+ expect(preventDefault).toHaveBeenCalledOnce();expect(fixture.events).toContain('workspace-hide');
+ expect(fixture.events).not.toContain('recorder-stop');expect(errors).not.toHaveBeenCalled();
 });
 afterEach(async()=>{await rm(fixture.root,{recursive:true,force:true});});
 

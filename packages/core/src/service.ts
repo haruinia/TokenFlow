@@ -1,4 +1,5 @@
 import {codexInactivePath,codexInactiveMessage} from './codex-inactive-provider.js';
+import {accountQuotaSnapshot} from './account-quota-snapshot.js';
 import {CodexSwitchProgress} from './codex-switch-progress.js';
 import {CodexApiAccess} from './codex-api-access.js';
 import {ClaudeApiDirect} from './claude-api-direct.js';
@@ -1171,6 +1172,10 @@ export async function createDesktopService(options:ServiceOptions) {
     }finally{reply.raw.off('close',cancel);}
   });
   app.get('/api/local-agent',localSnapshot);
+  const quotaSnapshot=()=>accountQuotaSnapshot({...proxy.snapshot(),accountsLoading:discovery.state==='loading'||proxy.isLoadingAccounts()});
+  app.get('/api/account-quotas',quotaSnapshot);
+  // Explicit refresh reuses saved credentials and quota single-flight; no discovery/import.
+  app.post('/api/account-quotas/refresh',async()=>{await localOperation(()=>proxy.refreshQuota());return quotaSnapshot();});
   app.post('/api/local-agent/network-check',async()=>{await proxy.checkNetwork();return localSnapshot();});
   app.get('/api/local-agent/gateway',async()=>proxy.gateway());
   app.put('/api/local-agent/gateway',async req=>{

@@ -17,6 +17,7 @@ import {claudeKeychain} from '../../../packages/core/src/claude-accounts.js';
 import {agentPaths} from '../../../packages/core/src/agent-connections.js';
 import {workspaceWindowOptions,windowsTitleBar} from './window-options.js';
 import {CodexReconciliationMonitor} from '../../../packages/core/src/codex-reconciliation-monitor.js';
+import {createQuotaPanel} from './quota-panel.js';
 
 const here=dirname(fileURLToPath(import.meta.url));
 if(process.argv.includes('--tokenflow-qoder-crypto')){void runQoderCrypto();}
@@ -36,6 +37,7 @@ async function start() {
   let window:BrowserWindow|undefined;
   let closing=false;
   let tray:Tray|undefined;
+  let quotaPanel:ReturnType<typeof createQuotaPanel>|undefined;
   await app.whenReady();
   if(process.platform==='win32')Menu.setApplicationMenu(null);
   const icon=join(here,'console','app-icon.png');
@@ -120,7 +122,6 @@ async function start() {
       if(closing)return;
       event.preventDefault();
       window?.hide();
-      if(process.platform==='darwin')app.dock?.hide();
     });
     window.on('closed',()=>{window=undefined;});
     await window.loadURL(address);
@@ -130,7 +131,18 @@ async function start() {
   const trayIcon=nativeImage.createFromPath(process.platform==='darwin'?join(here,'console','tray-icon.png'):icon).resize(process.platform==='darwin'?{width:18,height:18}:{width:32,height:32});
   if(process.platform==='darwin')trayIcon.setTemplateImage(true);
   tray=new Tray(trayIcon);
-  tray.setToolTip('TokenFlow');
+  tray.setToolTip('TokenFlow · 账号额度');
+  quotaPanel=createQuotaPanel({address,preload:join(here,'preload.cjs'),icon,tray});
+  const fromQuotaPanel=(event:Electron.IpcMainInvokeEvent)=>{
+    const panel=quotaPanel?.window();
+    return !!panel&&event.sender===panel.webContents&&event.senderFrame===panel.webContents.mainFrame&&new URL(event.senderFrame.url).origin===address;
+  };
+  ipcMain.handle('workspace:open',async(event,view:unknown)=>{
+    if(!fromQuotaPanel(event)||view!==undefined&&view!=='accounts')throw new Error('Workspace request denied');
+    quotaPanel?.hide();await show();
+    if(view==='accounts')window?.webContents.send('accounts:open');
+  });
+  ipcMain.handle('quota:hide',event=>{if(!fromQuotaPanel(event))throw new Error('Quota panel request denied');quotaPanel?.hide();});
   const trayMenu=Menu.buildFromTemplate([
     {label:'打开工作台',click:()=>{void show();}},
     {label:'维修师傅',click:()=>{void show().then(()=>window?.webContents.send('repair:open'));}},
@@ -139,8 +151,8 @@ async function start() {
     {label:'退出 TokenFlow',click:()=>app.quit()},
   ]);
   tray.on('right-click',()=>tray?.popUpContextMenu(trayMenu));
-  tray.on('click',()=>{void show();});
-  app.on('will-quit',()=>tray?.destroy());
+  tray.on('click',()=>{void quotaPanel?.toggle().catch(()=>show());});
+  app.on('will-quit',()=>{quotaPanel?.destroy();tray?.destroy();});
   app.on('second-instance',()=>{void show();});app.on('activate',()=>{void show();});
   // Keep the gateway and menu bar alive even if the workspace is destroyed.
   app.on('window-all-closed',()=>{});
