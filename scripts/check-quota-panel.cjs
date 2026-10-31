@@ -1,6 +1,6 @@
 // Run with Electron after building: electron scripts/check-quota-panel.cjs
 // Synthetic quota HTTP responses only. No production service or credentials.
-const {app,BrowserWindow,Tray,nativeImage,ipcMain}=require('electron');
+const {app,BrowserWindow,Tray,nativeImage,ipcMain,nativeTheme,Menu}=require('electron');
 const {createServer}=require('node:http');
 const {readFile,mkdir,writeFile,mkdtemp,rm}=require('node:fs/promises');
 const {join,resolve,extname}=require('node:path');
@@ -8,11 +8,11 @@ const {tmpdir}=require('node:os');
 const assert=require('node:assert/strict');
 const root=resolve(__dirname,'..'),out=join(root,'.tmp/quota-panel-check');
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
-let server,tray,panel,profile;
+let server,tray,panel,profile,backdrop;
 app.on('window-all-closed',()=>{});
 async function run(){
  profile=await mkdtemp(join(tmpdir(),'tokenflow-quota-panel-ui-'));app.setPath('userData',profile);
- await app.whenReady();await mkdir(out,{recursive:true});
+ await app.whenReady();Menu.setApplicationMenu(null);await mkdir(out,{recursive:true});
  const {build}=require('esbuild');
  await build({entryPoints:[join(root,'apps/desktop/src/quota-panel.ts')],bundle:true,platform:'node',format:'cjs',external:['electron'],outfile:join(out,'panel.cjs')});
  const {createQuotaPanel}=require(join(out,'panel.cjs'));
@@ -25,6 +25,8 @@ async function run(){
  snapshot.quotas.points={...quota('points','qoder',[]),windows:[{id:'plan',label:'套餐 Credits',unit:'Credits',used:150,limit:1000,remaining:850,usedPercent:15},{id:'addon',label:'加购 Credits',unit:'Credits',used:463.5,limit:500,remaining:36.5,usedPercent:92.7}]};
  snapshot.quotas.disabled=quota('disabled','codex',[['每周',20]]);
  snapshot.quotas.failed={...quota('failed','claude',[['每周',20]]),status:'error',error:'额度查询未通过认证，可刷新或重新授权。'};
+ accounts.push({id:'second-codex',provider:'codex',label:'Work · second@example.test',disabled:false});
+ snapshot.quotas['second-codex']=quota('second-codex','codex',[['Codex · 5 小时',34],['Codex · 7 天',65]]);
  let mode='ready',reads=0,writes=0;
  server=createServer(async(req,res)=>{
   const path=new URL(req.url,'http://127.0.0.1').pathname;
@@ -42,10 +44,17 @@ async function run(){
  tray.setToolTip('TokenFlow 额度面板 · 隔离验收');
  panel=createQuotaPanel({address,preload:join(root,'dist/preload.cjs'),icon:join(root,'dist/console/app-icon.png'),tray});
  ipcMain.handle('quota:hide',()=>panel.hide());
+ ipcMain.handle('quota:appearance',(_event,theme)=>panel.setAppearance(theme));
  await panel.toggle();let win=panel.window();
  const js=source=>win.webContents.executeJavaScript(source);
  async function until(source){for(let i=0;i<100;i++){if(await js(source))return;await delay(50);}throw Error(`UI wait failed: ${source}`);}
- await until('document.querySelectorAll(".tfQuotaPopoverAccount").length===4');
+ await until('document.querySelectorAll(".tfQuotaPopoverAccount").length===5');
+ assert.equal(await js('document.querySelectorAll(".tfQuotaPopoverGroup").length'),4);
+ assert.equal(await js('document.querySelector(".tfQuotaPopoverGroup").querySelectorAll(".tfQuotaPopoverAccount").length'),2);
+ assert.equal(await js('document.querySelector(".tfQuotaGroupHeading h2").textContent'),'Codex');
+ await until('document.documentElement.dataset.material!==undefined');
+ assert.equal(await js('document.documentElement.dataset.material==="glass"'),process.platform==='darwin'&&!nativeTheme.prefersReducedTransparency&&!nativeTheme.shouldUseHighContrastColors);
+ assert.equal(await js('getComputedStyle(document.querySelector(".tfQuotaPopoverBody")).backgroundColor'),'rgba(0, 0, 0, 0)');
  await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');await delay(150);
  assert.equal(writes,0);assert.ok(win.isVisible());assert.equal(BrowserWindow.getAllWindows().length,1);
  const errors=[];win.webContents.on('console-message',(_event,level,message)=>{if(level>=3)errors.push(message);});
@@ -54,7 +63,15 @@ async function run(){
  assert.equal(await js('document.body.textContent.includes("850 积分")&&document.body.textContent.includes("共 1,000 积分")&&document.body.textContent.includes("2 张")'),true);
  assert.equal(await js('/Disabled fixture|Failed auth fixture|高级模型|额度查询未通过认证/.test(document.body.textContent)'),false);
  await writeFile(join(out,'dark.png'),(await win.webContents.capturePage()).toPNG());
- await js('document.documentElement.dataset.theme="light"');await delay(100);
+ if(process.argv.includes('--preview')){
+  const bounds=win.getBounds();
+  backdrop=new BrowserWindow({x:bounds.x-80,y:bounds.y,width:600,height:680,show:false,frame:false,skipTaskbar:true,webPreferences:{sandbox:true}});
+  await backdrop.loadURL('data:text/html,'+encodeURIComponent('<html><style>body{margin:0;height:100vh;background:linear-gradient(130deg,#38566f 4%,#416c67 38%,#a27e64 72%,#bd967c);display:grid;place-items:center;font:28px system-ui;color:#ffffff55}div{padding:40px;border:1px solid #ffffff35;border-radius:35px}</style><body><div>TokenFlow · material preview</div></body></html>'));
+  backdrop.show();await delay(250);await panel.toggle();win.setTitle('TokenFlow · 额度玻璃验收');
+  console.log(JSON.stringify({preview:true,pid:process.pid,bounds:win.getBounds(),profile}));
+  await new Promise(resolve=>process.once('SIGTERM',resolve));return;
+ }
+ await js('document.documentElement.dataset.theme="light";window.desktop.setQuotaAppearance("light")');await delay(150);
  await writeFile(join(out,'light.png'),(await win.webContents.capturePage()).toPNG());
  await js('document.querySelector("button[aria-label=刷新额度]").click()');
  await until('document.body.textContent.includes("80%")');assert.equal(writes,1);
@@ -74,8 +91,8 @@ async function run(){
  await writeFile(join(out,'error.png'),(await win.webContents.capturePage()).toPNG());
  await js('window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"}))');await delay(100);assert.equal(win.isVisible(),false);
  assert.deepEqual(errors,[]);
- const result={passed:true,readOnlyOnOpen:true,explicitRefresh:true,reusesWindow:true,blurDismiss:true,hiddenPollingStopped:true,escapeDismiss:true,invalidAccountsHidden:true,zeroQuotaVisible:true,creditsAndResetCards:true,noFooterActions:true,consoleErrors:errors};
+ const result={passed:true,providerGrouping:true,nativeGlass:process.platform==='darwin'&&!nativeTheme.prefersReducedTransparency&&!nativeTheme.shouldUseHighContrastColors,readOnlyOnOpen:true,explicitRefresh:true,reusesWindow:true,blurDismiss:true,hiddenPollingStopped:true,escapeDismiss:true,invalidAccountsHidden:true,zeroQuotaVisible:true,creditsAndResetCards:true,noFooterActions:true,consoleErrors:errors};
  await writeFile(join(out,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }
-async function cleanup(){panel?.destroy();tray?.destroy();server?.close();if(profile)await rm(profile,{recursive:true,force:true});}
+async function cleanup(){panel?.destroy();backdrop?.destroy();tray?.destroy();server?.close();if(profile)await rm(profile,{recursive:true,force:true});}
 run().then(async()=>{await cleanup();app.exit(0);}).catch(async error=>{console.error(error);await cleanup();app.exit(1);});

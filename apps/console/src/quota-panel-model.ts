@@ -32,3 +32,15 @@ export function panelQuotaAccounts(snapshot?:AccountQuotaSnapshot){
   return [{account,quota,windows,provider:snapshot.providers.find(item=>item.id===account.provider)?.label??account.provider}];
  });
 }
+
+/** Stable provider order; grouping never combines balances across accounts. */
+export function panelQuotaGroups(snapshot?:AccountQuotaSnapshot){
+ const groups=new Map<string,{id:string;label:string;accounts:ReturnType<typeof panelQuotaAccounts>}>();
+ for(const row of panelQuotaAccounts(snapshot)){
+  const id=row.account.provider;
+  const group=groups.get(id)??{id,label:row.provider,accounts:[]};
+  group.accounts.push(row);groups.set(id,group);
+ }
+ const order=new Map(snapshot?.providers.map((provider,index)=>[provider.id,index]));
+ return [...groups.values()].sort((a,b)=>(order.get(a.id)??Number.MAX_SAFE_INTEGER)-(order.get(b.id)??Number.MAX_SAFE_INTEGER));
+}

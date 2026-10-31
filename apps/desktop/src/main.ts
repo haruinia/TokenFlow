@@ -143,6 +143,10 @@ async function start() {
     if(view==='accounts')window?.webContents.send('accounts:open');
   });
   ipcMain.handle('quota:hide',event=>{if(!fromQuotaPanel(event))throw new Error('Quota panel request denied');quotaPanel?.hide();});
+  ipcMain.handle('quota:appearance',(event,theme:unknown)=>{
+    if(!fromQuotaPanel(event)||theme!=='dark'&&theme!=='light')throw new Error('Quota appearance request denied');
+    return quotaPanel!.setAppearance(theme);
+  });
   const trayMenu=Menu.buildFromTemplate([
     {label:'打开工作台',click:()=>{void show();}},
     {label:'维修师傅',click:()=>{void show().then(()=>window?.webContents.send('repair:open'));}},

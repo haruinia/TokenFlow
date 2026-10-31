@@ -1,5 +1,5 @@
 import {expect,it} from 'vitest';
-import {panelQuotaAccounts,panelQuotaWindow} from '../apps/console/src/quota-panel-model';
+import {panelQuotaAccounts,panelQuotaWindow,panelQuotaGroups} from '../apps/console/src/quota-panel-model';
 import type {AccountQuotaSnapshot} from '../packages/core/src/account-quota-snapshot';
 
 it('hides disabled, unauthenticated, failed and non-numeric quotas while keeping a real 0% balance',()=>{
@@ -21,4 +21,12 @@ it('does not manufacture a credit balance from a percentage or show an unallocat
  expect(panelQuotaWindow({id:'credits',label:'本周 credits',usedPercent:20})).toMatchObject({remainingPercent:80,credits:true,balance:undefined});
  expect(panelQuotaWindow({id:'empty',label:'组织',unit:'Credits',used:0,limit:0,usedPercent:null})).toBeUndefined();
  expect(panelQuotaWindow({id:'bad',label:'窗口',usedPercent:NaN})).toBeUndefined();
+});
+
+it('groups interleaved accounts by provider in catalog order without pooling their quotas',()=>{
+ const accounts:Array<{id:string;provider:'claude'|'codex';label:string;disabled:boolean}>=[{id:'claude-a',provider:'claude',label:'A',disabled:false},{id:'codex-a',provider:'codex',label:'B',disabled:false},{id:'claude-b',provider:'claude',label:'C',disabled:false}];
+ const snapshot:AccountQuotaSnapshot={accounts,loading:false,refreshing:false,providers:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude'}],quotas:Object.fromEntries(accounts.map((account,i)=>[account.id,{accountId:account.id,provider:account.provider,status:'ok',observedAt:'2026-10-31T12:00:00Z',windows:[{id:'primary',label:'5 小时',usedPercent:i*30}]}]))};
+ const groups=panelQuotaGroups(snapshot);
+ expect(groups.map(group=>group.id)).toEqual(['codex','claude']);expect(groups[1].accounts.map(row=>row.account.id)).toEqual(['claude-a','claude-b']);
+ expect(groups[1].accounts.map(row=>row.windows[0].remainingPercent)).toEqual([100,40]);expect(snapshot.accounts[0].id).toBe('claude-a');
 });
