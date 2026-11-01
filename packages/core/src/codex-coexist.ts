@@ -72,4 +72,4 @@ export function officialCodexHeaders(headers:Record<string,string|string[]|undef
  for(const name of ['chatgpt-account-id','openai-beta','user-agent','originator','version','session_id','session-id','conversation_id','x-codex-beta-features','x-codex-turn-metadata'])if(typeof headers[name]==='string')result[name]=headers[name] as string;
  return result;
 }
-export const officialCodexURL=(path:'responses'|'responses/compact')=>`https://chatgpt.com/backend-api/codex/${path}`;
+export const officialCodexURL=(path:'responses'|'responses/compact'|'images/generations'|'images/edits')=>`https://chatgpt.com/backend-api/codex/${path}`;

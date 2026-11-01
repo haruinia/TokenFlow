@@ -9,6 +9,7 @@ import {codexGatewayResponse} from './codex-response-protocol.js';
 import {nativeAgentDiscovery} from './codex-unified-agent-catalog.js';
 import {CodexBridgeInstallation} from './codex-bridge-installation.js';
 import {codexCoexistStatus,loadOfficialCodexCatalog,loadOfficialCodexCatalogForAuth,officialCodexHeaders,officialCodexURL,type OfficialCodexCatalog,type CodexOfficialFetch} from './codex-coexist.js';
+import {registerCodexOfficialImages} from './codex-official-images.js';
 import {gatewayDecoding} from './gateway-decoding.js';
 import {compactionModelWindow} from './initial-compaction.js';
 import {codexWebSearch} from './codex-web-search.js';
@@ -1262,6 +1263,10 @@ export async function createDesktopService(options:ServiceOptions) {
     }
   });
   app.addHook('preClose',async()=>{await access.close();});
+  registerCodexOfficialImages(app,{fetcher:options.codexOfficialFetch??inferenceFetch,record:call=>activity.record(call),authorize:headers=>{
+    const client=gatewayKeys.authenticate(typeof headers['x-tokenflow-client-key']==='string'?headers['x-tokenflow-client-key']:'');
+    return client&&fixedRoutes.get(client.id)?.codexCoexist?client.id:undefined;
+  }});
   const forwardOfficialCodex=async(req:import('fastify').FastifyRequest,reply:import('fastify').FastifyReply,path:'responses'|'responses/compact',client:NonNullable<ReturnType<typeof gatewayKeys.authenticate>>)=>{
     const headers=officialCodexHeaders(req.headers),started=Date.now(),abort=upstreamRequest(),trace=requestTrace(req.body);
     let details:ResponseObservation={tools:[]},recorded=false;const eventId=randomUUID(),metadata=usageRequestMetadata(req.headers,path,req.body,true);
