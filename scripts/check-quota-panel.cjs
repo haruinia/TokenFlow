@@ -64,6 +64,7 @@ async function run(){
  assert.equal(await js('/Disabled fixture|Failed auth fixture|高级模型|额度查询未通过认证/.test(document.body.textContent)'),false);
  await writeFile(join(out,'dark.png'),(await win.webContents.capturePage()).toPNG());
  if(process.argv.includes('--preview')){
+  if(process.argv.includes('--light'))await js('document.documentElement.dataset.theme="light";window.desktop.setQuotaAppearance("light")');
   const bounds=win.getBounds();
   backdrop=new BrowserWindow({x:bounds.x-80,y:bounds.y,width:600,height:680,show:false,frame:false,skipTaskbar:true,webPreferences:{sandbox:true}});
   await backdrop.loadURL('data:text/html,'+encodeURIComponent('<html><style>body{margin:0;height:100vh;background:linear-gradient(130deg,#38566f 4%,#416c67 38%,#a27e64 72%,#bd967c);display:grid;place-items:center;font:28px system-ui;color:#ffffff55}div{padding:40px;border:1px solid #ffffff35;border-radius:35px}</style><body><div>TokenFlow · material preview</div></body></html>'));
