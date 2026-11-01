@@ -46,6 +46,7 @@ async function run(){
  ipcMain.handle('quota:hide',()=>panel.hide());
  ipcMain.handle('quota:appearance',(_event,theme)=>panel.setAppearance(theme));
  await panel.toggle();let win=panel.window();
+ if(process.platform==='darwin')assert.equal(win.isVisibleOnAllWorkspaces(),true,'menu panel must join the current Space instead of activating its original desktop');
  const js=source=>win.webContents.executeJavaScript(source);
  async function until(source){for(let i=0;i<100;i++){if(await js(source))return;await delay(50);}throw Error(`UI wait failed: ${source}`);}
  await until('document.querySelectorAll(".tfQuotaPopoverAccount").length===5');
@@ -92,7 +93,7 @@ async function run(){
  await writeFile(join(out,'error.png'),(await win.webContents.capturePage()).toPNG());
  await js('window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"}))');await delay(100);assert.equal(win.isVisible(),false);
  assert.deepEqual(errors,[]);
- const result={passed:true,providerGrouping:true,nativeGlass:process.platform==='darwin'&&!nativeTheme.prefersReducedTransparency&&!nativeTheme.shouldUseHighContrastColors,readOnlyOnOpen:true,explicitRefresh:true,reusesWindow:true,blurDismiss:true,hiddenPollingStopped:true,escapeDismiss:true,invalidAccountsHidden:true,zeroQuotaVisible:true,creditsAndResetCards:true,noFooterActions:true,consoleErrors:errors};
+ const result={passed:true,currentSpacePanel:process.platform==='darwin'?win.isVisibleOnAllWorkspaces():null,providerGrouping:true,nativeGlass:process.platform==='darwin'&&!nativeTheme.prefersReducedTransparency&&!nativeTheme.shouldUseHighContrastColors,readOnlyOnOpen:true,explicitRefresh:true,reusesWindow:true,blurDismiss:true,hiddenPollingStopped:true,escapeDismiss:true,invalidAccountsHidden:true,zeroQuotaVisible:true,creditsAndResetCards:true,noFooterActions:true,consoleErrors:errors};
  await writeFile(join(out,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }
 async function cleanup(){panel?.destroy();backdrop?.destroy();tray?.destroy();server?.close();if(profile)await rm(profile,{recursive:true,force:true});}

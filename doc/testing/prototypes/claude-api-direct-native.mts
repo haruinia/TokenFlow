@@ -26,7 +26,7 @@ try{
   let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);const timeout=setTimeout(()=>child.kill('SIGKILL'),35000);child.on('close',code=>{clearTimeout(timeout);done({code,output})});
  });
  const result={passed:run.code===0&&run.output.includes('DIRECT_OK')&&calls.some(c=>c.path==='/tenant/anthropic/v1/messages'&&c.model==='fixture-direct-model'&&c.keyMatches),exitCode:run.code,calls,tokenflowRelay:false,providerRequests:0};
- await writeFile(resolve('doc/testing/results/claude-api-direct-native-2026-10-29.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
+ await writeFile(resolve(process.argv[3]??'doc/testing/results/claude-api-direct-native-2026-10-29.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
  if(!result.passed){console.error(run.output.slice(-1400));process.exitCode=1;}
  await manager.restore((await manager.status())!.revision);
 }finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));await rm(root,{recursive:true,force:true});}

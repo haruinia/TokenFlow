@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "exitCode": 0,
+  "calls": [
+    {
+      "path": "/tenant/anthropic/v1/messages",
+      "model": "fixture-direct-model",
+      "keyMatches": true
+    }
+  ],
+  "tokenflowRelay": false,
+  "providerRequests": 0
+}

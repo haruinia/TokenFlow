@@ -24,7 +24,9 @@ export function createQuotaPanel(options:{address:string;preload:string;icon:str
   if(requested||Date.now()-lastBlur<180){hide();return;}
   requested=true;
   if(!window){
-   const panel=new BrowserWindow({width:380,height:540,show:false,frame:false,resizable:false,minimizable:false,maximizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,...quotaPanelMaterialOptions(),title:'TokenFlow · 账号额度',icon:options.icon,
+   // A macOS panel joins all Spaces and can become key without activating the
+   // application. A regular window pulls the user back to the workspace's Space.
+   const panel=new BrowserWindow({width:380,height:540,show:false,frame:false,resizable:false,minimizable:false,maximizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,...(process.platform==='darwin'?{type:'panel'}:{}),...quotaPanelMaterialOptions(),title:'TokenFlow · 账号额度',icon:options.icon,
     webPreferences:{preload:options.preload,contextIsolation:true,nodeIntegration:false,sandbox:true}});
    window=panel;
    updateMaterial();nativeTheme.on('updated',updateMaterial);
@@ -41,7 +43,7 @@ export function createQuotaPanel(options:{address:string;preload:string;icon:str
   const anchor=options.tray.getBounds();
   const display=anchor.width?screen.getDisplayMatching(anchor):screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   window.setBounds(quotaPanelBounds(anchor,display.workArea));
-  window.show();window.focus();
+  window.show();
  };
  return {toggle,hide,window:()=>window,setAppearance:(theme:'dark'|'light')=>{if(nativeTheme.themeSource!==theme)nativeTheme.themeSource=theme;return updateMaterial();},destroy:()=>{requested=false;window?.destroy();}};
 }
