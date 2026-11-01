@@ -18,9 +18,9 @@ type File={path:string;size:number;signature:string;dev:number;ino:number;nlink:
 export class CodexBackupMaintenance {
  private digests=new Map<string,string>();
  constructor(private root:string,private idle:()=>Promise<void>){}
- async run():Promise<BackupMaintenanceResult>{return withCodexBackupLock(this.root,()=>this.runLocked());}
+ async run(options:{deduplicate?:boolean}={}):Promise<BackupMaintenanceResult>{return withCodexBackupLock(this.root,()=>this.runLocked(options.deduplicate!==false));}
  private async guard(){assertCodexBackupLock(this.root);await this.idle();}
- private async runLocked():Promise<BackupMaintenanceResult>{
+ private async runLocked(deduplicate:boolean):Promise<BackupMaintenanceResult>{
   await this.guard();
   const bases=['codex-thread-backups','codex-context-backups','codex-history-backups'].map(n=>resolve(this.root,n));
   const inside=(path:string)=>bases.some(base=>{const rel=relative(base,path);return rel!==''&&!isAbsolute(rel)&&rel!=='..'&&!rel.startsWith('..'+(process.platform==='win32'?'\\':'/'));});
@@ -98,7 +98,7 @@ export class CodexBackupMaintenance {
   const payloads=[...files.values()].filter(f=>/\.(jsonl|sqlite|delta)$/.test(f.path));
   const sizes=new Map<number,File[]>();for(const f of payloads){const list=sizes.get(f.size)??[];list.push(f);sizes.set(f.size,list);}
   const hashes=new Map<string,string>(),inodeHashes=new Map<string,string>();
-  for(const f of payloads){if((sizes.get(f.size)?.length??0)<2&&!expected.has(f.path))continue;await unchanged(f);const value=inodeHashes.get(f.signature)??await digest(f);inodeHashes.set(f.signature,value);hashes.set(f.path,value);if(expected.has(f.path)&&expected.get(f.path)!==value)throw fail();}
+  for(const f of deduplicate?payloads:[]){if((sizes.get(f.size)?.length??0)<2&&!expected.has(f.path))continue;await unchanged(f);const value=inodeHashes.get(f.signature)??await digest(f);inodeHashes.set(f.signature,value);hashes.set(f.path,value);if(expected.has(f.path)&&expected.get(f.path)!==value)throw fail();}
   const report:BackupMaintenanceResult={verifiedReferences:refs.size,sharedFiles:0,sharedLogicalBytes:0,removedUnreferencedFiles:0,removedLogicalBytes:0,hashedFiles,metadataReads:0};
   // Recheck every manifest/revision after hashing. Sharing preserves content and
   // every reference; interrupted sharing is safe and can be retried.

@@ -35,3 +35,17 @@ it('stores distributed same-length metadata edits without duplicating the interv
  expect(await h.read(a)).toEqual(original);expect(await new CodexHistoryBackups(root).read(b)).toEqual(edited);
  const c=await h.capture('/fixture/history',Buffer.concat([edited,Buffer.from('new turn')]));expect(await h.read(c)).toEqual(Buffer.concat([edited,Buffer.from('new turn')]));
 });
+it('reuses unchanged JSONL records across variable-length edits, insertions and removals',async()=>{
+ const root=await mkdtemp(join(await realpath(tmpdir()),'history-backup-'));roots.push(root);const h=new CodexHistoryBackups(root);
+ const lines=Array.from({length:20},(_,i)=>[JSON.stringify({model:'official-short',i}),JSON.stringify({text:'中🙂'.repeat(30000),i})]).flat();
+ const first=Buffer.from(lines.join('\n')+'\n'),changed=Buffer.from(lines.map(l=>l.replace('official-short','gateway/source/long-model-name')).join('\n')+'\n');
+ const a=await h.capture('/fixture/variable',first),b=await h.capture('/fixture/variable',changed);
+ expect((await stat(join(root,'codex-history-backups',b.key,b.revision+'.delta'))).size).toBeLessThan(10000);
+ const next=Buffer.from('new line\n'+changed.toString().split('\n').slice(2).join('\n'));
+ const c=await h.capture('/fixture/variable',next);
+ for(const [s,v] of [[a,first],[b,changed],[c,next]] as const)expect((await new CodexHistoryBackups(root).read(s)).equals(v)).toBe(true);
+ expect(await h.capture('/fixture/variable',first)).toEqual(a);
+ const metadataPath=join(root,'codex-history-backups',b.key,b.revision+'.json'),metadata=JSON.parse(await readFile(metadataPath,'utf8'));
+ metadata.pieces.find((p:{offset?:number})=>p.offset!==undefined).offset=first.length+1;await writeFile(metadataPath,JSON.stringify(metadata));
+ await expect(new CodexHistoryBackups(root).read(b)).rejects.toThrow('Invalid history backup copy');expect((await h.read(a)).equals(first)).toBe(true);
+});

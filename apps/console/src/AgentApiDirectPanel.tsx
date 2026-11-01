@@ -5,11 +5,12 @@ import {Icon} from './Icons';
 import {requestJSON} from './request';
 import type {ApiDirectConfig} from '../../../packages/core/src/api-direct-config';
 
-type Active=Awaited<ReturnType<ApiDirectConfig['status']>>;
+type DirectState=NonNullable<Awaited<ReturnType<ApiDirectConfig['status']>>>;
+type Active=Pick<DirectState,'sourceId'|'name'|'configured'>&Partial<DirectState>|null;
 type Choice={sourceId:string;name:string;models:string[];available:boolean};
 const post=(body:unknown)=>({method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
 const choiceId=(choice:Pick<Choice,'sourceId'>)=>choice.sourceId;
-export function AgentApiDirectPanel({target,active,busy,restartSupported,onChanged,onBusyChange,onNotice}:{target:'codex'|'claude';active?:Active;busy:boolean;restartSupported:boolean;onChanged:()=>Promise<void>;onBusyChange?:(busy:boolean)=>void;onNotice?:(text:string)=>void}){
+export function AgentApiDirectPanel({target,active,busy,restartSupported,onChanged,onBusyChange,onNotice}:{target:'codex'|'claude'|'claude-desktop';active?:Active;busy:boolean;restartSupported:boolean;onChanged:()=>Promise<void>;onBusyChange?:(busy:boolean)=>void;onNotice?:(text:string)=>void}){
  const [open,setOpen]=useState(false),[choices,setChoices]=useState<Choice[]>([]),[selected,setSelected]=useState(''),[stage,setStage]=useState(''),[error,setError]=useState('');
  const [applying,setApplying]=useState(false),[restoring,setRestoring]=useState(false);
  const progress=useSwitchProgress(applying&&target==='codex');
@@ -35,7 +36,7 @@ export function AgentApiDirectPanel({target,active,busy,restartSupported,onChang
   </div></li></ul>}
   <button className="textButton" aria-label="添加 API 直连" disabled={busy||!!stage} onClick={()=>void show()}><Icon name="plus" size={16}/>添加 API</button>
   <FlowDialog className={`tfRestartDialog tfSwitchDialog ${applying?'tfModelApplyDialog':''}`} open={open} title={applying?(restoring?'恢复原账号直连':'应用 API 直连'):'添加 API 直连'} busy={!!stage} showBusyIndicator={false} onClose={()=>setOpen(false)}>
-   {applying?<div className="tfModelApplyBody"><AgentSwitchProgress progress={progress} label={target==='claude'?stage:undefined}/></div>:<>
+   {applying?<div className="tfModelApplyBody"><AgentSwitchProgress progress={progress} label={target!=='codex'?stage:undefined}/></div>:<>
    <label>API 来源<select value={selected} disabled={!!stage} onChange={e=>{setSelected(e.target.value);setError('');}}><option value="">选择已保存的 API</option>{choices.map(c=><option key={choiceId(c)} value={choiceId(c)} disabled={!c.available}>{c.name}{!c.available?'（需通过网关）':''}</option>)}</select></label>
    {!choices.length&&!stage&&!error&&<p className="tfHint">请先在“API 接口”添加来源。</p>}
    {stage&&<p role="status">{stage}</p>}{error&&<p role="alert" className="tfError">{error}</p>}

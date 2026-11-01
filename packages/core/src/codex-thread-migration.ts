@@ -198,7 +198,10 @@ export class CodexThreadMigration {
  private maintenanceRunner?:CodexBackupMaintenance;
  private async maintainBackups(){
   this.report('references','正在核对备份引用');
-  try{this.maintenanceRunner??=new CodexBackupMaintenance(this.root,()=>this.idle());this.backupMaintenance={state:'complete',result:await this.maintenanceRunner.run()};}
+  // Routing verifies references and collects unpublished payloads. Comparing
+  // every historical SQLite snapshot is storage maintenance, not a switch prerequisite.
+  // Snapshots actually read/captured still validate their complete content hashes.
+  try{this.maintenanceRunner??=new CodexBackupMaintenance(this.root,()=>this.idle());this.backupMaintenance={state:'complete',result:await this.maintenanceRunner.run({deduplicate:false})};}
   catch(error){
    if(error instanceof RunnerCoreError&&error.code==='codex_exit_required')throw error;
    // Maintenance is not a prerequisite for routing: failed reference checks

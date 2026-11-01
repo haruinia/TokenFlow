@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {requestJSON} from './request';
 
-export type ClaudeDesktopStatus={revision:string;connected:boolean;mode:string;configurationChanged?:boolean;mappingUpdateRequired?:boolean;backup:{state:string}|null;selections:{model:string;sourceId:string}[];fastModel?:string;unavailableReason:string;pids:number[];automaticRestart:boolean;installation:{installed:boolean;version?:string;download?:string};message?:string};
+export type ClaudeDesktopStatus={revision:string;connected:boolean;mode:string;apiDirect?:{sourceId:string;name:string;model:string;configured:boolean}|null;configurationChanged?:boolean;mappingUpdateRequired?:boolean;backup:{state:string}|null;selections:{model:string;sourceId:string}[];fastModel?:string;unavailableReason:string;pids:number[];automaticRestart:boolean;installation:{installed:boolean;version?:string;download?:string};message?:string};
 
 export function useClaudeDesktopStatus(enabled:boolean){
  const [status,setStatus]=useState<ClaudeDesktopStatus>();

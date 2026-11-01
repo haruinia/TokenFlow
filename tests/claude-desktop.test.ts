@@ -17,6 +17,26 @@ async function fixture(){
  const connect=async(model='claude/claude-sonnet-4-6')=>connections.connect({revision:(await connections.status()).revision,selections:[{sourceId,model}],keyId:randomUUID(),key:'fixture-scoped-key',origin:'http://127.0.0.1:9527'});
  return {root,directory,vault,secrets,connections,connect,meta,mode,running:(v:number[])=>pids=v,managed:()=>policyError=true,fail:(n:number)=>failSave=n,journal:()=>JSON.parse(vault.get(secretName)!)};
 }
+it('switches Desktop API sources independently of official login and gateway aliases, then restores native mode',async()=>{
+ const f=await fixture();await writeFile(f.mode,JSON.stringify({deploymentMode:'1p',locale:'zh-CN'}));await f.connect();
+ const selection={sourceId,name:'Fixture API',baseURL:'https://example.test/tenant/anthropic/v1',apiKey:'fixture-direct-key',model:'claude-sonnet-4-6',models:[{id:'claude-sonnet-4-6'},{id:'claude-haiku-4-5'}]};
+ await f.connections.connectApi({revision:(await f.connections.status()).revision,selection});
+ expect(await f.connections.route()).toBeNull();const state=await f.connections.status();
+ expect(state).toMatchObject({connected:false,mappingUpdateRequired:false,apiDirect:{sourceId,name:'Fixture API',configured:true}});
+ expect(JSON.stringify(state)).not.toContain(selection.apiKey);
+ const profile=JSON.parse(await readFile(join(f.directory,'configLibrary',f.journal().id+'.json'),'utf8'));
+ expect(profile).toMatchObject({inferenceGatewayBaseUrl:'https://example.test/tenant/anthropic',inferenceGatewayAuthScheme:'x-api-key',inferenceGatewayApiKey:selection.apiKey});
+ expect(profile.inferenceModels.map((m:any)=>m.name)).toEqual(selection.models.map(m=>m.id));expect(JSON.stringify(profile)).not.toContain('tokenflow-');
+ await f.connections.restore(state.revision,'native');expect(JSON.parse(await readFile(f.mode,'utf8'))).toEqual({deploymentMode:'1p',locale:'zh-CN'});
+ await f.connections.connectApi({revision:(await f.connections.status()).revision,selection});await f.connect();
+ expect((await f.connections.status()).apiDirect).toBeNull();expect(await f.connections.route()).not.toBeNull();
+ await f.connections.connectApi({revision:(await f.connections.status()).revision,selection});await f.connections.detachSource(sourceId);expect((await f.connections.status()).apiDirect).toBeNull();
+});
+it('rejects Desktop API models needing gateway translation before changing any files',async()=>{
+ const f=await fixture(),before=await f.connections.status();
+ await expect(f.connections.connectApi({revision:before.revision,selection:{sourceId,name:'DeepSeek',baseURL:'https://example.test/v1',apiKey:'fixture',model:'deepseek-chat'}})).rejects.toThrow('Claude');
+ expect((await f.connections.status()).revision).toBe(before.revision);expect(f.vault.size).toBe(0);
+});
 it('uses platform-native directories, including LocalAppData instead of roaming on Windows',()=>{
  expect(claudeDesktopDirectory('darwin','/Users/test',{})).toBe('/Users/test/Library/Application Support/Claude-3p');
  expect(claudeDesktopDirectory('win32','C:\\Users\\test',{LOCALAPPDATA:'D:\\Local',APPDATA:'D:\\Roaming'})).toBe('D:\\Local\\Claude-3p');

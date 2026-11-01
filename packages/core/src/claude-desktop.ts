@@ -11,6 +11,8 @@ import {nativeDigest as digest,nativeConflict as conflict,writePrivate} from './
 import {macAppIdentity} from './agent-lifecycle.js';
 import {WindowsAgentLifecycle,electronPackageName} from './windows-agent-lifecycle.js';
 import type {Secrets} from './service.js';
+import type {DirectApiSelection} from './api-direct-config.js';
+import {claudeDesktopApiProfile} from './claude-desktop-api.js';
 const exec=promisify(execFile);
 const secretName='native-login-claude-desktop';
 export type ClaudeDesktopOptions={directory?:string;platform?:NodeJS.Platform;env?:NodeJS.ProcessEnv;processes?:()=>Promise<number[]>;policy?:()=>Promise<void>};
@@ -25,7 +27,8 @@ const fields=(meta:Record<string,any>)=>({appliedId:meta.appliedId??null,hybridP
 const mergeFields=(raw:string|null,values:Record<string,unknown>)=>{const doc=parse(raw);for(const [k,v] of Object.entries(values))if(v===null)delete doc[k];else doc[k]=v;return Object.keys(doc).length?encode(doc):raw===null?null:'{}\n';};
 const snapshot=z.object({meta:z.string().nullable(),mode:z.string().nullable(),profile:z.string().nullable()});
 const desktopSelections=z.array(modelSelectionSchema).min(1).max(claudeDesktopModelLimit).refine(items=>new Set(items.map(i=>i.model)).size===items.length,'每个模型只能选择一个来源账号');
-const journalSchema=z.object({directory:z.string(),id:z.string().uuid(),before:snapshot,after:snapshot,rollback:snapshot.optional(),keyId:z.string().uuid(),selections:desktopSelections,fastModel:z.string().min(1).max(300).optional(),modelAliases:z.record(z.string().min(1).max(80),z.string().min(1).max(300)).optional(),state:z.enum(['prepared','applied','restored']),createdAt:z.string(),restoring:z.boolean().optional()});
+const directSchema=z.object({sourceId:z.string(),name:z.string(),model:z.string(),baseURL:z.string()});
+const journalSchema=z.object({directory:z.string(),id:z.string().uuid(),before:snapshot,after:snapshot,rollback:snapshot.optional(),keyId:z.string().uuid().optional(),direct:directSchema.optional(),selections:desktopSelections,fastModel:z.string().min(1).max(300).optional(),modelAliases:z.record(z.string().min(1).max(80),z.string().min(1).max(300)).optional(),state:z.enum(['prepared','applied','restored']),createdAt:z.string(),restoring:z.boolean().optional()}).refine(j=>!!j.direct!==!!j.keyId);
 type Snapshot=z.infer<typeof snapshot>;
 type Journal=z.infer<typeof journalSchema>;
 export async function claudeDesktopProcesses():Promise<number[]>{
@@ -61,7 +64,8 @@ export class ClaudeDesktopConnections{
  private paths(id:string){return {meta:join(this.directory,'configLibrary','_meta.json'),mode:join(this.directory,'claude_desktop_config.json'),profile:join(this.directory,'configLibrary',`${id}.json`)};}
  private async journal(){const text=await this.secrets.get(secretName);if(!text)return null;try{const j=journalSchema.parse(JSON.parse(text));if(j.directory!==this.directory)throw Error();return j;}catch{throw conflict('Claude Desktop 接入备份与当前目录不匹配，未修改配置。');}}
  private save(j:Journal){return this.secrets.set(secretName,JSON.stringify(j));}
- async route(){const j=await this.journal();return j&&j.state!=='restored'?{keyId:j.keyId,selections:j.selections,fastModel:j.fastModel,modelAliases:j.modelAliases}:null;}
+ async route(){const j=await this.journal();return j&&j.keyId&&!j.direct&&j.state!=='restored'?{keyId:j.keyId,selections:j.selections,fastModel:j.fastModel,modelAliases:j.modelAliases}:null;}
+ async directSource(){const j=await this.journal();return j&&j.state!=='restored'?j.direct??null:null;}
  private async read(id:string){const paths=this.paths(id);return {meta:await readConfig(paths.meta),mode:await readConfig(paths.mode),profile:await readConfig(paths.profile)};}
  private async policy(){
   if(this.secrets.canEncrypt&&!this.secrets.canEncrypt()||this.secrets.persistent===false)throw conflict('系统安全存储不可用，无法保存原配置备份。');
@@ -72,12 +76,12 @@ export class ClaudeDesktopConnections{
   const journal=await this.journal(),state=await this.read(journal?.id??'00000000-0000-0000-0000-000000000000');
   const meta=parse(state.meta),mode=parse(state.mode);let unavailableReason='';try{await this.policy();}catch(e){unavailableReason=e instanceof Error?e.message:'无法检查 Claude Desktop 配置';}
   const active=journal&&journal.state!=='restored'?journal:null;
-  const mappingUpdateRequired=!!active&&claudeDesktopPlan(active.selections,{},active.fastModel).visible.some(item=>active.modelAliases?.[item.name]!==item.model);
+  const mappingUpdateRequired=!!active&&!active.direct&&claudeDesktopPlan(active.selections,{},active.fastModel).visible.some(item=>active.modelAliases?.[item.name]!==item.model);
   const selectorsMatch=!!active&&meta.appliedId===active.id&&!meta.hybridPointer&&mode.deploymentMode==='3p';
   let profileMatches=false;
   if(active&&state.profile!==null)try{profileMatches=isDeepStrictEqual(parse(state.profile),parse(active.after.profile));}catch{/* Invalid external profiles can still be explicitly reapplied. */}
   const configurationChanged=!!active&&active.state==='applied'&&(!selectorsMatch||!profileMatches);
-  return {revision:digest(state),mode:mode.deploymentMode??'1p',connected:selectorsMatch&&profileMatches,configurationChanged,mappingUpdateRequired,backup:active?{state:active.state,createdAt:active.createdAt}:null,selections:active?.selections??[],fastModel:active?.fastModel,keyId:active?.keyId,unavailableReason,pids:await (this.options.processes??claudeDesktopProcesses)()};
+  return {revision:digest(state),mode:mode.deploymentMode??'1p',connected:!active?.direct&&selectorsMatch&&profileMatches,apiDirect:active?.direct?{...active.direct,configured:selectorsMatch&&profileMatches}:null,configurationChanged,mappingUpdateRequired,backup:active?{state:active.state,createdAt:active.createdAt}:null,selections:active?.direct?[]:active?.selections??[],fastModel:active?.fastModel,keyId:active?.keyId,unavailableReason,pids:await (this.options.processes??claudeDesktopProcesses)()};
  }
  async check(revision:string){await this.policy();const state=await this.status();if(state.revision!==revision)throw conflict('Claude Desktop 配置已变化，请刷新后重试。');return state;}
  private async locked<T>(work:()=>Promise<T>){
@@ -93,25 +97,33 @@ export class ClaudeDesktopConnections{
   const selections=desktopSelections.parse(input.selections);
   let plan;try{plan=claudeDesktopPlan(selections,input.labels,input.fastModel);}catch(error){throw conflict(error instanceof Error?error.message:'Claude Desktop 模型过多。');}
   const origin=new URL(input.origin);if(origin.protocol!=='http:'||!['127.0.0.1','localhost','[::1]'].includes(origin.hostname))throw conflict('Claude Desktop 接入只允许本机网关。');
+  return this.applyProfile({...input,selections,name:'TokenFlow',modelAliases:plan.aliases,profile:{inferenceGatewayApiKey:input.key,inferenceGatewayAuthScheme:'bearer',inferenceGatewayBaseUrl:origin.origin,inferenceProvider:'gateway',inferenceModels:plan.visible.map(item=>({name:item.name,labelOverride:item.label,...(item.familyDefault?{anthropicFamilyTier:'sonnet',isFamilyDefault:true}:{})})),coworkEgressAllowedHosts:['*'],disableDeploymentModeChooser:true}});
+ }
+ async connectApi(input:{revision:string;selection:DirectApiSelection;allowRunning?:boolean}){
+  const profile=claudeDesktopApiProfile(input.selection),{sourceId,name,model,baseURL}=input.selection;
+  return this.applyProfile({revision:input.revision,allowRunning:input.allowRunning,name,selections:profile.inferenceModels.map(m=>({sourceId,model:m.name})),direct:{sourceId,name,model,baseURL},profile});
+ }
+ private async applyProfile(input:{revision:string;allowRunning?:boolean;name:string;selections:ModelSelection[];keyId?:string;direct?:z.infer<typeof directSchema>;fastModel?:string;modelAliases?:Record<string,string>;profile:Record<string,unknown>}){
   return this.locked(async()=>{
    await this.check(input.revision);if(!input.allowRunning&&(await (this.options.processes??claudeDesktopProcesses)()).length)throw conflict('请先完全退出 Claude Desktop，再应用模型配置。');
    const previous=await this.journal();if(previous?.state==='prepared')throw conflict('上次 Claude Desktop 接入未完成，请先切回官方后重试。');
    const active=previous?.state==='applied'?previous:null,id=active?.id??randomUUID(),before=await this.read(id);
    const meta=parse(before.meta);if(meta.entries!==undefined&&!Array.isArray(meta.entries))throw conflict('Claude Desktop 配置目录格式异常，未修改。');
-   const entries=(meta.entries??[]).filter((e:any)=>e?.id!==id);entries.push({id,name:'TokenFlow'});delete meta.hybridPointer;meta.appliedId=id;meta.entries=entries;
-   const after={meta:encode(meta),mode:mergeFields(before.mode,{deploymentMode:'3p'}),profile:encode({inferenceGatewayApiKey:input.key,inferenceGatewayAuthScheme:'bearer',inferenceGatewayBaseUrl:origin.origin,inferenceProvider:'gateway',inferenceModels:plan.visible.map(item=>({name:item.name,labelOverride:item.label,...(item.familyDefault?{anthropicFamilyTier:'sonnet',isFamilyDefault:true}:{})})),coworkEgressAllowedHosts:['*'],disableDeploymentModeChooser:true})};
-   const journal:Journal={directory:this.directory,id,before:active?.before??before,after,rollback:before,keyId:input.keyId,selections,fastModel:input.fastModel,modelAliases:plan.aliases,state:'prepared',createdAt:active?.createdAt??new Date().toISOString()};await this.save(journal);
+   const entries=(meta.entries??[]).filter((e:any)=>e?.id!==id);entries.push({id,name:input.name});delete meta.hybridPointer;meta.appliedId=id;meta.entries=entries;
+   const after={meta:encode(meta),mode:mergeFields(before.mode,{deploymentMode:'3p'}),profile:encode(input.profile)};
+   const journal:Journal={directory:this.directory,id,before:active?.before??before,after,rollback:before,keyId:input.keyId,direct:input.direct,selections:input.selections,fastModel:input.fastModel,modelAliases:input.modelAliases,state:'prepared',createdAt:active?.createdAt??new Date().toISOString()};await this.save(journal);
    try{await this.replace(id,before,after);journal.state='applied';await this.save(journal);}catch(error){if(digest(await this.read(id))===digest(before)){if(previous)await this.save(previous);else await this.secrets.set(secretName,'');}throw error;}
    return this.status();
   });
  }
  async detachSource(sourceId:string){
   const journal=await this.journal();if(!journal||journal.state!=='applied'||!journal.selections.some(item=>item.sourceId===sourceId))return;
+  if(journal.direct){await this.restore((await this.status()).revision,'native',true);return;}
   const selections=journal.selections.filter(item=>item.sourceId!==sourceId),status=await this.status();
   if(!selections.length){await this.restore(status.revision,'native',true);return;}
   const profile=parse(journal.after.profile);
   const labels=Object.fromEntries((profile.inferenceModels??[]).map((item:any)=>[journal.modelAliases?.[item.name]??item.name,item.labelOverride??item.name]));
-  await this.connect({revision:status.revision,selections,fastModel:selections.some(item=>item.model===journal.fastModel)?journal.fastModel:undefined,keyId:journal.keyId,key:profile.inferenceGatewayApiKey,origin:profile.inferenceGatewayBaseUrl,labels,allowRunning:true});
+  await this.connect({revision:status.revision,selections,fastModel:selections.some(item=>item.model===journal.fastModel)?journal.fastModel:undefined,keyId:journal.keyId!,key:profile.inferenceGatewayApiKey,origin:profile.inferenceGatewayBaseUrl,labels,allowRunning:true});
  }
  async restore(revision:string,destination:'previous'|'native'='previous',allowRunning=false){return this.locked(async()=>{
   await this.check(revision);if(!allowRunning&&(await (this.options.processes??claudeDesktopProcesses)()).length)throw conflict('请先完全退出 Claude Desktop，再停用网关。');

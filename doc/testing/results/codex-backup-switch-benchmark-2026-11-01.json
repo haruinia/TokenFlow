@@ -1,0 +1,25 @@
+{
+  "synthetic": true,
+  "historicalDatabaseBytes": 201326592,
+  "full": {
+    "ms": 227,
+    "verifiedReferences": 12,
+    "sharedFiles": 0,
+    "sharedLogicalBytes": 0,
+    "removedUnreferencedFiles": 0,
+    "removedLogicalBytes": 0,
+    "hashedFiles": 12,
+    "metadataReads": 0
+  },
+  "switching": {
+    "ms": 21,
+    "verifiedReferences": 12,
+    "sharedFiles": 0,
+    "sharedLogicalBytes": 0,
+    "removedUnreferencedFiles": 0,
+    "removedLogicalBytes": 0,
+    "hashedFiles": 0,
+    "metadataReads": 0
+  },
+  "sameReferences": true
+}

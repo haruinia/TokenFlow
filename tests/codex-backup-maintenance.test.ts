@@ -34,6 +34,17 @@ it('retains distinct database snapshots and removes only unreferenced unpublishe
   expect((await history.read(s)).toString()).toBe('saved');await expect(stat(orphan)).rejects.toMatchObject({code:'ENOENT'});
  }finally{await f.close();}
 });
+it('checks references and removes unpublished payloads during switching without hashing historical databases',async()=>{
+ const f=await fixture();try{
+  const h=new CodexHistoryBackups(f.root),s=await h.capture('/fixture/rollout',Buffer.from('saved'));
+  const orphan=join(f.root,'codex-history-backups',s.key,'b'.repeat(64)+'.delta');await writeFile(orphan,'unpublished');
+  const r=await new CodexBackupMaintenance(f.root,async()=>{}).run({deduplicate:false});
+  expect(r).toMatchObject({hashedFiles:0,metadataReads:0,sharedFiles:0,removedUnreferencedFiles:1});
+  expect(r.verifiedReferences).toBeGreaterThan(0);expect((await h.read(s)).toString()).toBe('saved');
+  const mpath=join(f.dirs[1]!,'manifest.json'),m=JSON.parse(await readFile(mpath,'utf8'));m.entries[0].historyBackup={journalId:randomUUID(),file:'0.jsonl'};await writeFile(mpath,JSON.stringify(m));
+  await expect(new CodexBackupMaintenance(f.root,async()=>{}).run({deduplicate:false})).rejects.toMatchObject({code:'codex_backup_reference_conflict'});
+ }finally{await f.close();}
+});
 it('does not rehash unchanged backups or inspect ACLs for distinct content, but detects later changes',async()=>{
  const f=await fixture();try{
   for(const [i,dir] of f.dirs.entries()){await writeFile(join(dir,'0.jsonl'),`history-${i}`);await writeFile(join(dir,'state_5.sqlite'),`database-${i}`);}

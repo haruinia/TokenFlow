@@ -98,7 +98,7 @@ export function AgentsPage({local,calls,usage,notify,onRepair,onAgent,localError
     const native=desktopView?undefined:logins[client]?.nativeLabel;
     const direct=source.id==='codex'?source.codexApiDirect:source.id==='claude'&&!desktopView?source.claudeApiDirect:undefined;
     const problem=desktopView?!!desktop.error:!!problemOf(source,calls,available,local);
-    const active=desktopView?!!desktop.status?.connected:!!(connection||native||direct);
+    const active=desktopView?!!(desktop.status?.connected||desktop.status?.apiDirect?.configured):!!(connection||native||direct);
     return <button key={item.id} role="tab" aria-selected={target?.id===item.id} tabIndex={target?.id===item.id?0:-1} className="tfTile" onClick={()=>choose(item.id)}>
      <ProviderIcon provider={item.id} size={30}/>
      <span className="tfTileText"><strong>{client==='workbuddy-ai'?'WorkBuddyAI':item.name}</strong><small>{labelPending?<AgentFieldSkeleton/>:desktopView?'Claude Desktop':`${item.id==='claude'?'Claude CLI · ':''}${direct?`API 直连 · ${direct.name}`:connection?modelLabel(local,connection.model):native?`本机 · ${native}`:source.connection?'模型不可用':'未接入'}`}</small></span>

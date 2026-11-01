@@ -30,7 +30,8 @@ import {CodexThreadMigration} from './codex-thread-migration.js';
 import {PiTerminalLifecycle} from './pi-terminal-lifecycle.js';
 import {ClaudeTerminalLifecycle} from './claude-terminal-lifecycle.js';
 import {ClaudeDesktopConnections,type ClaudeDesktopOptions} from './claude-desktop.js';
-import {claudeDesktopModelLimit,claudeBuiltInFamily} from '../../../apps/shared/claude-desktop-models.js';
+import {claudeDesktopApiProfile} from './claude-desktop-api.js';
+import {claudeDesktopModelLimit,claudeBuiltInFamily,claudeDesktopModel} from '../../../apps/shared/claude-desktop-models.js';
 import {removeKnownGatewayHelpNotice} from './gateway-help-notice.js';
 import { LocalMaintenance } from './local-maintenance.js';
 import { ApiSources, parseApiSourceInput, apiModelID } from './api-sources.js';
@@ -215,7 +216,7 @@ export async function createDesktopService(options:ServiceOptions) {
       if(localRun.active&&localRun.runs[0]?.kind==='upgrade'&&!['/api/maintenance/stop','/api/maintenance/local/stop'].includes(route))return reply.code(409).send({error:'升级正在执行，请等待完成后启动维修或修改权限。'});
     }
     const backgroundRefresh=route==='/api/local-agent/:action'&&['refresh','quota'].includes((req.params as {action:string}).action);
-    if(!backgroundRefresh&&((req.method==='PUT'&&(route==='/api/settings'||route==='/api/local-agent/gateway'||route==='/api/sources/:id'))||(req.method==='DELETE'&&(route==='/api/local-agent/accounts/:id'||route==='/api/local-agent/accounts/:id/expired'||route==='/api/sources/:id'||route==='/api/maintenance/selection'))||(req.method==='POST'&&['/api/maintenance/local/upgrade','/api/sources','/api/sources/import/apply','/api/sources/quick','/api/sources/:id/models','/api/sources/:id/check','/api/native-accounts/:provider/switch','/api/native-accounts/:provider/restore','/api/codex-accounts/switch','/api/codex-accounts/restore','/api/claude-desktop/connect','/api/claude-desktop/restore','/api/claude-desktop/official','/api/claude-desktop/restart','/api/a2a/claude-api/apply','/api/a2a/claude-api/restore','/api/a2a/codex-api/apply','/api/a2a/codex-api/restore','/api/a2a/connect','/api/a2a/codex-migration/restore','/api/a2a/program','/api/a2a/restart','/api/a2a/restore','/api/a2a/delete','/api/a2a/import','/api/providers/probe','/api/local-agent/:action','/api/local-agent/login/:action','/api/local-agent/accounts/:id','/api/local-agent/import-local/:provider'].includes(route??'')))) {
+    if(!backgroundRefresh&&((req.method==='PUT'&&(route==='/api/settings'||route==='/api/local-agent/gateway'||route==='/api/sources/:id'))||(req.method==='DELETE'&&(route==='/api/local-agent/accounts/:id'||route==='/api/local-agent/accounts/:id/expired'||route==='/api/sources/:id'||route==='/api/maintenance/selection'))||(req.method==='POST'&&['/api/maintenance/local/upgrade','/api/sources','/api/sources/import/apply','/api/sources/quick','/api/sources/:id/models','/api/sources/:id/check','/api/native-accounts/:provider/switch','/api/native-accounts/:provider/restore','/api/codex-accounts/switch','/api/codex-accounts/restore','/api/a2a/claude-desktop-api/apply','/api/a2a/claude-desktop-api/restore','/api/claude-desktop/connect','/api/claude-desktop/restore','/api/claude-desktop/official','/api/claude-desktop/restart','/api/a2a/claude-api/apply','/api/a2a/claude-api/restore','/api/a2a/codex-api/apply','/api/a2a/codex-api/restore','/api/a2a/connect','/api/a2a/codex-migration/restore','/api/a2a/program','/api/a2a/restart','/api/a2a/restore','/api/a2a/delete','/api/a2a/import','/api/providers/probe','/api/local-agent/:action','/api/local-agent/login/:action','/api/local-agent/accounts/:id','/api/local-agent/import-local/:provider'].includes(route??'')))) {
       if(localMaintenance.snapshot().active)return reply.code(409).send({error:'本地诊断或升级正在运行，请等待完成后修改配置。'});
       if(mutationOwner)return reply.code(409).send({code:'configuration_busy',error:'正在等待另一个启动或配置操作完成，尚未应用本次更改。'});
       mutationOwner=req.id;
@@ -714,26 +715,26 @@ export async function createDesktopService(options:ServiceOptions) {
     }else await nativeAccounts[provider].restore(z.object({revision:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body));
     return nativeStatus(provider);
   });
-  const directSource=async(sourceId:string,target:'codex'|'claude')=>{
+  const directSource=async(sourceId:string,target:'codex'|'claude'|'claude-desktop')=>{
     const source=(await apiSources.list()).find(s=>s.id===sourceId&&s.enabled&&s.hasKey);
     if(!source)throw new RunnerCoreError('API 来源暂不可用，请刷新列表。',{statusCode:409,code:'api_source_unavailable'});
     const protocol=target==='codex'?'responses':'messages';
-    const compatible=source.models.filter(model=>apiModelRoute(source,model).protocol===protocol);
+    const compatible=source.models.filter(model=>apiModelRoute(source,model).protocol===protocol&&(target!=='claude-desktop'||claudeDesktopModel(model)));
     const baseURL=compatible.length?apiModelRoute(source,compatible[0]).baseURL:undefined;
     const models=compatible.filter(model=>apiModelRoute(source,model).baseURL===baseURL);
     return {source,models,baseURL,protocol};
   };
-  const apiSelection=async(sourceId:string,selectedModel:string|undefined,target:'codex'|'claude'='codex')=>{
+  const apiSelection=async(sourceId:string,selectedModel:string|undefined,target:'codex'|'claude'|'claude-desktop'='codex')=>{
     const saved=await directSource(sourceId,target),model=selectedModel??saved.models[0];
     if(!model)throw new RunnerCoreError('此 API 没有可供该客户端直连的协议，请使用网关。',{statusCode:400,code:`${target}_api_incompatible`});
     const source=apiSources.assert(sourceId,apiModelID(sourceId,model)),route=apiModelRoute(source,model);
     if(route.protocol!==(target==='codex'?'responses':'messages'))throw new RunnerCoreError(`${target==='codex'?'Codex 直连需要 Responses':'Claude Code 直连需要 Messages'} 协议，请选择对应的已保存模型。`,{statusCode:400,code:`${target}_api_incompatible`});
     const apiKey=await apiSources.keyFor(sourceId);if(!apiKey)throw new RunnerCoreError('API 密钥暂不可读取。',{statusCode:409,code:'credential_storage_unavailable'});
-    const models=source.models.filter(id=>{const r=apiModelRoute(source,id);return r.protocol===route.protocol&&r.baseURL===route.baseURL;});
+    const models=source.models.filter(id=>{const r=apiModelRoute(source,id);return r.protocol===route.protocol&&r.baseURL===route.baseURL&&(target!=='claude-desktop'||claudeDesktopModel(id));});
     return {sourceId,model,baseURL:route.baseURL,apiKey,name:source.name,capabilities:await apiSources.modelCapabilities(sourceId,model),models:await Promise.all(models.map(async id=>({id,capabilities:await apiSources.modelCapabilities(sourceId,id)})))};
   };
   const directSelectionInput=z.object({sourceId:z.string().regex(/^[a-f0-9]{24}$/),model:z.string().min(1).max(200).optional()});
-  const directChoices=async(target:'codex'|'claude')=>Promise.all((await apiSources.list()).filter(s=>s.enabled&&s.hasKey).map(async source=>{const saved=await directSource(source.id,target);return {sourceId:source.id,name:source.name,models:saved.models,available:!!saved.models.length};}));
+  const directChoices=async(target:'codex'|'claude'|'claude-desktop')=>Promise.all((await apiSources.list()).filter(s=>s.enabled&&s.hasKey).map(async source=>{const saved=await directSource(source.id,target);return {sourceId:source.id,name:source.name,models:saved.models,available:!!saved.models.length&&saved.models.length<=(target==='claude-desktop'?claudeDesktopModelLimit:Infinity)};}));
   for(const suffix of ['responses','responses/compact'])app.post(`${codexInactivePath}/${suffix}`,async(_req,reply)=>reply.code(400).send({error:{message:codexInactiveMessage,code:'api_direct_inactive'}}));
   app.get('/api/a2a/codex-api',async()=>({revision:await codexApi.revision(),active:await codexApi.status(),choices:await directChoices('codex')}));
   app.get('/api/a2a/claude-api',async()=>({revision:await claudeApi.revision(),active:await claudeApi.status(),choices:await directChoices('claude')}));
@@ -798,6 +799,23 @@ export async function createDesktopService(options:ServiceOptions) {
   const claudeDesktopChange=(work:()=>Promise<unknown>)=>options.claudeDesktopChange?options.claudeDesktopChange(work):process.platform==='linux'?work():qoderLifecycle.change('claude-desktop',work);
   const claudeDesktopStatus=async()=>({...await claudeDesktop.status(),installation:await detectAgent('claude-desktop'),automaticRestart:process.platform==='darwin'||process.platform==='win32'});
   app.get('/api/claude-desktop',claudeDesktopStatus);
+  app.get('/api/a2a/claude-desktop-api',async()=>{const state=await claudeDesktop.status();return {revision:state.revision,active:state.apiDirect,choices:await directChoices('claude-desktop')};});
+  app.post('/api/a2a/claude-desktop-api/apply',async req=>{
+    const input=directSelectionInput.extend({revision:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body);
+    const prior=await claudeDesktop.check(input.revision),selection=await apiSelection(input.sourceId,input.model,'claude-desktop');claudeDesktopApiProfile(selection);let saved=false;
+    try{await claudeDesktopChange(async()=>{
+      await claudeDesktop.connectApi({revision:input.revision,selection});saved=true;
+      if(prior.keyId){fixedRoutes.delete(prior.keyId);if(gatewayKeys.list().some(k=>k.id===prior.keyId))await gatewayKeys.remove(prior.keyId);}
+    });}catch(error){if(saved)throw Object.assign(new Error('Claude Desktop API 直连已保存，请手动重新打开客户端。'),{statusCode:409});throw error;}
+    return {...await claudeDesktopStatus(),message:'Claude Desktop API 直连已应用。'};
+  });
+  app.post('/api/a2a/claude-desktop-api/restore',async req=>{
+    const {revision}=z.object({revision:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(req.body);
+    const prior=await claudeDesktop.check(revision);if(!prior.apiDirect)throw Object.assign(new Error('当前没有 Claude Desktop API 直连配置。'),{statusCode:409});let saved=false;
+    try{await claudeDesktopChange(async()=>{await claudeDesktop.restore(revision,'native');saved=true;});}
+    catch(error){if(saved)throw Object.assign(new Error('已恢复 Claude Desktop 官方账号接入，请手动重新打开客户端。'),{statusCode:409});throw error;}
+    return {...await claudeDesktopStatus(),message:'已恢复原账号直连。'};
+  });
   app.post('/api/claude-desktop/connect',async req=>{
     const input=z.object({revision:z.string().regex(/^[a-f0-9]{64}$/),selections:z.array(modelSelectionSchema).min(1).max(claudeDesktopModelLimit),fast:modelSelectionSchema.optional()}).strict().refine(value=>!value.fast||value.selections.some(item=>item.model===value.fast?.model&&item.sourceId===value.fast.sourceId),'快速模型必须在已选模型中').parse(req.body);
     const prior=await claudeDesktop.check(input.revision);await validateSavedSelections(input.selections,prior.selections);
@@ -1040,9 +1058,10 @@ export async function createDesktopService(options:ServiceOptions) {
     const targets=(await connections.status()).filter(t=>t.connection&&(t.connection.selections??[t.connection]).some(item=>item.sourceId===id)).map(t=>({id:t.id,name:t.name,model:t.connection!.model}));
     const direct=await codexApi.status();if(direct?.sourceId===id)targets.push({id:'codex',name:'Codex API 直连',model:direct.model});
     const claudeDirect=await claudeApi.status();if(claudeDirect?.sourceId===id)targets.push({id:'claude',name:'Claude Code API 直连',model:claudeDirect.model});
+    const desktopDirect=await claudeDesktop.directSource();
     const keys=gatewayKeys.list().filter(k=>k.sourceId===id||Object.values(k.modelSources??{}).includes(id)||k.models.some(m=>m.startsWith(`api-${id}/`))).map(k=>({id:k.id,name:k.name,models:k.models}));
     const desktop=await claudeDesktop.route();
-    return {targets:[...targets,...(desktop?.selections.some(item=>item.sourceId===id)?[{id:'claude-desktop',name:'Claude Desktop',model:desktop.selections[0].model}]:[])],keys,repair:maintenance.snapshot().selection?.sourceId===id,reviewer:approval.snapshot().policy.reviewer?.sourceId===id};
+    return {targets:[...targets,...(desktopDirect?.sourceId===id?[{id:'claude-desktop',name:'Claude Desktop API 直连',model:desktopDirect.model}]:[]),...(desktop?.selections.some(item=>item.sourceId===id)?[{id:'claude-desktop',name:'Claude Desktop',model:desktop.selections[0].model}]:[])],keys,repair:maintenance.snapshot().selection?.sourceId===id,reviewer:approval.snapshot().policy.reviewer?.sourceId===id};
   };
   const sourceID=(req:{params:unknown})=>z.string().regex(/^[a-f0-9]{24}$/).parse((req.params as {id:string}).id);
   const synchronizeSources=async()=>{try{await proxy.synchronizeAPIModels((await apiSources.list()).filter(s=>s.enabled).flatMap(s=>s.models.map(m=>apiModelID(s.id,m))));return undefined;}catch(error){return error instanceof RunnerCoreError&&error.code==='api_routes_pending'?'来源已保存，模型路由仍在同步，系统会自动重试。可查看卡片上的路由状态。':'来源已保存，但模型路由配置更新失败，请检查资料目录权限和网关状态。';}};

@@ -3,9 +3,10 @@ import {mkdir,readFile,writeFile,rename,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {withCodexBackupLock,assertCodexBackupLock} from './codex-backup-lock.js';
 import {safePath} from './agent-connections.js';
+import {historyRecordDelta,applyHistoryPieces,type HistoryPiece} from './codex-history-delta.js';
 
 export type HistorySnapshot={key:string;revision:string};
-type Revision={size:number;full?:string;parent?:string;prefix?:number;suffix?:number;splices?:{offset:number;length:number}[]};
+type Revision={size:number;full?:string;parent?:string;prefix?:number;suffix?:number;splices?:{offset:number;length:number}[];pieces?:HistoryPiece[]};
 const hash=(value:Buffer|string)=>createHash('sha256').update(value).digest('hex');
 
 /** Immutable full baseline plus byte deltas. Route changes never restore an old
@@ -27,7 +28,8 @@ export class CodexHistoryBackups {
   }
   for(const {revision,meta} of chain.reverse()){
    const middle=await readFile(join(folder,revision+'.delta'));
-   if(meta.splices){
+   if(meta.pieces)contents=applyHistoryPieces(contents,middle,meta.pieces,meta.size);
+   else if(meta.splices){
     const output=Buffer.from(contents);let consumed=0,end=0;
     for(const part of meta.splices){
      if(!Number.isSafeInteger(part.offset)||!Number.isSafeInteger(part.length)||part.offset<end||part.length<=0||part.offset+part.length>output.length||consumed+part.length>middle.length)throw Error('Invalid history backup splice');
@@ -68,8 +70,11 @@ export class CodexHistoryBackups {
      splices.push({offset:start,length:last-start+1});
     }
     const sparse=splices.length>1&&splices.length<100000&&splices.reduce((sum,p)=>sum+p.length,0)+splices.length*40<(contents.length-prefix-suffix)/2;
-    await this.atomic(join(folder,revision+'.delta'),sparse?Buffer.concat(splices.map(p=>contents.subarray(p.offset,p.offset+p.length))):contents.subarray(prefix,contents.length-suffix));
-    await this.atomic(join(folder,revision+'.json'),JSON.stringify({size:contents.length,parent:previous,prefix,suffix,...(sparse?{splices}:{})} satisfies Revision));
+    const middle=contents.subarray(prefix,contents.length-suffix);
+    const records=!sparse&&middle.length>65536?historyRecordDelta(original,contents):null;
+    const compact=records&&records.bytes+JSON.stringify(records.pieces).length<middle.length/2?records:null;
+    await this.atomic(join(folder,revision+'.delta'),compact?compact.payload():sparse?Buffer.concat(splices.map(p=>contents.subarray(p.offset,p.offset+p.length))):middle);
+    await this.atomic(join(folder,revision+'.json'),JSON.stringify({size:contents.length,parent:previous,prefix,suffix,...(compact?{pieces:compact.pieces}:sparse?{splices}:{})} satisfies Revision));
    }else{
     const full=join(folder,revision+'.jsonl');await this.atomic(full,contents);
     await this.atomic(join(folder,revision+'.json'),JSON.stringify({size:contents.length,full} satisfies Revision));
