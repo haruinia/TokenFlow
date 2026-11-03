@@ -4,8 +4,9 @@ import { StringDecoder } from 'node:string_decoder';
 import { randomUUID } from 'node:crypto';
 import {providerUsage,ResponseObserver,type ResponseObservation} from './gateway-observation.js';
 import type { UsageLedger } from './usage-ledger.js';
+import type {UsageEvent} from './usage-ledger.js';
 
-export type GatewayCall={id:string;keyId:string;agent:string;model:string;protocol:string;startedAt:string;durationMs:number;status:number;inputTokens:number|null;outputTokens:number|null;
+export type GatewayCall=Pick<UsageEvent,'eventId'|'responseHash'|'billingAccountHash'|'threadHash'|'parentThreadHash'|'taskKind'|'outcome'|'reportedTotalTokens'>&{id:string;keyId:string;agent:string;model:string;protocol:string;startedAt:string;durationMs:number;status:number;inputTokens:number|null;outputTokens:number|null;
  /** Part of inputTokens served from the upstream prompt cache, when the upstream reports it. */
  cachedTokens?:number|null;cacheWriteTokens?:number|null;reasoningTokens?:number|null;toolCalls?:number;toolResults?:number;generationMs?:number;timedOutputTokens?:number;
  /** Agent id (codex, claude…), 'key' for exported Keys, 'internal' or 'workspace'. */
@@ -18,7 +19,8 @@ const number=(value:unknown)=>typeof value==='number'&&Number.isSafeInteger(valu
 // bounded at the gateway's request-size budget, not the old 512 KiB text limit.
 const OBSERVATION_LIMIT_BYTES=16*1024*1024;
 /** Observe usage without changing payloads or retaining prompts / completions. */
-export function observeUsage(sse:boolean,onEnd:(usage:{inputTokens:number|null;cachedTokens:number|null;outputTokens:number|null;failed:boolean;cacheWriteTokens?:number;reasoningTokens?:number})=>void|Promise<void>,onDetails?:(details:ResponseObservation)=>void) {
+export function observeUsage(sse:boolean|'auto',onEnd:(usage:{inputTokens:number|null;cachedTokens:number|null;outputTokens:number|null;failed:boolean;cacheWriteTokens?:number;reasoningTokens?:number;reportedTotalTokens?:number})=>void|Promise<void>,onDetails?:(details:ResponseObservation)=>void) {
+ let reportedTotalTokens:number|undefined;
  const details=new ResponseObserver();let cacheWriteTokens:number|null=null,reasoningTokens:number|null=null;
  const decoder=new StringDecoder('utf8');let buffer='';let oversized=false;let inputTokens:number|null=null;let cachedTokens:number|null=null;let outputTokens:number|null=null;let failed=false;let terminal=false;let messages=false;let finalMessageUsage=false;let finishing:Promise<void>|undefined;
  const inspect=(raw:string)=>{if(raw==='[DONE]'){if(!messages)terminal=true;return;}try{
@@ -30,7 +32,7 @@ export function observeUsage(sse:boolean,onEnd:(usage:{inputTokens:number|null;c
   const usage=event.usage??event.response?.usage??event.message?.usage;
   if(event.type==='error'||event.type==='response.failed'||event.error)failed=true;
   if(usage){const normalized=providerUsage(messages&&usage.input_tokens!==undefined&&(cachedTokens!==null||cacheWriteTokens!==null)?{...usage,cache_read_input_tokens:usage.cache_read_input_tokens??cachedTokens??0,cache_creation_input_tokens:usage.cache_creation_input_tokens??cacheWriteTokens??0}:usage);if(normalized.cachedTokens!==null)cachedTokens=normalized.cachedTokens;if(normalized.cacheWriteTokens!==null)cacheWriteTokens=normalized.cacheWriteTokens;if(normalized.reasoningTokens!==null)reasoningTokens=normalized.reasoningTokens;
-   inputTokens=normalized.inputTokens??inputTokens;outputTokens=normalized.outputTokens??outputTokens;}
+   inputTokens=normalized.inputTokens??inputTokens;outputTokens=normalized.outputTokens??outputTokens;reportedTotalTokens=normalized.reportedTotalTokens??reportedTotalTokens;}
 
  }catch{/* Some SSE frames are control messages, not JSON. */}};
  let bufferedBytes=0;
@@ -41,6 +43,14 @@ export function observeUsage(sse:boolean,onEnd:(usage:{inputTokens:number|null;c
   else buffer+=text;
  };
  const consume=(text:string)=>{
+  // Official Responses can send SSE with an application/json header. Sniff
+  // framing only for callers that opt in; never change the forwarded bytes.
+  // JSON begins with a value, while SSE begins with data/event/id/retry or ':';
+  // the first non-whitespace character suffices even across byte-sized chunks.
+  if(sse==='auto'){
+   text=text.trimStart();if(!text)return;
+   sse=/^[deir:]/.test(text);
+  }
   if(!sse){append(text);return;}
   for(const part of text.split(/(?<=\n)/)) {
    append(part);
@@ -50,7 +60,7 @@ export function observeUsage(sse:boolean,onEnd:(usage:{inputTokens:number|null;c
  const finish=()=>{
   if(finishing)return finishing;
   consume(decoder.end());if(buffer&&!oversized)inspect(sse?buffer.replace(/^data:\s*/,''):buffer);buffer='';
-  finishing=Promise.resolve().then(()=>{onDetails?.(details.result());return onEnd({inputTokens,cachedTokens,outputTokens,failed:failed||(sse&&!terminal),...(cacheWriteTokens===null?{}:{cacheWriteTokens}),...(reasoningTokens===null?{}:{reasoningTokens})});});return finishing;
+  finishing=Promise.resolve().then(()=>{onDetails?.(details.result());return onEnd({inputTokens,cachedTokens,outputTokens,failed:failed||(sse&&!terminal),...(cacheWriteTokens===null?{}:{cacheWriteTokens}),...(reasoningTokens===null?{}:{reasoningTokens}),...(reportedTotalTokens===undefined?{}:{reportedTotalTokens})});});return finishing;
  };
  const stream=new Transform({transform(chunk,_encoding,callback){consume(decoder.write(chunk));callback(null,chunk);},flush(callback){void finish().then(()=>callback(),error=>callback(error));}});
  stream.once('close',()=>{void finish().catch(()=>undefined);});return stream;
@@ -73,7 +83,7 @@ export class GatewayActivity {
   row.requests++;if(call.status>=400)row.failed++;row.inputTokens+=call.inputTokens??0;row.cachedTokens+=cachedTokens??0;row.outputTokens+=call.outputTokens??0;if(call.startedAt>row.last)row.last=call.startedAt;
   this.usage.set(id,row);
   // Preflight token counting is not a generation, so it stays out of the statistics.
-  if(call.protocol!=='messages/count_tokens')this.ledger?.add({target:call.target??'key',keyId:call.keyId,keyName:call.agent,sourceId:call.sourceId??'',model:call.model,startedAt:call.startedAt,durationMs:call.durationMs,status:call.status,inputTokens:call.inputTokens,cachedTokens,outputTokens:call.outputTokens,cacheWriteTokens:call.cacheWriteTokens,reasoningTokens:call.reasoningTokens,toolCalls:call.toolCalls,toolResults:call.toolResults,generationMs:call.generationMs,timedOutputTokens:call.timedOutputTokens});
+  if(call.protocol!=='messages/count_tokens')this.ledger?.record({target:call.target??'key',keyId:call.keyId,keyName:call.agent,sourceId:call.sourceId??'',model:call.model,startedAt:call.startedAt,durationMs:call.durationMs,status:call.status,inputTokens:call.inputTokens,cachedTokens,outputTokens:call.outputTokens,cacheWriteTokens:call.cacheWriteTokens,reasoningTokens:call.reasoningTokens,reportedTotalTokens:call.reportedTotalTokens,toolCalls:call.toolCalls,toolResults:call.toolResults,generationMs:call.generationMs,timedOutputTokens:call.timedOutputTokens,eventId:call.eventId,responseHash:call.responseHash,billingAccountHash:call.billingAccountHash,threadHash:call.threadHash,parentThreadHash:call.parentThreadHash,taskKind:call.taskKind,outcome:call.outcome});
  }
  snapshot(){return {since:this.since,total:this.total,failed:this.failed,measured:this.measured,inputTokens:this.input,cachedTokens:this.cached,outputTokens:this.output,recent:structuredClone(this.recent),usage:[...this.usage.values()].map(row=>({...row}))};}
 }

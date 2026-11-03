@@ -10,10 +10,13 @@ import { RunnerCoreError } from './errors.js';
 import { upstreamRequest, inferenceFetch } from './upstream-request.js';
 import {readUpstreamError,upstreamError} from './upstream-errors.js';
 import type { Secrets } from './service.js';
+import {ModelMetadataCache} from './model-metadata-cache.js';
+import {readModelCapabilities,modelCapabilityPreset,combineModelCapabilities} from './model-capabilities.js';
+import {apiReasoningBody} from './model-presets.js';
 
 const modelID=z.string().trim().min(1).max(200).refine(v=>!/[\x00-\x1f\x7f]/.test(v));
 export const apiSourceInput=z.object({name:z.string().trim().min(1,'请填写来源名称。').max(80,'来源名称不能超过 80 个字符。'),baseURL:providerSchema.shape.baseURL,
- protocol:z.enum(['responses','chat','messages']),modelRoutes:z.record(modelID,z.object({protocol:z.enum(['responses','chat','messages']),baseURL:providerSchema.shape.baseURL}).strict()).optional(),enabled:z.boolean().default(true),models:z.array(modelID).max(2000).transform(v=>[...new Set(v)]),
+ protocol:z.enum(['responses','chat','messages']),modelRoutes:z.record(modelID,z.object({protocol:z.enum(['responses','chat','messages']),baseURL:providerSchema.shape.baseURL,checkedAt:z.string().datetime().optional()}).strict()).optional(),enabled:z.boolean().default(true),models:z.array(modelID).max(2000).transform(v=>[...new Set(v)]),
  apiKey:z.string().trim().min(1,'请填写 API Key。').max(4096,'API Key 不能超过 4096 个字符。').refine(v=>!/[\r\n]/.test(v),'API Key 不能包含换行。').optional(),acknowledge:z.boolean().optional()}).strict();
 export function parseApiSourceInput(input:unknown){
  const result=apiSourceInput.safeParse(input);if(result.success)return result.data;
@@ -82,7 +85,16 @@ export class ApiSources {
  private migration?:string;
  private migrationWarning?:string;
  warnings(){return this.migrationWarning?[this.migrationWarning]:[];}
- private constructor(private root:string,private secrets:Secrets){}
+ private metadata:ModelMetadataCache;
+ private constructor(private root:string,private secrets:Secrets){this.metadata=new ModelMetadataCache(root);}
+ private metadataScope(s:StoredSource,model:string){const route=apiModelRoute(s,model);return ['api',s.id,s.credentialRef,route.baseURL,route.protocol,model];}
+ async modelCapabilities(id:string,model:string){
+  const s=this.entries.find(s=>s.id===id);if(!s)return;
+  const upstream=model.startsWith(`api-${id}/`)?model.slice(`api-${id}/`.length):model;
+  if(!s.models.includes(upstream))return;
+  const route=apiModelRoute(s,upstream),live=await this.metadata.capabilities(this.metadataScope(s,upstream));
+  return combineModelCapabilities(modelCapabilityPreset(route.baseURL,route.protocol,upstream),live);
+ }
  static async open(root:string,secrets:Secrets,legacy:ProviderConfig){
   const store=new ApiSources(root,secrets);
   try{const data=z.object({version:z.literal(1),sources:z.array(storedSource),migration:z.string().optional()}).strict().parse(JSON.parse(await readFile(join(root,'api-sources.json'),'utf8')));if(new Set(data.sources.map(s=>s.id)).size!==data.sources.length||data.sources.some(s=>!s.credentialRef.startsWith(`source-${s.id}-`)))throw new Error('Invalid source identity');store.entries=data.sources;store.migration=data.migration;}
@@ -148,7 +160,9 @@ export class ApiSources {
   try{
    const r=await fetch(`${s.baseURL.replace(/\/$/,'')}/models`,{headers:s.protocol==='messages'?{'x-api-key':key,'anthropic-version':'2023-06-01'}:{Authorization:`Bearer ${key}`},signal:requestSignal,redirect:'error'});
    if(!r.ok){await r.body?.cancel();if(r.status===401||r.status===403)throw failure('api_models_auth',`模型列表认证未通过（HTTP ${r.status}），请检查 API Key 和模型列表读取权限。`);throw failure('api_models_http',`读取模型列表失败（HTTP ${r.status}），请检查 API 地址和服务状态，或手动添加模型 ID。`);}
-   try{const data=await this.boundedJSON(r);return z.object({data:z.array(z.object({id:modelID})).max(2000)}).parse(data).data.map(m=>m.id);}
+   try{const data=await this.boundedJSON(r),models=z.object({data:z.array(z.object({id:modelID}).passthrough()).max(2000)}).parse(data).data;
+    await Promise.all(models.map(async m=>{const route=apiModelRoute(s,m.id);if(route.baseURL!==s.baseURL||route.protocol!==s.protocol)return;await this.metadata.remember(this.metadataScope(s,m.id),readModelCapabilities(m)).catch(()=>{});}));
+    return models.map(m=>m.id);}
    catch{throw failure('api_models_response','模型列表响应格式不符合预期，请检查 API 地址和服务文档，或手动添加模型 ID。');}
   }catch(error){
    if(signal?.aborted)throw failure('api_models_cancelled','已取消读取模型列表，已保存的来源配置和模型仍保留。');
@@ -196,7 +210,8 @@ export class ApiSources {
     // Forward only protocol headers, never local routing or administrator credentials.
     if(protocol==='messages'&&typeof req.headers['anthropic-beta']==='string')headers['anthropic-beta']=req.headers['anthropic-beta'];
     // Same-protocol calls arrive from the gateway untouched; only sidecar-translated Responses bodies need cleaning.
-    const bodies=protocol==='messages'?[genericMessagesBody(body)]:protocol==='responses'&&req.headers[nativeHeader]!=='1'?genericResponsesBodies(body):[body];
+    const nativeBody=apiReasoningBody(body,baseURL,protocol);
+    const bodies=protocol==='messages'?[genericMessagesBody(nativeBody)]:protocol==='responses'&&req.headers[nativeHeader]!=='1'?genericResponsesBodies(nativeBody):[nativeBody];
     let r!:Response;
     for(const [index,attempt] of bodies.entries()){
      r=idle.watch(await inferenceFetch(`${baseURL.replace(/\/$/,'')}/${match![2]}${protocol==='messages'?requestURL.search:''}`,{method:'POST',headers,body:JSON.stringify(attempt),redirect:'error',signal:idle.signal}));

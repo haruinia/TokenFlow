@@ -5,7 +5,7 @@ import {z} from 'zod';
 export const maintenanceContext=z.object({page:z.enum(['agents','accounts','apis','proxy','usage','activity','cleanup','settings']),target:z.enum(['codex','claude','workbuddy','qoder','deepseek','pi','workbuddy-ai']).optional(),provider:z.string().max(80).optional(),sourceId:z.string().max(100).optional(),
  range:z.enum(['today','7d','30d','all']).optional(),mode:z.enum(['day','week','cumulative']).optional(),day:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
  model:z.string().max(300).optional(),keyId:z.string().max(80).optional(),origin:z.enum(['all','native','gateway']).optional(),traceId:z.string().max(100).optional(),
- breakdown:z.enum(['method','agent','model','source']).optional(),intent:z.enum(['codex-history','file-cleanup']).optional(),
+ breakdown:z.enum(['method','agent','model','task','source']).optional(),intent:z.enum(['codex-history','file-cleanup']).optional(),
 }).strict();
 export type MaintenanceContext=z.infer<typeof maintenanceContext>;
 const message=z.object({role:z.string().max(20),text:z.string().max(32000)});

@@ -1,0 +1,31 @@
+{
+  "scope": "installed Codex; synthetic local responses; no child creation, real auth or provider calls",
+  "oldProvider": "fixture_old",
+  "newProvider": "token_flow",
+  "threadsBeforeSwitch": 1,
+  "metadataBeforeAnySpawn": [
+    {
+      "type": "session_meta",
+      "multiAgentVersion": "v2",
+      "provider": "fixture_old"
+    },
+    {
+      "type": "turn_context",
+      "multiAgentVersion": "v2"
+    }
+  ],
+  "requests": [
+    {
+      "phase": "no-child",
+      "protocol": "v2"
+    },
+    {
+      "phase": "old-after-provider-switch",
+      "protocol": "v2"
+    },
+    {
+      "phase": "new-thread-after-isolated-engine-reload",
+      "protocol": "v1"
+    }
+  ]
+}

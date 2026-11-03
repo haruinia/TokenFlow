@@ -220,3 +220,27 @@ it.each(['unknown_name','unfinished_block','invalid_json','invalid_args','trunca
   const wire=await response.text();expect(wire).toContain('workbuddy_tool_protocol');expect(wire).toContain(toolIssue);expect(wire).not.toMatch(/PRIVATE|private-token|toolBlocks/);if(!stream)expect(response.status).toBe(502);
  }}finally{await sdk.close();await rm(root,{recursive:true,force:true});}
 });
+
+it.each([
+ ['responses',{reasoning:{effort:'high'}},{effort:'high'}],
+ ['chat/completions',{reasoning_effort:'low'},{effort:'low'}],
+ ['messages',{output_config:{effort:'max'}},{effort:'max'}],
+ ['responses',{reasoning:{effort:'none'}},{thinking:{type:'disabled'}}],
+] as const)('passes explicit reasoning from %s to the WorkBuddy SDK',async(path,fields,expected)=>{
+ const root=await mkdtemp(join(tmpdir(),'sdk-effort-'));
+ const sdk=new WorkBuddySDKProvider(root,async()=>({type:'workbuddy',access_token:'fixture'}),async input=>{
+  expect(input).toMatchObject(expected);return {model:input.model,text:'OK',calls:[],failed:false};
+ });
+ try{
+  const response=await sdk.response('account',path,{model:'workbuddy/test',...(path==='responses'?{input:'OK'}:{messages:[{role:'user',content:'OK'}]}),...fields},new AbortController().signal);
+  expect(response.status).toBe(200);
+ }finally{await sdk.close();await rm(root,{recursive:true,force:true});}
+});
+
+it('retains native thinking budgets and makes explicit disabled thinking authoritative',()=>{
+ const parse=(thinking:unknown,extra={})=>parseCodeBuddyInput('messages',{model:'workbuddy/test',messages:[{role:'user',content:'OK'}],thinking,...extra}).sdkReasoning;
+ expect(parse({type:'enabled',budget_tokens:8192})).toEqual({thinking:{type:'enabled',budgetTokens:8192}});
+ expect(parse({type:'adaptive'},{output_config:{effort:'max'}})).toEqual({thinking:{type:'adaptive'},effort:'max'});
+ expect(parse({type:'disabled'},{output_config:{effort:'max'}})).toEqual({thinking:{type:'disabled'}});
+ expect(()=>parse({type:'enabled',budget_tokens:-1})).toThrow();
+});

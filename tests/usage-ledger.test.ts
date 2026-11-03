@@ -33,10 +33,10 @@ it('counts failures and unmetered calls separately, and ignores cache data an up
   ledger.add(event({ status: 200, inputTokens: null, cachedTokens: null, outputTokens: null }));
   ledger.add(event({ status: 200, inputTokens: 80, cachedTokens: null, outputTokens: 5 }));
   const [row] = ledger.list();
-  expect(row).toMatchObject({ requests: 3, failed: 1, unmeasured: 1, inputTokens: 80, cachedTokens: 0, cacheBaseTokens: 0, outputTokens: 5 });
+  expect(row).toMatchObject({ requests: 3, failed: 1, unmeasured: 2, inputTokens: 80, cachedTokens: 0, cacheBaseTokens: 0, outputTokens: 5 });
   // A cache read can never exceed the input it belongs to.
   ledger.add(event({ model: 'x', inputTokens: 10, cachedTokens: 99, outputTokens: 1 }));
-  expect(ledger.list().find(item => item.model === 'x')).toMatchObject({ cachedTokens: 10, cacheBaseTokens: 10 });
+  expect(ledger.list().find(item => item.model === 'x')).toMatchObject({ cachedTokens: 0, cacheBaseTokens: 0, conflictRequests: 1, unclassifiedTokens: 11 });
 });
 
 it('limits rows by calendar days and drops what is past retention', async () => {

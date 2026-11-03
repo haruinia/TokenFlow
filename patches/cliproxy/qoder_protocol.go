@@ -302,8 +302,9 @@ func BuildQoderRequestBody(payload []byte, modelKey string, isReasoning bool) ([
 	sessionID := uuid.NewString()
 
 	parsed := gjson.ParseBytes(payload)
-	if thinking.ExtractTranslatedReasoningEffort(payload, "openai") == string(thinking.LevelNone) {
-		isReasoning = false
+	effort := thinking.ExtractTranslatedReasoningEffort(payload, "openai")
+	if effort != "" {
+		isReasoning = effort != string(thinking.LevelNone)
 	}
 
 	var messages []map[string]any
@@ -352,6 +353,12 @@ func BuildQoderRequestBody(payload []byte, modelKey string, isReasoning bool) ([
 
 	parameters := map[string]any{
 		"enable_thinking": isReasoning,
+	}
+	if effort != "" {
+		parameters["reasoning_effort"] = effort
+	}
+	if window := parsed.Get("context_length"); window.Exists() {
+		parameters["context_length"] = window.Int()
 	}
 
 	reqBody := map[string]any{

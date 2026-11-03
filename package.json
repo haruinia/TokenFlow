@@ -35,6 +35,7 @@
     "@fastify/static": "^8.3.0",
     "@token-flow/codebuddy-runtime": "*",
     "fastify": "^5.12.1",
+    "proper-lockfile": "^4.1.2",
     "proxy-chain": "3.0.1",
     "undici": "7.29.1"
   },
@@ -43,6 +44,7 @@
     "@earendil-works/pi-agent-core": "0.87.0",
     "@earendil-works/pi-ai": "0.87.0",
     "@types/node": "^24.0.0",
+    "@types/proper-lockfile": "^4.1.4",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "electron": "^40.0.0",
@@ -62,7 +64,7 @@
     "zod": "^3.24.2"
   },
   "build": {
-    "buildVersion": "10.15.26.81",
+    "buildVersion": "10.15.26.107",
     "appId": "local.browseragent.desktop",
     "productName": "TokenFlow",
     "files": [
@@ -109,7 +111,7 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "icon": "apps/console/public/app-icon.png",
+      "icon": "apps/console/public/app-icon-mac.png",
       "extraResources": [
         {
           "from": "sidecars/darwin-${arch}",

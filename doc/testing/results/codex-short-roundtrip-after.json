@@ -1,0 +1,92 @@
+{
+  "passed": true,
+  "live": false,
+  "long": false,
+  "short": true,
+  "legacyLocalComparison": false,
+  "seedBytes": 0,
+  "seedUsageIsSynthetic": false,
+  "scope": "Installed Codex, production coexist routing, isolated login/config/history; three turns without compaction",
+  "rounds": [
+    {
+      "phase": "official-seed",
+      "messagePhases": [
+        null
+      ],
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 3331
+    },
+    {
+      "phase": "gateway-short",
+      "messagePhases": [
+        "final_answer"
+      ],
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 2902
+    },
+    {
+      "phase": "official-short-return",
+      "messagePhases": [
+        null
+      ],
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 2168
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-seed",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 51465,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 3,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-short",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 73843,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 15,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "official-short-return",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 97964,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 1,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    }
+  ]
+}

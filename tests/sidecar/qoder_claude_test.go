@@ -467,11 +467,14 @@ func TestQoderWireKeepsHeaderAndSelectedModelConsistent(t *testing.T) {
 					if r.Header.Get("X-Model-Key") != key {
 						t.Error("model header diverged")
 					}
+					if gjson.GetBytes(decoded, "parameters.context_length").Int() != 400000 || gjson.GetBytes(decoded, "parameters.reasoning_effort").String() != "max" {
+						t.Errorf("selected runtime controls lost across %s translation", format)
+					}
 					checked = true
 					fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 				}))
 				defer server.Close()
-				payload := []byte(`{"model":"stale","messages":[{"role":"user","content":"OK"}],"input":"OK","max_tokens":16,"max_output_tokens":16}`)
+				payload := []byte(`{"model":"stale","messages":[{"role":"user","content":"OK"}],"input":"OK","max_tokens":16,"max_output_tokens":16,"context_length":400000,"reasoning_effort":"max","reasoning":{"effort":"max"},"output_config":{"effort":"max"}}`)
 				auth := &cliproxyauth.Auth{Provider: "qoder", Attributes: map[string]string{"chat_url": server.URL}, Metadata: map[string]any{"access_token": "synthetic", "uid": "fixture"}}
 				_, err := NewQoderExecutor(&config.Config{}).Execute(context.Background(), auth, cliproxyexecutor.Request{Model: model, Payload: payload}, cliproxyexecutor.Options{SourceFormat: format, OriginalRequest: payload})
 				if err != nil {

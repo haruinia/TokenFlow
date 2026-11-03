@@ -13,10 +13,11 @@ import { desktopCleanupFiles } from './file-cleanup.js';
 import {createNetworkProxy} from '../../../packages/core/src/network-proxy.js';
 import {createStartupWindow} from './startup-window.js';
 import {guardCredentialAccess,rememberedCredentialAccess,rememberCredentialAccess} from './credential-access.js';
-import {claudeKeychain} from '../../../packages/core/src/claude-accounts.js';
+import {claudeKeychain,type CredentialReadOptions} from '../../../packages/core/src/claude-accounts.js';
 import {agentPaths} from '../../../packages/core/src/agent-connections.js';
 import {workspaceWindowOptions,windowsTitleBar} from './window-options.js';
 import {CodexReconciliationMonitor} from '../../../packages/core/src/codex-reconciliation-monitor.js';
+import {createQuotaPanel} from './quota-panel.js';
 
 const here=dirname(fileURLToPath(import.meta.url));
 // Sandboxed preload and @fastify/static both fail to read from app.asar on Windows; prefer the unpacked copy when present.
@@ -39,6 +40,7 @@ async function start() {
   let window:BrowserWindow|undefined;
   let closing=false;
   let tray:Tray|undefined;
+  let quotaPanel:ReturnType<typeof createQuotaPanel>|undefined;
   await app.whenReady();
   if(process.platform==='win32')Menu.setApplicationMenu(null);
   const icon=join(here,'console','app-icon.png');
@@ -46,7 +48,7 @@ async function start() {
   const remembered=await rememberedCredentialAccess(root);
   const startup=await createStartupWindow(icon,remembered?'loading':'choice');
   // Ask only until the user has allowed a successful secure-store load. Never infer consent from credential files.
-  const allowCredentials=remembered||await startup.confirmCredentialAccess();
+  let allowCredentials=remembered||await startup.confirmCredentialAccess();
   const resetCredentialChoice=()=>{void rememberCredentialAccess(root,false).catch(()=>dialog.showErrorBox('无法保存启动偏好','请稍后重试。已有凭据不受影响。'));};
   await startup.update('正在准备网络连接…');
   // Resolve external traffic using a separate OS-proxy session. The workspace
@@ -69,7 +71,7 @@ async function start() {
     {label:'TokenFlow',submenu:[{role:'about',label:'关于 TokenFlow'},{label:'下次启动重新选择登录读取',click:resetCredentialChoice},{type:'separator'},{role:'services',label:'服务'},{type:'separator'},{role:'hide',label:'隐藏 TokenFlow'},{role:'hideOthers',label:'隐藏其他应用'},{role:'unhide',label:'显示全部'},{type:'separator'},{role:'quit',label:'退出 TokenFlow'}]},
     {role:'fileMenu',label:'文件'},{role:'editMenu',label:'编辑'},{role:'viewMenu',label:'视图'},{role:'windowMenu',label:'窗口'},
   ]));
-  if(process.platform==='darwin')app.dock?.setIcon(nativeImage.createFromPath(icon));
+  if(process.platform==='darwin')app.dock?.setIcon(nativeImage.createFromPath(join(here,'console','app-icon-mac.png')));
   await mkdir(join(root,'secrets'),{recursive:true,mode:0o700});
   const secrets=createSecrets(root,safeStorage,process.platform,allowCredentials);
   let localKey=await secrets.get('cliproxy');
@@ -83,11 +85,12 @@ async function start() {
   const token=randomBytes(32).toString('hex');
   const base=app.isPackaged?process.resourcesPath:resolve(here,'..');
   const claudeKeychainStore=process.platform==='darwin'?claudeKeychain(dirname(agentPaths().claude)):undefined;
-  const claudeCredentialStore=claudeKeychainStore?{read:guardCredentialAccess(allowCredentials,(options?:{fresh?:boolean})=>claudeKeychainStore.read(options)),write:guardCredentialAccess(allowCredentials,(value:string|null)=>claudeKeychainStore.write(value))}:undefined;
+  const claudeCredentialStore=claudeKeychainStore?{read:guardCredentialAccess(allowCredentials,(options?:CredentialReadOptions)=>claudeKeychainStore.read(options)),write:guardCredentialAccess(allowCredentials,(value:string|null)=>claudeKeychainStore.write(value))}:undefined;
+  const reconciliation=new CodexReconciliationMonitor({root,codexHome:dirname(agentPaths().codex),allowOfficial:false,proxyURL:network.url});
   await startup.update('正在启动本地服务…');
   // Desktop conversations stay on the installed official engine. Cross-provider
   // native-agent runtime remains available only to explicitly configured probes.
-  const service=await createDesktopService({codexBridgeRuntime:join(here,'codex-provider-bridge.js'),root,token,localKey,secrets,outboundProxyURL:network.url,networkSnapshot:network.snapshot,fileCleanup:{
+  const service=await createDesktopService({nativeCredentialsOnDemand:true,onNativeCredentialAccess:provider=>{secrets.enableAccess();allowCredentials=true;if(provider==='codex')reconciliation.enableOfficial();},codexBridgeRuntime:join(here,'codex-provider-bridge.js'),root,token,localKey,secrets,outboundProxyURL:network.url,networkSnapshot:network.snapshot,fileCleanup:{
     ...desktopCleanupFiles(app,shell),
     pickDirectory:async()=>{
       const picker={title:'选择扫描位置，可选择文件夹或磁盘',properties:['openDirectory'] as ('openDirectory')[]};
@@ -97,7 +100,6 @@ async function start() {
   },claudeCredentialStore,desktopAccounts:{crypto:guardCredentialAccess(allowCredentials,qoderCrypto)},qoderIde:{crypto:guardCredentialAccess(allowCredentials,qoderIdeCrypto)},credentialWarnings:()=>[...secrets.warnings(),...(!allowCredentials?['本次启动已跳过所有安全存储，已有凭据文件已保留；部分账号和 API 密钥暂不可用。请重启后选择“允许读取”以恢复访问。']:[])],openExternal:url=>shell.openExternal(url),proxyPort:process.env.AGENT_PROXY_PORT?Number(process.env.AGENT_PROXY_PORT):undefined,binary:process.env.CLIPROXY_BINARY?resolve(process.env.CLIPROXY_BINARY):join(base,'sidecars',`${process.platform}-${process.arch}`,process.platform==='win32'?'cliproxyapi.exe':'cliproxyapi'),uiRoot:(()=>{const bundled=join(here,'console'); // @fastify/static cannot serve from inside app.asar on Windows; unpacked files take precedence.
 const unpacked=bundled.replaceAll('app.asar','app.asar.unpacked');return existsSync(unpacked)?unpacked:bundled;})()});
   const address=await service.app.listen({host:'127.0.0.1',port:Number(process.env.AGENT_PORT??9527)});
-  const reconciliation=new CodexReconciliationMonitor({root,codexHome:dirname(agentPaths().codex),allowOfficial:allowCredentials,proxyURL:network.url});
   void reconciliation.start();
   ipcMain.handle('clipboard:write-text',(event,text:unknown)=>{
     if(!window || event.sender!==window.webContents || event.senderFrame!==window.webContents.mainFrame || new URL(event.senderFrame.url).origin!==address)throw new Error('Clipboard request denied');
@@ -124,7 +126,6 @@ const unpacked=bundled.replaceAll('app.asar','app.asar.unpacked');return existsS
       if(closing)return;
       event.preventDefault();
       window?.hide();
-      if(process.platform==='darwin')app.dock?.hide();
     });
     window.on('closed',()=>{window=undefined;});
     await window.loadURL(address);
@@ -135,7 +136,22 @@ const unpacked=bundled.replaceAll('app.asar','app.asar.unpacked');return existsS
   const trayIcon=nativeImage.createFromPath(process.platform==='darwin'?join(here,'console','tray-icon.png'):icon).resize(process.platform==='darwin'?{width:18,height:18}:{width:32,height:32});
   if(process.platform==='darwin')trayIcon.setTemplateImage(true);
   tray=new Tray(trayIcon);
-  tray.setToolTip('TokenFlow');
+  tray.setToolTip('TokenFlow · 账号额度');
+  quotaPanel=createQuotaPanel({address,preload:join(here,'preload.cjs'),icon,tray});
+  const fromQuotaPanel=(event:Electron.IpcMainInvokeEvent)=>{
+    const panel=quotaPanel?.window();
+    return !!panel&&event.sender===panel.webContents&&event.senderFrame===panel.webContents.mainFrame&&new URL(event.senderFrame.url).origin===address;
+  };
+  ipcMain.handle('workspace:open',async(event,view:unknown)=>{
+    if(!fromQuotaPanel(event)||view!==undefined&&view!=='accounts')throw new Error('Workspace request denied');
+    quotaPanel?.hide();await show();
+    if(view==='accounts')window?.webContents.send('accounts:open');
+  });
+  ipcMain.handle('quota:hide',event=>{if(!fromQuotaPanel(event))throw new Error('Quota panel request denied');quotaPanel?.hide();});
+  ipcMain.handle('quota:appearance',(event,theme:unknown)=>{
+    if(!fromQuotaPanel(event)||theme!=='dark'&&theme!=='light')throw new Error('Quota appearance request denied');
+    return quotaPanel!.setAppearance(theme);
+  });
   const trayMenu=Menu.buildFromTemplate([
     {label:'打开工作台',click:()=>{void show();}},
     {label:'维修师傅',click:()=>{void show().then(()=>window?.webContents.send('repair:open'));}},
@@ -144,16 +160,16 @@ const unpacked=bundled.replaceAll('app.asar','app.asar.unpacked');return existsS
     {label:'退出 TokenFlow',click:()=>app.quit()},
   ]);
   tray.on('right-click',()=>tray?.popUpContextMenu(trayMenu));
-  tray.on('click',()=>{void show();});
-  app.on('will-quit',()=>tray?.destroy());
+  tray.on('click',()=>{void quotaPanel?.toggle().catch(()=>show());});
+  app.on('will-quit',()=>{quotaPanel?.destroy();tray?.destroy();});
   app.on('second-instance',()=>{if(window){void show();}else{startup?.focus();}});
   app.on('activate',()=>{if(window){void show();}else{startup?.focus();}});
   // Keep the gateway and menu bar alive even if the workspace is destroyed.
   app.on('window-all-closed',()=>{});
   app.on('before-quit',event=>{if(closing)return;event.preventDefault();closing=true;void reconciliation.close().finally(()=>service.app.close()).finally(()=>closeQoderCrypto()).finally(()=>network.close()).finally(()=>app.quit());});
-  // The workspace opens immediately; saved accounts, namespaced models and quotas load in the background.
+  // Load only TokenFlow-owned accounts. External client credentials require a targeted user action.
   await startup.update('正在打开工作台…');
-  void service.discoverLocal().catch(() => undefined); // Failure is exposed in the model center with a retry action.
+  void service.discoverLocal().catch(() => undefined); // On-demand mode loads saved accounts only.
   await show();
   startup.close();
 }

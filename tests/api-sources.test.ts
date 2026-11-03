@@ -685,7 +685,7 @@ it('prefers the URL suffix and persists different model routes in one source thr
  const {service,headers,baseURL,calls,root,secrets}=await fixture(true,undefined,{'gpt-a':'responses','claude-b':'messages','chat-only':'chat/completions'});
  const added=await service.app.inject({method:'POST',url:'/api/sources/quick',headers,payload:{name:'Mixed gateway',baseURL:`${baseURL}/responses`,apiKey:'mixed-private-key',model:'gpt-a,claude-b,chat-only'}});
  expect(added.statusCode,added.body).toBe(200);const source=added.json();
- expect(source.modelRoutes).toEqual({'gpt-a':{protocol:'responses',baseURL},'claude-b':{protocol:'messages',baseURL},'chat-only':{protocol:'chat',baseURL}});
+ expect(source.modelRoutes).toMatchObject({'gpt-a':{protocol:'responses',baseURL},'claude-b':{protocol:'messages',baseURL},'chat-only':{protocol:'chat',baseURL}});
  expect(calls.filter(c=>c.body.model==='gpt-a').map(c=>c.path)).toEqual(['/v1/responses']);
  expect(calls.filter(c=>c.body.model==='claude-b').map(c=>c.path)).toEqual(['/v1/responses','/v1/messages']);
  expect(calls.filter(c=>c.body.model==='chat-only').map(c=>c.path)).toEqual(['/v1/responses','/v1/chat/completions']);

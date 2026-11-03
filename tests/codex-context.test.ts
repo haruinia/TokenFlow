@@ -14,6 +14,24 @@ async function fixture(){const root=await mkdtemp(join(await realpath(tmpdir()),
 const history=[{type:'message',role:'user',content:[{type:'input_text',text:'Preserve requirements'}]},{type:'function_call',call_id:'one',name:'read',arguments:'{}'},{type:'function_call_output',call_id:'one',output:'original tool result'}];
 const checkpoint=(token:string)=>({type:'compacted',payload:{message:'',replacement_history:[history[0],{type:'compaction',encrypted_content:token}],window_number:2}});
 const rollout=(token:string)=>[...history.map(payload=>({type:'response_item',payload})),checkpoint(token),{type:'response_item',payload:{type:'message',role:'user',content:'Future turn must not leak into a fork'}}].map(v=>JSON.stringify(v)).join('\n')+'\n';
+it('recovers an official checkpoint after a legacy plaintext compaction when the local summary is the retained history',async()=>{
+ const f=await fixture();const text=[{type:'session_meta',payload:{id:'legacy'}},{type:'compacted',payload:{message:CODEX_SUMMARY_PREFIX+'\nRetained task summary: preserve the API and continue validation.',replacement_history:null}},checkpoint('legacy-summary-token'),{type:'response_item',payload:{type:'message',role:'user',content:'FUTURE_NOT_IN_SUMMARY'}}].map(row=>JSON.stringify(row)).join('\n')+'\n';
+ await writeFile(f.file,text);
+ const recovered=await f.migration.recover({type:'compaction',encrypted_content:'legacy-summary-token'},[]);
+ expect(JSON.stringify(recovered)).toContain('Retained task summary: preserve the API and continue validation.');
+ expect(JSON.stringify(recovered)).not.toContain('FUTURE_NOT_IN_SUMMARY');
+ expect(await readFile(f.file,'utf8')).toBe(text);
+});
+it('replays legacy summaries with retained user turns and rollback while keeping replacement histories authoritative',()=>{
+ const user=(text:string)=>({type:'message',role:'user',content:[{type:'input_text',text}]}),response=(payload:unknown)=>({type:'response_item',payload});
+ const summary=(text:string)=>CODEX_SUMMARY_PREFIX+'\n'+text;
+ const rows=[response(user('A')),response({type:'function_call',call_id:'old',name:'read',arguments:'{}'}),response({type:'function_call_output',call_id:'old',output:'ALREADY_SUMMARIZED'}),{type:'compacted',payload:{message:summary('SAVED'),replacement_history:null}},response(user('B_REMOVED')),{type:'event_msg',payload:{type:'thread_rolled_back',num_turns:1}},response(user('C_KEPT'))];
+ const replayed=replayCodexHistory(rows,()=>undefined);
+ expect(replayed).toEqual([user('A'),user(summary('SAVED')),user('C_KEPT')]);
+ expect(replayCodexHistory([...rows,{type:'compacted',payload:{message:summary('NOT_AUTHORITATIVE'),replacement_history:[user('REPLACEMENT')]}}],row=>Array.isArray(row.payload?.replacement_history)?row.payload.replacement_history:undefined)).toEqual([user('REPLACEMENT')]);
+ const nativeOnly=[{type:'compacted',payload:{message:summary('NOT_A_FALLBACK_FOR_NATIVE_CIPHER'),replacement_history:[{type:'compaction',encrypted_content:'opaque'}]}}];
+ expect(replayCodexHistory(nativeOnly,()=>undefined)).toEqual([]);
+});
 it('excludes historical tool declarations and their legacy malformed messages from recovered wire input',async()=>{
  const f=await fixture();const tools=[{type:'function',name:'current_tool',parameters:{type:'object'}}];
  const declarations=[{type:'additional_tools',role:'developer',tools:[{type:'function',name:'old_tool'}]},{type:'message',role:'developer',tools:[{type:'function',name:'legacy_tool'}]}];
@@ -32,8 +50,8 @@ it('normalizes legacy assistant text from encrypted checkpoints and cached offic
  const expected=[...history,{type:'message',role:'assistant',content:[{type:'output_text',text:'saved task summary'}]}];
  const encrypted=f.context.encodeCheckpoint(legacy,codexContextScope);
  expect(await f.migration.recover({type:'compaction',encrypted_content:encrypted},[])).toEqual(expected);
- const token='cached-official-window';await mkdir(join(f.root,'codex-context-cache'),{recursive:true});
- await writeFile(join(f.root,'codex-context-cache',createHash('sha256').update(token).digest('hex')),encrypted);
+ const token='cached-official-window';await writeFile(f.file,[...legacy.map(payload=>({type:'response_item',payload})),checkpoint(token)].map(row=>JSON.stringify(row)).join('\n'));
+ expect(await f.migration.recover({type:'compaction',encrypted_content:token},[])).toEqual(expected);await rm(f.file);
  expect(await f.migration.recover({type:'compaction',encrypted_content:token},[])).toEqual(expected);
 });
 it('recovers an official opaque window from exact local history, encrypts its cache and excludes future turns',async()=>{
@@ -51,6 +69,63 @@ it('never merges a neighboring conversation when recovering an exact checkpoint'
  await writeFile(neighbor,other);
  expect(await f.migration.recover({type:'compaction',encrypted_content:'wanted'},[])).toEqual(history);
  expect(await readFile(neighbor,'utf8')).toBe(other);
+});
+it('rebuilds an unreadable derived cache from exact local history and replaces only the cache',async()=>{
+ const f=await fixture(),token='cached-official-token',cache=join(f.root,'codex-context-cache',createHash('sha256').update(token).digest('hex'));
+ await mkdir(join(f.root,'codex-context-cache'));await writeFile(cache,'invalid-old-cache');const source=rollout(token);await writeFile(f.file,source);
+ expect(await f.migration.recover({type:'compaction',encrypted_content:token},[])).toEqual(history);
+ expect(await readFile(cache,'utf8')).not.toBe('invalid-old-cache');
+ await rm(f.file);expect(await f.migration.recover({type:'compaction',encrypted_content:token},[])).toEqual(history);await writeFile(f.file,source);
+ expect(await readFile(f.file,'utf8')).toBe(source);
+});
+it('continues after exact history recovery when the optional cache cannot be written',async()=>{
+ const f=await fixture(),token='uncacheable-official-token',source=rollout(token);await writeFile(f.file,source);
+ // A regular file at the cache directory deterministically simulates storage
+ // unavailable for this derivative without relying on root/chmod behavior.
+ await writeFile(join(f.root,'codex-context-cache'),'CACHE_UNAVAILABLE');
+ expect(await f.migration.recover({type:'compaction',encrypted_content:token},[])).toEqual(history);
+ expect(await readFile(f.file,'utf8')).toBe(source);
+ expect(await readFile(join(f.root,'codex-context-cache'),'utf8')).toBe('CACHE_UNAVAILABLE');
+});
+it('does not turn an invalid cache into empty context when no matching source history exists',async()=>{
+ const f=await fixture(),token='missing-source',cache=join(f.root,'codex-context-cache',createHash('sha256').update(token).digest('hex'));
+ await mkdir(join(f.root,'codex-context-cache'));await writeFile(cache,'invalid-old-cache');await writeFile(f.file,rollout('unrelated'));
+ await expect(f.migration.recover({type:'compaction',encrypted_content:token},[])).rejects.toThrow('无法恢复');
+ expect(await readFile(cache,'utf8')).toBe('invalid-old-cache');
+});
+it('rejects an unresolved earlier opaque window instead of caching only recent user turns',async()=>{
+ const f=await fixture(),text=[{type:'session_meta',payload:{id:'partial'}},checkpoint('missing-early-window'),{type:'response_item',payload:{type:'message',role:'user',content:'RECENT_TURN_ONLY'}},checkpoint('requested-window')].map(row=>JSON.stringify(row)).join('\n')+'\n';
+ await writeFile(f.file,text);
+ await expect(f.migration.recover({type:'compaction',encrypted_content:'requested-window'},[])).rejects.toThrow('无法恢复');
+ expect(await readdir(join(f.root,'codex-context-cache')).catch(()=>[])).toEqual([]);expect(await readFile(f.file,'utf8')).toBe(text);
+});
+it('uses a complete surviving local checkpoint without requiring ancestors it has already replaced',async()=>{
+ const f=await fixture(),summary={type:'message',role:'user',content:[{type:'input_text',text:CODEX_SUMMARY_PREFIX+'\nCOMPLETE_SAVED_TASK'}]};
+ const rows=[{type:'session_meta',payload:{id:'child',history_base:{thread_id:'00000000-0000-0000-0000-000000000099',end_byte_offset:12,end_ordinal_exclusive:1}}},{type:'compacted',payload:{replacement_history:[summary]}},{type:'response_item',payload:{type:'message',role:'user',content:'LATER_WORK'}},checkpoint('after-complete-summary')];
+ const text=rows.map(row=>JSON.stringify(row)).join('\n');await writeFile(f.file,text);
+ const result=JSON.stringify(await f.migration.recover({type:'compaction',encrypted_content:'after-complete-summary'},[]));expect(result).toContain('COMPLETE_SAVED_TASK');expect(result).toContain('LATER_WORK');expect(await readFile(f.file,'utf8')).toBe(text);
+});
+it.each([false,true])('still requires missing ancestors when the local checkpoint was rolled back (legacy=%s)',async legacy=>{
+ const f=await fixture(),user=(text:string)=>({type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text}]}});
+ const rows=[{type:'session_meta',payload:{id:'child',history_base:{thread_id:'00000000-0000-0000-0000-000000000099',end_byte_offset:12,end_ordinal_exclusive:1}}},{type:'event_msg',payload:{type:'task_started',turn_id:'B'}},user('B'),{type:'compacted',payload:{replacement_history:[user('B').payload,user(CODEX_SUMMARY_PREFIX+'\nROLLED_BACK_SUMMARY').payload]}},{type:'event_msg',payload:{type:'thread_rolled_back',num_turns:1}},{type:'event_msg',payload:{type:'task_started',turn_id:'C'}},user('C'),checkpoint('after-revert')];
+ if(legacy)rows[3]={type:'compacted',payload:{message:CODEX_SUMMARY_PREFIX+'\nROLLED_BACK_SUMMARY',replacement_history:null}} as any;
+ await writeFile(f.file,rows.map(row=>JSON.stringify(row)).join('\n'));
+ await expect(f.migration.recover({type:'compaction',encrypted_content:'after-revert'},[])).rejects.toThrow('无法恢复');
+});
+it('does not trust an older cache that may contain only the tail after a missing history window',async()=>{
+ const f=await fixture(),token='old-incomplete-cache';await mkdir(join(f.root,'codex-context-cache'));
+ const cache=join(f.root,'codex-context-cache',createHash('sha256').update(token).digest('hex'));
+ await writeFile(cache,f.context.encodeCheckpoint([{type:'message',role:'user',content:'RECENT_ONLY'}],codexContextScope));
+ await expect(f.migration.recover({type:'compaction',encrypted_content:token},[])).rejects.toThrow('无法恢复');
+ await writeFile(f.file,rollout(token));expect(await f.migration.recover({type:'compaction',encrypted_content:token},[])).toEqual(history);
+});
+it('does not decode a rolled-back private checkpoint from another machine',async()=>{
+ const f=await fixture(),other=await fixture(),user=(text:string)=>({type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text}]}}),start=(turn_id:string)=>({type:'event_msg',payload:{type:'task_started',turn_id}});
+ const foreign=other.context.encodeCheckpoint([{type:'message',role:'user',content:'ROLLED_BACK_PRIVATE_HISTORY'}],codexContextScope);
+ const rows=[start('A'),user('A'),{type:'compacted',payload:{replacement_history:[user('A').payload,user(CODEX_SUMMARY_PREFIX+'\nSAVED_A').payload]}},start('B'),user('B_REMOVED'),{type:'compacted',payload:{replacement_history:[{type:'compaction',encrypted_content:foreign}]}},{type:'event_msg',payload:{type:'thread_rolled_back',num_turns:1}},start('C'),user('C_KEPT'),checkpoint('after-private-revert')];
+ await writeFile(f.file,rows.map(row=>JSON.stringify(row)).join('\n'));
+ const result=JSON.stringify(await f.migration.recover({type:'compaction',encrypted_content:'after-private-revert'},[]));
+ expect(result).toContain('SAVED_A');expect(result).toContain('C_KEPT');expect(result).not.toContain('REMOVED');expect(result).not.toContain('ROLLED_BACK');
 });
 it('recovers a later official checkpoint from the saved gateway summary plus only the intervening history',async()=>{
  const f=await fixture();
@@ -250,18 +325,32 @@ it('repairs gateway-born reasoning in checkpoint histories even without a compac
  const saved=JSON.parse((await readFile(f.file,'utf8')).split('\n')[1]!).payload;
  expect(JSON.stringify(saved)).not.toContain('encrypted_content');expect(saved).not.toHaveProperty('replacement_history_metadata');expect(saved.replacement_history.slice(-2)).toEqual(history.slice(1));
 });
-it('normalizes Codex agent_message items and strips encrypted_content blocks for SDK providers',()=>{
- const normalized=portableCodexItem({
+it('rejects encrypted agent tasks instead of forwarding their routing prefix as the task',()=>{
+ expect(()=>portableCodexItem({
   type:'agent_message',
   id:'amsg_test',
   author:'/root/tool_routing',
   recipient:'/root',
   content:[{type:'input_text',text:'Subagent routing note'},{type:'encrypted_content',encrypted_content:'gAAAAABsecret'}],
- });
+ })).toThrow('当前网关模型无法读取');
+ const normalized=portableCodexItem({type:'agent_message',content:[{type:'input_text',text:'Subagent routing note'}]});
  expect(normalized).toEqual([{type:'message',role:'developer',content:[{type:'input_text',text:'Subagent routing note'}]}]);
  const parsed=parseCodeBuddyInput('responses',{model:'workbuddy/deepseek-v4.1-flash',input:normalized});
  expect(parsed.systemPrompt).toContain('Subagent routing note');expect(parsed.prompt).not.toContain('Subagent routing note');
  expect(parsed.prompt).not.toContain('gAAAAABsecret');
+});
+
+it('reports encrypted ancestral agent replies separately from the current v1 protocol when recovering native compaction',async()=>{
+ const f=await fixture(),id='11111111-2222-3333-4444-555555555555';
+ const inherited=[
+  {ordinal:0,type:'session_meta',payload:{id,multi_agent_version:'v2'}},
+  {ordinal:1,type:'response_item',payload:history[0]},
+  {ordinal:2,type:'response_item',payload:{type:'agent_message',id:'amsg-old-reply',author:'/root/worker',recipient:'/root',content:[{type:'input_text',text:'Routing metadata only'},{type:'encrypted_content',encrypted_content:'opaque-old-reply'}]}},
+ ].map(row=>JSON.stringify(row)+'\n').join('');
+ const parent=join(f.file,'..',`rollout-2026-10-12T00-00-00-${id}.jsonl`);await writeFile(parent,inherited);
+ const current=[{ordinal:3,type:'session_meta',payload:{id:'current',model_provider:'token_flow',multi_agent_version:'v1',history_base:{thread_id:id,end_ordinal_exclusive:3,end_byte_offset:Buffer.byteLength(inherited)}}},checkpoint('native-after-api-return')].map(row=>JSON.stringify(row)+'\n').join('');await writeFile(f.file,current);
+ await expect(f.migration.recover({type:'compaction',encrypted_content:'native-after-api-return'},[])).rejects.toMatchObject({statusCode:422,code:'codex_encrypted_agent_message'});
+ expect(await readFile(f.file,'utf8')).toBe(current);expect(await readFile(parent,'utf8')).toBe(inherited);
 });
 
 it('rebases paginated history cutoffs when compatibility rewrites shrink their source',async()=>{
@@ -454,4 +543,44 @@ it('expands a stored gateway compaction response ID before an official continuat
  const compact=await(await f.context.response('responses',{model:'qoder/test',input:[...history,{type:'compaction_trigger'}]},'key','source',async()=>{throw Error('small complete history needs no summary call');},{scope:codexContextScope,recover:item=>f.migration.recover(item,[])})).json();
  const converted=await f.migration.forOfficial({model:'gpt-official',previous_response_id:compact.id,input:[{role:'user',content:'NEXT_AFTER_CHECKPOINT'}]},[]);
  expect(converted).not.toHaveProperty('previous_response_id');expect(JSON.stringify(converted)).not.toContain('tfctx1.');expect(JSON.stringify(converted)).toContain('original tool result');expect(JSON.stringify(converted)).toContain('NEXT_AFTER_CHECKPOINT');
+});
+
+it('converts inline gateway reasoning on return without requiring a checkpoint or previous response ID',async()=>{
+ const f=await fixture();
+ const native={type:'reasoning',id:'rs_native',encrypted_content:'official-signed-state',summary:[]};
+ const foreign={type:'reasoning',id:'rs_chatcmpl_fixture',encrypted_content:'',summary:[{type:'summary_text',text:'Gateway visible summary'}]};
+ const body={model:'gpt-official',input:[native,foreign,{type:'message',role:'assistant',phase:'final_answer',content:[{type:'output_text',text:'ok'}]}]};
+ const converted=await f.migration.forOfficial(body,[]);
+ expect(converted.input.filter(i=>i.type==='reasoning')).toEqual([native]);
+ expect(JSON.stringify(converted)).toContain('Gateway visible summary');expect(converted.input.at(-1)).toMatchObject({phase:'final_answer'});
+ expect(body.input[1]).toBe(foreign);
+});
+
+it('keeps native opaque state while converting marked foreign ciphertext and IDs, including paired tool calls',async()=>{
+ const f=await fixture();const native={type:'reasoning',id:'rs_official',encrypted_content:'native-opaque',summary:[]};
+ const foreign={type:'reasoning',id:'tfitem_foreign',encrypted_content:'foreign-opaque',summary:[{type:'summary_text',text:'visible foreign summary'}]};
+ const call={type:'function_call',id:'tfitem_call',call_id:'shared',name:'read',arguments:'{}'};
+ const result={type:'function_call_output',call_id:'shared',output:'result'};
+ const message={type:'message',id:'tfitem_reply',role:'assistant',phase:'final_answer',content:[{type:'output_text',text:'answer'}]};
+ const body={model:'official',input:[native,foreign,call,result,message]};const converted=await f.migration.forOfficial(body,[]);
+ expect(converted.input).toContainEqual(native);expect(JSON.stringify(converted)).not.toContain('foreign-opaque');expect(JSON.stringify(converted)).toContain('visible foreign summary');
+ expect(converted.input).toContainEqual({type:'function_call',call_id:'shared',name:'read',arguments:'{}'});expect(converted.input).toContainEqual(result);
+ expect(converted.input.at(-1)).toMatchObject({phase:'final_answer'});expect(converted.input.at(-1)).not.toHaveProperty('id');expect(body.input[4]).toHaveProperty('id');
+});
+
+it('restores official encrypted agent messages from a local checkpoint without applying gateway task rejection',async()=>{
+ const f=await fixture();
+ const task={type:'agent_message',id:'agent_native',content:[{type:'input_text',text:'Native routing prefix'},{type:'encrypted_content',encrypted_content:'native-task-ciphertext'}]};
+ const native={type:'reasoning',id:'rs_native',encrypted_content:'native-reasoning-ciphertext',summary:[]};
+ const token=f.context.encodeCheckpoint([{role:'user',content:'Task'},task,native],codexContextScope);
+ const converted=await f.migration.forOfficial({model:'official',input:[{type:'compaction',encrypted_content:token}]},[]);
+ expect(converted.input).toContainEqual(task);expect(converted.input).toContainEqual(native);
+ expect(()=>portableCodexItem(task)).toThrow('加密任务');
+});
+it('keeps ordinary foreign reasoning and native encrypted agent tasks independent in the same official request',async()=>{
+ const f=await fixture();const {codexGatewayResponse}=await import('../packages/core/src/codex-response-protocol.js');
+ const foreign=await codexGatewayResponse(Response.json({status:'completed',output:[{type:'reasoning',encrypted_content:'foreign-without-id',summary:[{type:'summary_text',text:'Visible thought summary'}]},{type:'message',role:'assistant',content:[{type:'output_text',text:'ordinary reply'}]}]})).json();
+ const agent={type:'agent_message',content:[{type:'encrypted_content',encrypted_content:'native-agent-secret'}]};
+ const converted=await f.migration.forOfficial({model:'official',input:[agent,...foreign.output]},[]);
+ expect(converted.input).toContainEqual(agent);expect(JSON.stringify(converted)).not.toContain('foreign-without-id');expect(JSON.stringify(converted)).toContain('Visible thought summary');expect(JSON.stringify(converted)).toContain('ordinary reply');
 });

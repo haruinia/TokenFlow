@@ -8,6 +8,7 @@ import {rememberedCredentialAccess,rememberCredentialAccess} from '../apps/deskt
 const fixture=vi.hoisted(()=>({
  root:'',events:[] as string[],available:true,decide:(_allowed:boolean)=>{},decision:Promise.resolve(false),
  paint:()=>{},painting:Promise.resolve(),openWorkspace:()=>{},workspaceReady:Promise.resolve(),
+ windowEvents:new Map<string,(event:{preventDefault:()=>void})=>void>(),
 }));
 const storage=vi.hoisted(()=>({
  isEncryptionAvailable:vi.fn(()=>{fixture.events.push('storage-available');return fixture.available;}),
@@ -27,7 +28,8 @@ vi.mock('electron',()=>({
  BrowserWindow:class{
   constructor(){fixture.events.push('workspace-create');}
   webContents={setWindowOpenHandler:vi.fn(),on:vi.fn(),session:{setPermissionRequestHandler:vi.fn()}};
-  on=vi.fn();
+  on=vi.fn((name:string,handler:(event:{preventDefault:()=>void})=>void)=>fixture.windowEvents.set(name,handler));
+  hide(){fixture.events.push('workspace-hide');}
   async loadURL(){fixture.events.push('workspace-loading');await fixture.workspaceReady;fixture.events.push('workspace-loaded');}
   show(){fixture.events.push('workspace-show');}
   focus(){fixture.events.push('workspace-focus');}
@@ -52,14 +54,24 @@ vi.mock('../apps/desktop/src/qoder-crypto.js',()=>({qoderCrypto:clientRead,qoder
 vi.mock('../packages/core/src/claude-accounts.js',()=>({claudeKeychain:()=>({read:clientRead,write:clientRead})}));
 vi.mock('../packages/core/src/agent-connections.js',()=>({agentPaths:()=>({claude:join(fixture.root,'claude/settings.json'),codex:join(fixture.root,'codex/config.toml')})}));
 const recorder=vi.hoisted(()=>({options:[] as {allowOfficial:boolean}[]}));
-vi.mock('../packages/core/src/codex-reconciliation-monitor.js',()=>({CodexReconciliationMonitor:class {constructor(options:{allowOfficial:boolean}){recorder.options.push(options);}async start(){fixture.events.push('recorder-start');}async close(){fixture.events.push('recorder-stop');}}}));
+vi.mock('../packages/core/src/codex-reconciliation-monitor.js',()=>({CodexReconciliationMonitor:class {constructor(options:{allowOfficial:boolean}){recorder.options.push(options);}enableOfficial(){fixture.events.push('recorder-enable-official');}async start(){fixture.events.push('recorder-start');}async close(){fixture.events.push('recorder-stop');}}}));
 
 beforeEach(async()=>{
+ fixture.windowEvents.clear();
  vi.resetModules();vi.clearAllMocks();recorder.options=[];fixture.root=await mkdtemp(join(tmpdir(),'tokenflow-startup-order-'));fixture.events=[];
  await mkdir(join(fixture.root,'secrets'));await writeFile(join(fixture.root,'secrets/cliproxy.bin'),'fixture-local-key');
  fixture.decision=new Promise(resolve=>{fixture.decide=resolve;});
  fixture.painting=new Promise(resolve=>{fixture.paint=resolve;});
  fixture.workspaceReady=new Promise(resolve=>{fixture.openWorkspace=resolve;});
+});
+
+it('closing the workspace keeps the service and Dock available in the background',async()=>{
+ fixture.available=true;await rememberCredentialAccess(fixture.root,true);
+ await import('../apps/desktop/src/main.js');fixture.paint();fixture.openWorkspace();
+ await expect.poll(()=>fixture.events.includes('startup-close')).toBe(true);
+ const preventDefault=vi.fn();fixture.windowEvents.get('close')!({preventDefault});
+ expect(preventDefault).toHaveBeenCalledOnce();expect(fixture.events).toContain('workspace-hide');
+ expect(fixture.events).not.toContain('recorder-stop');expect(errors).not.toHaveBeenCalled();
 });
 afterEach(async()=>{await rm(fixture.root,{recursive:true,force:true});});
 
@@ -85,7 +97,7 @@ for(const available of [true,false])it.each([true,false])(`completes startup aft
  before('choice-resolved',`painted:${credentialStatus}`);
  if(allowed){before('painted:正在读取已保存的凭据…','storage-available');before('storage-available','service-listen');}
  else expect(fixture.events.filter(event=>event.startsWith('storage-'))).toEqual([]);
- before('service-listen','session-cookie');before('service-listen','recorder-start');expect(recorder.options[0].allowOfficial).toBe(allowed);
+ before('service-listen','session-cookie');before('service-listen','recorder-start');expect(recorder.options[0].allowOfficial).toBe(false);
  before('session-cookie','workspace-create');before('painted:正在打开工作台…','workspace-create');
  expect(fixture.events).not.toContain('startup-close');expect(fixture.events).not.toContain('workspace-show');
  const options=service.mock.calls[0][0];
@@ -96,11 +108,10 @@ for(const available of [true,false])it.each([true,false])(`completes startup aft
    ()=>options.claudeCredentialStore!.read(),()=>options.claudeCredentialStore!.write(null),
   ]:[]),
  ];
- for(const operation of operations){
-  if(allowed)await operation();
-  else await expect(operation()).rejects.toThrow('本次启动未允许');
- }
- expect(clientRead).toHaveBeenCalledTimes(allowed?operations.length:0);
+ // External client reads are scoped by service-level explicit actions, not startup vault consent.
+ expect(options.nativeCredentialsOnDemand).toBe(true);expect(clientRead).not.toHaveBeenCalled();
+ for(const operation of operations)await operation();
+ expect(clientRead).toHaveBeenCalledTimes(operations.length);
  expect(options.credentialWarnings!().some(w=>w.includes('临时密钥'))).toBe(!allowed||!available);
  if(!allowed){
   for(let attempt=0;attempt<2;attempt++)expect(await options.secrets.get('cliproxy')).toBe('');
@@ -111,7 +122,12 @@ for(const available of [true,false])it.each([true,false])(`completes startup aft
  expect(await rememberedCredentialAccess(fixture.root)).toBe(allowed&&available);
  // Skipping must never touch the OS vault, including TokenFlow's own encrypted credentials.
  expect(await readFile(join(fixture.root,'secrets/cliproxy.bin'),'utf8')).toBe('fixture-local-key');
- expect(options.credentialWarnings!().some(w=>w.includes('已跳过所有安全存储'))).toBe(!allowed);
+ expect(options.credentialWarnings!().some(w=>w.includes('未读取 TokenFlow 已保存的安全存储'))).toBe(!allowed);
+ if(available){
+  options.onNativeCredentialAccess!('qoder');expect(fixture.events).not.toContain('recorder-enable-official');
+  options.onNativeCredentialAccess!('codex');expect(fixture.events).toContain('recorder-enable-official');
+  await options.secrets.set('fixture-import','fixture-value');expect(await options.secrets.get('fixture-import')).toBe('fixture-value');
+ }else expect(()=>options.onNativeCredentialAccess!('qoder')).toThrow('系统安全密钥存储不可用');
  fixture.openWorkspace();
  await expect.poll(()=>fixture.events.includes('startup-close')).toBe(true);
  before('workspace-loaded','workspace-show');before('workspace-show','workspace-focus');before('workspace-focus','startup-close');

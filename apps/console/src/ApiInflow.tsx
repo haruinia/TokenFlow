@@ -149,8 +149,12 @@ export function ApiInflow({local,usage,onChange,notify,onContext}:{onContext?:(c
   }catch(error){notify({kind:'error',text:error instanceof Error?error.message:'操作失败'});}
  }
  async function remove(source:ApiSource){
-  if(!window.confirm(`删除 ${source.name} 及其保存的 API Key？`))return;
-  try{await requestJSON(`/api/sources/${source.id}`,json('DELETE',{}));await onChange();}
+  try{
+   const deps=await requestJSON<{targets:{name:string}[];keys:{name:string}[];repair:boolean;reviewer:boolean}>(`/api/sources/${source.id}/usage`);
+   const used=deps.targets.length||deps.keys.length||deps.repair||deps.reviewer;
+   if(!window.confirm(`删除 ${source.name} 及其保存的 API Key？${used?'\n该来源仍在使用，将同时移除关联模型和专用 Key。客户端重新打开后生效。':''}`))return;
+   await requestJSON(`/api/sources/${source.id}`,json('DELETE',{cascade:true}),120000);await onChange();window.dispatchEvent(new Event('tokenflow:native-login-changed'));
+  }
   catch(error){notify({kind:'error',text:error instanceof Error?error.message:'删除失败'});}
  }
 

@@ -1,0 +1,12 @@
+{
+  "originalConfigUntouched": true,
+  "originalAuthUntouched": true,
+  "legacyApiAdopted": true,
+  "originalUnavailableInApi": true,
+  "legacyApiArchivedInOriginal": true,
+  "apiUnavailableInOfficial": true,
+  "apiSummaryReused": true,
+  "apiSourcesSeparated": true,
+  "apiExcludedFromOriginalDatabase": true,
+  "apiExcludedFromBackups": true
+}

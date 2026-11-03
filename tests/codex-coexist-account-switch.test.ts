@@ -18,12 +18,13 @@ const oauth=(id:string)=>({account_id:id,access_token:`fixture-access-${id}`,ref
 const catalog=(slug:string)=>({models:[{slug,display_name:slug,visibility:'list',truncation_policy:{mode:'bytes',limit:1000}}]});
 async function setup(hybrid=false){
  if(hybrid)vi.spyOn(CodexBridgeInstallation.prototype,'preflight').mockResolvedValue({app:'/fixture/Codex.app',binary:'/fixture/codex',node:'/fixture/node'});
- const root=await realpath(await mkdtemp(join(tmpdir(),'coexist-account-')));clean.push(()=>rm(root,{recursive:true,force:true}));
+ const root=await realpath(await mkdtemp(join(tmpdir(),'coexist-account-')));clean.push(()=>rm(root,{recursive:true,force:true,maxRetries:3}));
  const config=join(root,'codex/config.toml'),auth=join(root,'codex/auth.json');await mkdir(join(root,'codex'));await mkdir(join(root,'cliproxy/auth'),{recursive:true});await writeFile(config,'model="original"\n');const originalAuth=JSON.stringify({auth_mode:'chatgpt',tokens:oauth('original')});await writeFile(auth,originalAuth);
  await writeFile(join(root,'cliproxy/fixture-accounts.json'),JSON.stringify(['a','b'].map(id=>({name:`${id}.json`,provider:'codex',status:'active',models:[`model-${id}`]}))));for(const id of ['a','b'])await writeFile(join(root,`cliproxy/auth/${id}.json`),JSON.stringify(oauth(id)));
  const allocator=createServer();await new Promise<void>(r=>allocator.listen(0,'127.0.0.1',r));const port=(allocator.address() as {port:number}).port;await new Promise<void>(r=>allocator.close(()=>r()));
  let fail=false;let onFetch:undefined|(()=>Promise<void>);const fetcher=vi.fn(async(_url:string,init:RequestInit)=>{await onFetch?.();return fail?Response.json({error:'unavailable'},{status:403}):Response.json(catalog(`official-${(init.headers as Record<string,string>)['chatgpt-account-id']}`));});
- const options={codexBridgeRuntime:resolve('tests/fixtures/fake-cliproxy.mjs'),root,proxyPort:port,binary:resolve('tests/fixtures/fake-cliproxy.mjs'),token:'admin',localKey:'private',secrets:{get:async()=>'',set:async()=>{}},agentPaths:{codex:config,qoder:join(root,'qoder.json'),claude:join(root,'claude.json'),workbuddy:join(root,'workbuddy.json')},agentProcesses:async()=>[],codexOfficialFetch:fetcher};let service=await createDesktopService(options);clean.push(()=>service.app.close());
+ const savedSecrets=new Map<string,string>();
+ const options={codexBridgeRuntime:resolve('tests/fixtures/fake-cliproxy.mjs'),root,proxyPort:port,binary:resolve('tests/fixtures/fake-cliproxy.mjs'),token:'admin',localKey:'private',secrets:{persistent:true,get:async(id:string)=>savedSecrets.get(id)??'',set:async(id:string,value:string)=>{savedSecrets.set(id,value);}},agentPaths:{codex:config,qoder:join(root,'qoder.json'),claude:join(root,'claude.json'),workbuddy:join(root,'workbuddy.json')},agentProcesses:async()=>[],codexOfficialFetch:fetcher};let service=await createDesktopService(options);clean.push(()=>service.app.close());
  vi.spyOn(CodexContext.prototype,'prepareOfficial').mockResolvedValue({changed:0} as any);vi.spyOn(CodexThreadMigration.prototype,'restore').mockResolvedValue({migrated:0} as any);
  await service.proxy.start();const headers={host:'127.0.0.1:9527',authorization:'Bearer admin'},get=async(url:string)=>(await service.app.inject({url,headers})).json(),post=(url:string,payload:unknown)=>service.app.inject({url,method:'POST',headers,payload:payload as any});
  const target=(await get('/api/a2a')).targets.find((t:any)=>t.id==='codex'),source=service.proxy.snapshot().accounts.find(a=>a.models?.includes('codex/model-a'))!;
@@ -141,4 +142,22 @@ it('can restore official routing even when the compatibility engine is no longer
  const lifecycle=vi.spyOn(CodexSwitchLifecycle.prototype,'change').mockImplementation(async(work)=>work());
  const response=await f.post('/api/a2a/codex-migration/restore',{restartCodex:true,restoreHistory:false});
  expect(response.statusCode,response.body).toBe(200);expect(preflight).not.toHaveBeenCalled();expect(lifecycle).toHaveBeenCalledOnce();expect(await readFile(f.auth,'utf8')).toBe(auth);expect((parse(await readFile(f.config,'utf8')) as any).model_provider).not.toBe('token_flow');
+});
+
+it.each(['shared','legacy'])('switches a chosen official account directly from %s API mode without a manual restore',async mode=>{
+ const f=await setup();
+ const added=await f.post('/api/sources',{name:'Direct fixture',baseURL:'https://api.example.test/v1',protocol:'responses',models:['third-party'],apiKey:'synthetic-api-key'});expect(added.statusCode,added.body).toBe(200);
+ const target=(await f.get('/api/a2a')).targets.find((t:any)=>t.id==='codex');
+ if(mode==='shared'){
+  const applied=await f.post('/api/a2a/codex-api/apply',{sourceId:added.json().id,revision:(await f.get('/api/a2a/codex-api')).revision});expect(applied.statusCode,applied.body).toBe(200);
+ }else{
+  const restored=await f.post('/api/a2a/restore',{id:target.connection.id,revision:target.revision,restoreHistory:false});expect(restored.statusCode,restored.body).toBe(200);
+  const {CodexApiDirect}=await import('../packages/core/src/codex-api-direct.js');const legacy=new CodexApiDirect(f.root,f.config,async()=>[]);
+  await legacy.apply({sourceId:added.json().id,model:'third-party',baseURL:'https://api.example.test/v1',apiKey:'synthetic-api-key',name:'Legacy direct'},await legacy.revision());
+  expect((parse(await readFile(f.config,'utf8')) as any).forced_login_method).toBeUndefined();
+ }
+ const status=await f.get('/api/codex-accounts'),source=f.service.proxy.snapshot().accounts.find(a=>a.models?.includes('codex/model-b'))!;
+ const switched=await f.post('/api/codex-accounts/switch',{revision:status.revision,sourceId:source.id,model:'codex/model-b'});
+ expect(switched.statusCode,switched.body).toBe(200);expect(switched.json()).toMatchObject({accountId:'b',provider:'openai'});
+ expect((await f.get('/api/a2a/codex-api')).active).toBeNull();
 });

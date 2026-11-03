@@ -10,7 +10,8 @@ export function providerUsage(raw:unknown){
  // compatible provider also returns Anthropic-style cache aliases.
  if(separateInput!==null&&('cache_read_input_tokens' in u||'cache_creation_input_tokens' in u))input=separateInput+(n(u.cache_read_input_tokens)??0)+(n(u.cache_creation_input_tokens)??0);
  if(input===null&&n(u.prompt_cache_miss_tokens)!==null&&read!==null)input=n(u.prompt_cache_miss_tokens)!+read+(write??0);
- return {inputTokens:input,cachedTokens:read,cacheWriteTokens:write,outputTokens:n(u.output_tokens??u.completion_tokens),reasoningTokens:n(u.output_tokens_details?.reasoning_tokens)??n(u.completion_tokens_details?.reasoning_tokens)};
+ const total=n(u.total_tokens);
+ return {inputTokens:input,cachedTokens:read,cacheWriteTokens:write,outputTokens:n(u.output_tokens??u.completion_tokens),reasoningTokens:n(u.output_tokens_details?.reasoning_tokens)??n(u.completion_tokens_details?.reasoning_tokens),...(total===null?{}:{reportedTotalTokens:total})};
 }
 export type ObservedTool={id:string;name:string};
 export type ResponseObservation={tools:ObservedTool[];error?:{code:string;message:string};toolsCount?:number;firstOutputAt?:number;generationMs?:number;responseId?:string};

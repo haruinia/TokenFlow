@@ -53,6 +53,7 @@ const server = createServer(async(req,res) => {
   if(apiSource){const model=apiSource.models.find(m=>m.alias===input.model).name;const upstream=await fetch(`${apiSource['base-url']}${path}`,{method:'POST',headers:{authorization:`Bearer ${apiSource['api-key']??apiSource['api-key-entries'][0]['api-key']}`,'content-type':'application/json'},body:JSON.stringify({...input,model})});res.statusCode=upstream.status;res.setHeader('content-type',upstream.headers.get('content-type')??'application/json');res.end(Buffer.from(await upstream.arrayBuffer()));return;}
   const account=accounts.find(a=>!a.disabled&&(!req.headers['x-token-flow-auth']||a.name===req.headers['x-token-flow-auth'])&&accountModels(a).some(m=>m.id===input.model));
   if(!account)return send(404,{error:'model unavailable'});
+  if(account.expectedContextLength!==undefined&&input.context_length!==account.expectedContextLength)return send(400,{error:{message:'fixture context selection mismatch'}});
   if(fixtureMode==='region-restricted')return send(400,{error:{message:'User location is not supported for the API use.',debug:'upstream-secret-never-expose'}});
   if(fixtureMode==='claude-source-policy')return send(400,{type:'error',error:{type:'invalid_request_error',message:'The source rejected this invocation channel under its security policy.'}});
   if(fixtureMode.startsWith('a2a_'))return send(400,{error:{code:fixtureMode,message:'upstream-secret-never-expose',debug:'private diagnostic'}});

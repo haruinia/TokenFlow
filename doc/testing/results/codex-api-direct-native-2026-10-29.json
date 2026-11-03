@@ -1,0 +1,90 @@
+{
+  "passed": true,
+  "engineVersion": "codex-cli 0.166.0-alpha.5.1",
+  "isolated": true,
+  "tokenFlowServerStarted": false,
+  "officialAuthUnchanged": true,
+  "nativeToolRoundtrip": true,
+  "nativeLocalCompaction": true,
+  "continuedAfterCompaction": true,
+  "continuedAfterRestart": true,
+  "configurationRestored": true,
+  "requests": [
+    {
+      "phase": "tools",
+      "path": "/responses",
+      "toolResult": false,
+      "toolOutputVerified": false,
+      "hasSummary": false,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "get_goal",
+        "create_goal",
+        "update_goal"
+      ]
+    },
+    {
+      "phase": "tools",
+      "path": "/responses",
+      "toolResult": true,
+      "toolOutputVerified": true,
+      "hasSummary": false,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "get_goal",
+        "create_goal",
+        "update_goal"
+      ]
+    },
+    {
+      "phase": "compact",
+      "path": "/responses",
+      "toolResult": true,
+      "toolOutputVerified": true,
+      "hasSummary": false,
+      "tools": []
+    },
+    {
+      "phase": "continue",
+      "path": "/responses",
+      "toolResult": false,
+      "toolOutputVerified": false,
+      "hasSummary": true,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "get_goal",
+        "create_goal",
+        "update_goal"
+      ]
+    },
+    {
+      "phase": "restart",
+      "path": "/responses",
+      "toolResult": false,
+      "toolOutputVerified": false,
+      "hasSummary": true,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "get_goal",
+        "create_goal",
+        "update_goal"
+      ]
+    }
+  ]
+}

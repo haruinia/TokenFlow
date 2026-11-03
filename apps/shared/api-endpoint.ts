@@ -20,7 +20,17 @@ export function normalizeApiBaseURL(value:string){
  return value.trim().replace(/\/+$/,'').replace(/\/(?:chat\/completions|responses|messages|models)$/,'');
 }
 
-export type ApiModelRoute={protocol:ApiProtocol;baseURL:string};
+export type ApiModelRoute={protocol:ApiProtocol;baseURL:string;checkedAt?:string};
+
+/** Bounded, same-origin candidates; never remove a tenant prefix. */
+export function apiBaseCandidates(value:string,anthropicHint=false){
+ const base=normalizeApiBaseURL(value),url=new URL(base),path=url.pathname.replace(/\/+$/,'');
+ const candidates=[base];
+ const unversioned=/\/v\d+$/.test(path)?base.replace(/\/v\d+$/,''):base;
+ candidates.push(unversioned===base?`${base}/v1`:unversioned);
+ if(anthropicHint&&!/\/anthropic(?:\/v\d+)?$/.test(path))candidates.push(`${unversioned}/anthropic`,`${unversioned}/anthropic/v1`);
+ return [...new Set(candidates)];
+}
 export type RoutedApiSource={id:string;protocol:ApiProtocol;baseURL:string;modelRoutes?:Record<string,ApiModelRoute>};
 
 /** Old sources retain their default route until their models are verified. */

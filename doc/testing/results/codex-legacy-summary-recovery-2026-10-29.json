@@ -1,0 +1,10 @@
+{
+  "engineVersion": "codex-cli 0.165.0-alpha.1.2",
+  "scope": "isolated HOME; installed native engine; synthetic local upstream/auth; no production history",
+  "nativeUsesLegacySummary": true,
+  "gatewayUsesSameSummary": true,
+  "retainsOriginalTask": true,
+  "excludesFutureTurn": true,
+  "sourceUnchanged": true,
+  "inferenceRequests": 2
+}

@@ -91,7 +91,7 @@ try{
  // Run additional generations only after the selected-usage and maintenance assertions above.
  const scripts=[...ui.body.matchAll(/<script\b[^>]*\bsrc="([^"]+\.js)"/g)].map(match=>match[1]);assert.ok(scripts.length,'Packaged UI must include a JavaScript bundle');
  const javascript=(await Promise.all(scripts.map(async url=>{const asset=await service.app.inject({url,headers});assert.equal(asset.statusCode,200);return asset.body;}))).join('\n');
- for(const label of ['访问范围','仅本机','局域网','复制完整信息','Key 已创建','来源 IP 限定'])assert.ok(javascript.includes(label),`Packaged UI must include ${label}`);
+ for(const label of ['访问范围','仅本机','局域网','复制完整信息','Key 已创建','来源 IP 限定','添加 API 直连'])assert.ok(javascript.includes(label),`Packaged UI must include ${label}`);
  const accessBefore=await request('/api/gateway/access');assert.equal(accessBefore.enabled,false);assert.equal(accessBefore.running,false);
  const allocator=createServer();await new Promise(r=>allocator.listen(0,'127.0.0.1',r));const lanPort=allocator.address().port;await new Promise(r=>allocator.close(r));
  await request('/api/gateway/access','PUT',{enabled:false,port:lanPort,allowedIPs:[]});
@@ -158,5 +158,19 @@ try{
  }finally{globalThis.fetch=originalFetch;}
  const zstd=await service.app.inject({method:'POST',url:'/v1/responses',headers:{...headers,authorization:`Bearer ${key.apiKey}`,'content-type':'application/json','content-encoding':'zstd'},payload:zstdCompressSync(Buffer.from(JSON.stringify({model:'qoder/kmodel_latest',input:'Packaged zstd complete history 首🙂尾',store:false})))});
  assert.equal(zstd.statusCode,200,zstd.body);assert.equal(zstd.json().output[0].content[0].text,'qoder');
- console.log(JSON.stringify({passed:true,electron:process.versions.electron,platform:process.platform,arch:process.arch,checks:['native zstd request decoded by the packaged gateway','no switch-time or gateway-born bootstrap; explicit Codex compaction','valid expanding summaries, immediate failed-summary retry and cached continuation','production dependencies','bundled licenses','Cursor native SDK','WorkBuddy SDK import','WorkBuddy original-schema validation and draft metadata','static UI','Responses gateway','Pi repair conversation','selected usage evidence','local usage worker','Claude native account attribution','existing Qoder and both WorkBuddy edition identities','Qoder IDE switch, restore and standalone isolation','automatic LAN listener, per-key source IPs and isolated model routes','Claude Desktop subagent roles and independent menu routes','Claude Desktop external gateway drift detection']},null,2));
+ // Saved protocol routes apply directly, without an additional inference probe.
+ const directSource=await request('/api/sources','POST',{name:'Packaged direct fixture',baseURL:'https://api.deepseek.com',protocol:'responses',models:['deepseek-flash'],apiKey:'fixture-only-direct-key'});
+ const directChoices=await request('/api/a2a/codex-api');
+ assert.ok(directChoices.choices.some(c=>c.sourceId===directSource.id&&c.models.includes('deepseek-flash')&&c.available));
+ assert.ok(!JSON.stringify(directChoices).includes('fixture-only-direct-key'));
+ const unchecked=await service.app.inject({method:'POST',url:'/api/a2a/codex-api/apply',headers,payload:{sourceId:directSource.id,revision:directChoices.revision}});
+ assert.equal(unchecked.statusCode,200,unchecked.body);
+ assert.equal(unchecked.json().configured,true);assert.equal(unchecked.json().isolated,undefined);
+ assert.match(await readFile(paths.codex,'utf8'),/^model_provider\s*=\s*"custom"/m);
+ assert.ok(!JSON.stringify(unchecked.json()).includes('fixture-only-direct-key'));
+ const claudeDirectSource=await request('/api/sources','POST',{name:'Packaged Messages fixture',baseURL:'https://api.example.test/anthropic/v1',protocol:'messages',models:['fixture-fast'],apiKey:'fixture-only-messages-key'});
+ const claudeTarget=(await request('/api/a2a')).targets.find(t=>t.id==='claude');
+ const claudeDirect=await request('/api/a2a/claude-api/apply','POST',{sourceId:claudeDirectSource.id,revision:claudeTarget.revision});
+ assert.equal(claudeDirect.configured,true);assert.ok(!JSON.stringify(claudeDirect).includes('fixture-only-messages-key'));
+ console.log(JSON.stringify({passed:true,electron:process.versions.electron,platform:process.platform,arch:process.arch,checks:['Codex and Claude API direct without repeat probes','native zstd request decoded by the packaged gateway','no switch-time or gateway-born bootstrap; explicit Codex compaction','valid expanding summaries, immediate failed-summary retry and cached continuation','production dependencies','bundled licenses','Cursor native SDK','WorkBuddy SDK import','WorkBuddy original-schema validation and draft metadata','static UI','Responses gateway','Pi repair conversation','selected usage evidence','local usage worker','Claude native account attribution','existing Qoder and both WorkBuddy edition identities','Qoder IDE switch, restore and standalone isolation','automatic LAN listener, per-key source IPs and isolated model routes','Claude Desktop subagent roles and independent menu routes','Claude Desktop external gateway drift detection']},null,2));
 }finally{await service?.app.close();await rm(root,{recursive:true,force:true});}

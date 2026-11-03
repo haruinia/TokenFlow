@@ -17,7 +17,7 @@ type RequestBody = Item & {model:string};
 export type ContextScope = {owner:string; model:string; source:string};
 export type CompactionReport={inputBytes:number;outputBytes:number;calls:number;reused:number;durationMs:number;inputTokens:number|null;outputTokens:number|null;cachedTokens:number|null;cacheWriteTokens:number|null;reasoningTokens:number|null;failed:boolean;unmetered:boolean;cacheWriteFailed?:boolean};
 export type ContextOptions={onContextObservation?:(report:ContextObservation)=>void;onCompaction?:(report:CompactionReport)=>void;onBillingUsage?:(usage:unknown)=>void;onUsageIncomplete?:()=>void;onCompactionStart?:()=>void;onError?:(error:GatewayContextError)=>void;onInitialCompaction?:(active:boolean)=>void;onCancel?:()=>void;signal?:AbortSignal};
-export type ContextMigration = {bootstrapHistory?:string;bootstrapRecordedAt?:number;prepareHybridHistory?:boolean;rebuildsInstructions?:boolean;contextWindowTokens?:number;scope:ContextScope;threadId?:string;recover:(item:Item)=>Promise<Item[]>;normalize?:(item:Item)=>Item[]};
+export type ContextMigration = {adaptResponse?:(response:Response)=>Response;bootstrapHistory?:string;bootstrapRecordedAt?:number;prepareHybridHistory?:boolean;rebuildsInstructions?:boolean;contextWindowTokens?:number;scope:ContextScope;threadId?:string;recover:(item:Item)=>Promise<Item[]>;normalize?:(item:Item)=>Item[]};
 type ManagedWindow={hash:string;input:Item[];coveredUsers:string[]};
 type ManagedSession={initialized:boolean;bootstrapHistory?:string;hybridPrepared?:boolean;foreign:string[];windows:ManagedWindow[]};
 type Send = (path:string, body:Item) => Promise<Response>;
@@ -448,6 +448,7 @@ export class GatewayContext {
    const error=upstreamError(response.status,await readUpstreamError(response));
    throw new GatewayContextError('历史摘要已保存，但续聊失败：'+error.message,response.status,summaryUsage,'compaction_continuation_failed',response.status>=500);
   }
+  if(migration?.adaptResponse)response=migration.adaptResponse(response);
   const id='resp_tf_'+randomBytes(16).toString('hex');
   const finish=async (value:Item) => {
    const valid=Array.isArray(value.output)&&value.output.every(object)&&['completed','incomplete'].includes(String(value.status));

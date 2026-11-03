@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "currentSpacePanel": true,
+  "providerGrouping": true,
+  "nativeGlass": true,
+  "readOnlyOnOpen": true,
+  "explicitRefresh": true,
+  "reusesWindow": true,
+  "blurDismiss": true,
+  "hiddenPollingStopped": true,
+  "escapeDismiss": true,
+  "invalidAccountsHidden": true,
+  "zeroQuotaVisible": true,
+  "creditsAndResetCards": true,
+  "noFooterActions": true,
+  "consoleErrors": []
+}

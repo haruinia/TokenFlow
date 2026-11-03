@@ -1,0 +1,340 @@
+{
+  "passed": true,
+  "live": false,
+  "long": false,
+  "short": false,
+  "legacyLocalComparison": false,
+  "seedBytes": 0,
+  "seedUsageIsSynthetic": false,
+  "scope": "Installed Codex, production coexist routing, isolated login/config/history; explicit compaction and two model round trips",
+  "rounds": [
+    {
+      "phase": "official-seed",
+      "messagePhases": [
+        null
+      ],
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 3049
+    },
+    {
+      "phase": "official-compact-1",
+      "completed": true,
+      "nativeRemote": true,
+      "gatewaySummaryCalls": 0,
+      "durationMs": 2072
+    },
+    {
+      "phase": "gateway-after-official-compact",
+      "messagePhases": [
+        "final_answer"
+      ],
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 2499
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "messagePhases": [
+        "final_answer"
+      ],
+      "completed": true,
+      "markersVerified": 2,
+      "constraintsVerified": 0,
+      "durationMs": 1906
+    },
+    {
+      "phase": "gateway-before-compact",
+      "messagePhases": [
+        "final_answer"
+      ],
+      "completed": true,
+      "markersVerified": 2,
+      "constraintsVerified": 0,
+      "durationMs": 1983
+    },
+    {
+      "phase": "gateway-compact-1",
+      "completed": true,
+      "nativeRemote": false,
+      "gatewaySummaryCalls": 1,
+      "durationMs": 1807
+    },
+    {
+      "phase": "official-after-gateway-compact",
+      "messagePhases": [
+        null
+      ],
+      "completed": true,
+      "markersVerified": 2,
+      "constraintsVerified": 0,
+      "durationMs": 1804
+    },
+    {
+      "phase": "official-compact-2",
+      "completed": true,
+      "nativeRemote": true,
+      "gatewaySummaryCalls": 0,
+      "durationMs": 1768
+    },
+    {
+      "phase": "gateway-second-return",
+      "messagePhases": [
+        "final_answer"
+      ],
+      "completed": true,
+      "markersVerified": 2,
+      "constraintsVerified": 0,
+      "durationMs": 1851
+    },
+    {
+      "phase": "gateway-add-final-requirement",
+      "messagePhases": [
+        "final_answer"
+      ],
+      "completed": true,
+      "markersVerified": 3,
+      "constraintsVerified": 0,
+      "durationMs": 2062
+    },
+    {
+      "phase": "gateway-final-before-compact",
+      "messagePhases": [
+        "final_answer"
+      ],
+      "completed": true,
+      "markersVerified": 3,
+      "constraintsVerified": 0,
+      "durationMs": 2071
+    },
+    {
+      "phase": "gateway-compact-2",
+      "completed": true,
+      "nativeRemote": false,
+      "gatewaySummaryCalls": 1,
+      "durationMs": 1803
+    },
+    {
+      "phase": "official-final-return",
+      "messagePhases": [
+        null
+      ],
+      "completed": true,
+      "markersVerified": 3,
+      "constraintsVerified": 0,
+      "durationMs": 1918
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-seed",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 51482,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 2,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "official-compact-1",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 51745,
+      "localSummary": false,
+      "remoteTrigger": true,
+      "httpStatus": 200,
+      "durationMs": 3,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-after-official-compact",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 53736,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-add-requirement",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 54202,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-before-compact",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 54623,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-compact-1",
+      "route": "gateway",
+      "summary": true,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 2797,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "official-after-gateway-compact",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 80088,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 1,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "official-compact-2",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 80367,
+      "localSummary": false,
+      "remoteTrigger": true,
+      "httpStatus": 200,
+      "durationMs": 1,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-second-return",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 83151,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-add-final-requirement",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 83600,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-final-before-compact",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 84036,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-compact-2",
+      "route": "gateway",
+      "summary": true,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 27718,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "official-final-return",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 80885,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 1,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    }
+  ]
+}

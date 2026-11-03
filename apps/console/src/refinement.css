@@ -630,9 +630,10 @@ a:hover{text-decoration:underline}
 
 /* Shared page feedback never obscures an open progress dialog. */
 .tfThinkingFeedback{position:fixed;inset:0;margin:auto;padding:0;border:0;width:max-content;height:max-content;overflow:visible;background:transparent;color:var(--text);pointer-events:none;-webkit-app-region:no-drag}
-.tfThinkingFeedback::backdrop{background:transparent;pointer-events:none}
+.tfThinkingFeedback::backdrop{background:rgba(16,18,20,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);pointer-events:auto}
 .tfThinkingFeedback .tfThinking{font-size:13px;color:var(--text)}
 body:has(dialog[open]) .tfThinkingFeedback,body:has(.tfPage .tfLoadingSkeleton) .tfThinkingFeedback[data-fallback=true]{display:none}
+body:has(dialog[open]) .tfThinkingFeedback::backdrop,body:has(.tfPage .tfLoadingSkeleton) .tfThinkingFeedback[data-fallback=true]::backdrop{background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;pointer-events:none}
 
 /* Login refresh updates quota, while expanded quota stays outside the selected fill. */
 .tfNativeRefresh.tfRefreshing>svg{animation:tfRefreshSpin .8s linear infinite}

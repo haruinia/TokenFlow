@@ -14,6 +14,13 @@ const responder = (routes: Record<string, QuotaResponse | ((request: QuotaReques
 };
 
 describe('quota layer', () => {
+  it('preserves a reported zero reset-card count and leaves absent counts unknown',async()=>{
+    const response={rate_limit:{primary_window:{used_percent:12}}};
+    const empty=await quotaProviders.codex.fetch(async()=>json({...response,rate_limit_reset_credits:{available_count:0}}),{provider:'codex'});
+    expect(empty.resetCredits).toBe(0);
+    const unknown=await quotaProviders.codex.fetch(async()=>json(response),{provider:'codex'});
+    expect(unknown.resetCredits).toBeUndefined();
+  });
   it('keeps explicit revocation separate from an opaque quota rejection without exposing provider diagnostics',async()=>{
     const request=async(body:unknown,status=401)=>quotaProviders.codex.fetch(async()=>json(body,status),{provider:'codex'});
     await expect(request({error:{code:'token_revoked',message:'private-upstream-diagnostic'}})).rejects.toMatchObject({status:401,code:'token_revoked'});
@@ -67,7 +74,7 @@ describe('quota layer', () => {
       additional_rate_limits: [{limit_name: 'code-review', rate_limit: {primary_window: {used_percent: 5}}}], rate_limit_reset_credits: {available_count: 2}})});
     const report = await quotaProviders.codex.fetch(codex.call, {provider: 'codex', chatgptAccountId: 'acct-1'});
     expect(codex.calls[0].header['Chatgpt-Account-Id']).toBe('acct-1');
-    expect(report.plan).toBe('plus'); expect(report.note).toContain('2');
+    expect(report.plan).toBe('plus'); expect(report.note).toContain('2'); expect(report.resetCredits).toBe(2);
     expect(report.windows.map(w => [w.label, w.usedPercent, w.note])).toEqual([
       ['Codex · 5 小时', 12, '已达上限'], ['Codex · 7 天', 55, '已达上限'], ['code-review · 主窗口', 5, undefined]]);
     expect(report.windows[1].resetsAt).toBe(new Date(1789000000 * 1000).toISOString());

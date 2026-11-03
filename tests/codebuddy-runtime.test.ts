@@ -288,3 +288,13 @@ it('does not diagnose an intentional SDK turn-limit handoff as a failed request'
  const result=await runOfficialSDK({token:'fixture',region:'china',model:'test',prompt:'hello',tools:[{name:'read',parameters:{type:'object'}}],onDiagnostic:event=>diagnostics.push(event),signal:new AbortController().signal,cwd:'/tmp',configDir:'/tmp'});
  expect(result.failed).toBe(false);expect(diagnostics).not.toContainEqual(expect.objectContaining({event:'failure'}));
 });
+
+it.each([{effort:'low' as const},{effort:'max' as const},{thinking:{type:'disabled' as const}},{}])('preserves explicit SDK reasoning options %j',async reasoning=>{
+ sdk.query.mockImplementation(({options})=>{
+  expect(options.effort).toBe('effort' in reasoning?reasoning.effort:undefined);
+  expect(options.thinking).toEqual('thinking' in reasoning?reasoning.thinking:undefined);
+  return (async function*(){yield {type:'assistant',message:{model:'test',content:[{type:'text',text:'OK'}]}};yield {type:'result',is_error:false,result:'OK'};})();
+ });
+ const result=await runOfficialSDK({token:'fixture',region:'china',model:'test',prompt:'OK',...reasoning,tools:[],signal:new AbortController().signal,cwd:'/tmp',configDir:'/tmp'});
+ expect(result.failed).toBe(false);expect(sdk.query).toHaveBeenCalledOnce();
+});

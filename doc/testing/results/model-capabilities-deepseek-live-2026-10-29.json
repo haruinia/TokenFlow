@@ -1,0 +1,40 @@
+{
+  "check": "codex-api-direct-live",
+  "passed": true,
+  "model": "deepseek-flash",
+  "host": "api.deepseek.com",
+  "engineVersion": "codex-cli 0.166.0-alpha.5.1",
+  "capability": {
+    "checkedAt": "2026-10-30T04:58:05.707Z",
+    "streaming": true,
+    "tools": true,
+    "multiTurn": true,
+    "localSummary": true,
+    "remoteCompaction": "unsupported"
+  },
+  "nativeEfforts": [
+    "low",
+    "high",
+    "max"
+  ],
+  "declaredContextWindow": 1048576,
+  "nativeCompaction": true,
+  "nativeResume": true,
+  "markerRetained": true,
+  "tokenFlowGatewayUsed": false,
+  "productionConfigChanged": false,
+  "probeUsage": [
+    {
+      "inputTokens": 320,
+      "outputTokens": 46
+    },
+    {
+      "inputTokens": 398,
+      "outputTokens": 8
+    },
+    {
+      "inputTokens": 159,
+      "outputTokens": 81
+    }
+  ]
+}

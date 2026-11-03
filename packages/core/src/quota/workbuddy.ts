@@ -63,6 +63,7 @@ export const workbuddyQuota: QuotaProvider = {
           usedPercent: percent(used, total),
           used,
           limit: total,
+          remaining:remain,
           unit,
         });
       }

@@ -7,11 +7,12 @@ import {join,resolve} from 'node:path';
 import {stringify} from 'smol-toml';
 import {mergeCodexCatalog} from '../packages/core/src/codex-coexist.ts';
 import {codexModelCatalog} from '../packages/core/src/codex-model-catalog.ts';
+import {nativePlaintextAgentCatalog} from '../packages/core/src/codex-unified-agent-catalog.ts';
 const root=await mkdtemp(join(tmpdir(),'tf-catalog-order-')),home=join(root,'codex');await mkdir(home);
 const official=JSON.parse(await readFile(join(homedir(),'.codex/models_cache.json'),'utf8'));
 const gateway=codexModelCatalog(['fixture/gateway-a','fixture/gateway-b'],{'fixture/gateway-a':'Example · Gemini','fixture/gateway-b':'Example · DeepSeek'});
-const merged=mergeCodexCatalog(gateway,official),catalog=join(root,'models.json');
-assert.deepEqual(merged.models.slice(0,official.models.length),official.models);
+const merged=nativePlaintextAgentCatalog(mergeCodexCatalog(gateway,official)),catalog=join(root,'models.json');
+for(const model of official.models)assert.equal(merged.models.find(m=>m.slug===model.slug)?.display_name,model.display_name);
 await writeFile(catalog,JSON.stringify(merged));
 await writeFile(join(home,'config.toml'),stringify({model:'fixture/gateway-a',model_provider:'token_flow',model_catalog_json:catalog,analytics:{enabled:false},features:{apps:false},model_providers:{token_flow:{name:'Fixture',base_url:'http://127.0.0.1:1/v1',wire_api:'responses',experimental_bearer_token:'fixture'}}}));
 const proc=spawn('/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex',['app-server','--listen','stdio://'],{cwd:root,env:{PATH:process.env.PATH,HOME:root,CODEX_HOME:home},stdio:['pipe','pipe','pipe']});proc.stderr!.resume();
@@ -26,9 +27,9 @@ try{
  assert.equal(added.length,2);assert.equal(native.length,official.models.length);
  assert.ok(rows.indexOf(added[0])>Math.max(...native.map(m=>rows.indexOf(m))));
  for(const m of native)assert.equal(m.displayName,official.models.find((o:any)=>o.slug===m.model).display_name);
- for(const m of added)assert.ok(m.displayName.startsWith('TF · '));
+ assert.deepEqual(added.map(m=>m.displayName),['Example/Gemini','Example/DeepSeek']);
  assert.deepEqual(native.map(m=>m.model),[...official.models].sort((a:any,b:any)=>a.priority-b.priority).map((m:any)=>m.slug));
 }catch(e){error=e instanceof Error?e.message:'Probe failed';process.exitCode=1;}
 finally{if(proc.exitCode===null&&proc.signalCode===null)await new Promise<void>(r=>{proc.once('exit',()=>r());proc.kill();});await rm(root,{recursive:true,force:true});}
-const report={passed:!error,...(error?{error}:{}),scope:'Installed official engine model/list, isolated home; no inference',officialMetadataUnchanged:true,modelOrder:rows.map(m=>({id:m.model,name:m.displayName}))};
+const report={passed:!error,...(error?{error}:{}),scope:'Installed official engine model/list, isolated home; no inference',officialNamesAndOrderUnchanged:true,modelOrder:rows.map(m=>({id:m.model,name:m.displayName}))};
 console.log(JSON.stringify(report));const out=process.argv.indexOf('--out');if(out>=0)await writeFile(resolve(process.argv[out+1]),JSON.stringify(report,null,2)+'\n');

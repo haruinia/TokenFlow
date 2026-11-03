@@ -57,7 +57,7 @@ func TestOfficialCatalogManagementRefreshPreservesExclusionsAndAliases(t *testin
 	current := "first-model"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"models": []map[string]any{{"id": current, "supportedInputModalities": []string{"text", "image"}, "maxInputTokens": 234567}, {"id": "excluded-model"}}}})
+		json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"models": []map[string]any{{"id": current, "supportedInputModalities": []string{"text", "image"}, "context_window": 300000, "maxInputTokens": 234567, "maxOutputTokens": 32768, "supported_reasoning_levels": []any{map[string]any{"effort": "low"}, map[string]any{"effort": "max"}}}, {"id": "excluded-model"}}}})
 	}))
 	defer server.Close()
 	manager := coreauth.NewManager(nil, nil, nil)
@@ -84,6 +84,10 @@ func TestOfficialCatalogManagementRefreshPreservesExclusionsAndAliases(t *testin
 			ID            string   `json:"id"`
 			Modalities    []string `json:"supportedInputModalities"`
 			ContextLength int      `json:"context_length"`
+			OutputLimit   int      `json:"max_output_tokens"`
+			Thinking      struct {
+				Levels []string `json:"levels"`
+			} `json:"thinking"`
 		} `json:"models"`
 	}
 	json.Unmarshal(response.Body.Bytes(), &result)
@@ -91,8 +95,11 @@ func TestOfficialCatalogManagementRefreshPreservesExclusionsAndAliases(t *testin
 		if len(model.Modalities) != 2 || model.Modalities[1] != "image" {
 			t.Fatal("management catalog dropped image capability")
 		}
-		if model.ContextLength != 234567 {
+		if model.ContextLength != 300000 {
 			t.Fatalf("fresh context capability lost through discovery/alias/management: %d", model.ContextLength)
+		}
+		if model.OutputLimit != 32768 || strings.Join(model.Thinking.Levels, ",") != "low,max" {
+			t.Fatalf("native output/effort metadata lost through management: %+v", model)
 		}
 	}
 	found := false
@@ -134,9 +141,12 @@ func TestOfficialCatalogManagementPreservesContextCapabilities(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	windows := map[string]float64{"canonical": 123456, "gemini-style": 654321}
+	windows := map[string]float64{"canonical": 123456}
 	for _, model := range result.Models {
 		id := model["id"].(string)
+		if id == "gemini-style" && model["inputTokenLimit"] != float64(654321) {
+			t.Errorf("input budget was lost: %+v", model)
+		}
 		if expected, ok := windows[id]; ok {
 			if model["context_length"] != expected {
 				t.Errorf("%s capacity lost: got %v, want %v", id, model["context_length"], expected)
@@ -289,6 +299,102 @@ func TestOfficialCatalogAntigravityProjectAndDeprecatedModels(t *testing.T) {
 		if m.ID == "old" {
 			t.Fatal("deprecated model advertised")
 		}
+	}
+}
+
+// Exercise registration, not just the UA formatter: old Hub clients receive a
+// successful but older catalog, so retrying HTTP 200 cannot discover the model.
+func TestOfficialCatalogAntigravityModernHubDiscoversNewModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := "old-model"
+		if strings.Contains(r.Header.Get("User-Agent"), "(aidev_client; os_type=darwin; arch=arm64") && !strings.Contains(r.Header.Get("User-Agent"), "/2.9.1 ") {
+			id = "new-model"
+		}
+		fmt.Fprintf(w, `{"models":{"%s":{"displayName":"Conversation model"}},"agentModelSorts":[{"groups":[{"modelIds":["%s"]}]}]}`, id, id)
+	}))
+	defer server.Close()
+	s := &Service{cfg: &config.Config{}}
+	a := &coreauth.Auth{ID: t.Name(), Provider: "antigravity", Metadata: map[string]any{"access_token": "fixture", "base_url": server.URL}}
+	defer GlobalModelRegistry().UnregisterClient(a.ID)
+	s.registerModelsForAuth(context.Background(), a)
+	models := GlobalModelRegistry().GetModelsForClient(a.ID)
+	if len(models) != 1 || models[0].ID != "new-model" {
+		t.Fatalf("refresh still registers the old client catalog: %v", models)
+	}
+}
+
+func TestOfficialCatalogAntigravityClientChangeInvalidatesCache(t *testing.T) {
+	oldUA := "antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)"
+	newUA := "antigravity/hub/2.27.0 (aidev_client; os_type=darwin; arch=arm64)"
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		id := "old-model"
+		if r.Header.Get("User-Agent") == newUA {
+			id = "new-model"
+		}
+		fmt.Fprintf(w, `{"models":{"%s":{"displayName":"Conversation model"}},"agentModelSorts":[{"groups":[{"modelIds":["%s"]}]}]}`, id, id)
+	}))
+	defer server.Close()
+	s := &Service{cfg: &config.Config{}}
+	a := &coreauth.Auth{ID: t.Name(), Provider: "antigravity", Metadata: map[string]any{"access_token": "fixture", "base_url": server.URL, "user_agent": oldUA}}
+	if models := s.officialAccountModels(context.Background(), a, nil); len(models) != 1 || models[0].ID != "old-model" {
+		t.Fatal("initial catalog missing")
+	}
+	a.Metadata["user_agent"] = newUA
+	if models := s.officialAccountModels(context.Background(), a, nil); len(models) != 1 || models[0].ID != "new-model" || calls != 2 {
+		t.Fatalf("new client inherited cached permissions or used the wrong request UA: calls=%d models=%v", calls, models)
+	}
+}
+
+func TestOfficialCatalogAntigravityVersionChangesDuringFetch(t *testing.T) {
+	previous := officialAntigravityUserAgent
+	defer func() { officialAntigravityUserAgent = previous }()
+	ua := "old-hub-client"
+	officialAntigravityUserAgent = func(*coreauth.Auth) string { return ua }
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if got := r.Header.Get("User-Agent"); got != ua {
+			t.Errorf("request client differs from captured cache identity: %q", got)
+		}
+		// Simulate the background updater completing while the response arrives.
+		ua = "new-hub-client"
+		fmt.Fprint(w, `{"models":{"allowed":{"displayName":"Allowed"}},"agentModelSorts":[{"groups":[{"modelIds":["allowed"]}]}]}`)
+	}))
+	defer server.Close()
+	s := &Service{cfg: &config.Config{}}
+	a := &coreauth.Auth{ID: t.Name(), Provider: "antigravity", Metadata: map[string]any{"access_token": "fixture", "base_url": server.URL}}
+	if models := s.officialAccountModels(context.Background(), a, nil); len(models) != 0 {
+		t.Fatal("obsolete in-flight catalog was published after the version changed")
+	}
+	if status := s.officialCatalogStatus(a)["status"]; status != "unavailable" {
+		t.Fatalf("old version was marked verified for the new client: %v", status)
+	}
+	if models := s.officialAccountModels(context.Background(), a, nil); len(models) != 1 || calls != 2 {
+		t.Fatal("new client did not fetch its own catalog")
+	}
+}
+
+func TestOfficialCatalogAntigravityDisabledAndTieredAreNotCallable(t *testing.T) {
+	// Minimal shape of the real 2026-10-28 Hub response. tieredModelIds are
+	// routing tiers, not evidence that a model is selectable in a conversation.
+	const body = `{"models":{
+		"gemini-3.8-flash-high":{"displayName":"Gemini 3.8 Flash (High)"},
+		"gemini-4-argon-disabled":{"displayName":"Gemini 4 Argon","disabled":true},
+		"gemini-3.8-flash-tiered":{"supportsThinking":true}
+	},"agentModelSorts":[{"groups":[{"modelIds":["gemini-3.8-flash-high","gemini-4-argon-disabled"]}]}],
+	"tieredModelIds":{"flash":["gemini-3.8-flash-tiered"],"pro":["gemini-3.8-flash-tiered"]}}`
+	models, ok := parseOfficialCatalog("antigravity", []byte(body), nil)
+	if !ok || len(models) != 1 || models[0].ID != "gemini-3.8-flash-high" {
+		t.Fatal("disabled or unselectable routing tier was advertised as callable")
+	}
+	// When the vendor actually grants an enabled picker entry, publish it without
+	// needing a new static model table or another app release.
+	enabled := strings.ReplaceAll(strings.ReplaceAll(body, `"disabled":true`, `"disabled":false`), "gemini-4-argon-disabled", "gemini-4-argon-high")
+	models, ok = parseOfficialCatalog("antigravity", []byte(enabled), nil)
+	if !ok || len(models) != 2 {
+		t.Fatal("newly enabled account model was not discovered")
 	}
 }
 
@@ -545,5 +651,68 @@ func TestOfficialCatalogZcodeProjectUsesFreshPickerWithoutAnUnimplementedModelsE
 	}
 	if _, ok := zcodeProjectCatalog(nil, nil); ok {
 		t.Fatal("missing catalog must not reveal static fallback models")
+	}
+}
+
+func TestOfficialCatalogWorkBuddyNativeReasoning(t *testing.T) {
+	for _, tc := range []struct{ name, fields, want string }{
+		{"native", `"reasoning":{"supportedEfforts":["low","high","max","unknown"]}`, "low,high,max"},
+		{"explicit_empty", `"supported_reasoning_levels":[],"reasoning":{"supportedEfforts":["high"]}`, ""},
+		{"explicit_priority", `"supported_reasoning_levels":["low"],"reasoning":{"supportedEfforts":["high"]}`, "low"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			models, ok := parseOfficialCatalog("workbuddy", []byte(`{"data":{"models":[{"id":"fixture",`+tc.fields+`}]}}`), nil)
+			if !ok || len(models) != 1 || models[0].Thinking == nil || strings.Join(models[0].Thinking.Levels, ",") != tc.want {
+				t.Fatalf("reasoning metadata lost: %+v", models)
+			}
+		})
+	}
+	models, ok := parseOfficialCatalog("workbuddy", []byte(`{"data":{"models":[{"id":"deepseek-looking-name","supportsReasoning":true}]}}`), nil)
+	if !ok || len(models) != 1 || models[0].Thinking != nil {
+		t.Fatal("invented efforts from name or boolean")
+	}
+}
+
+func TestOfficialCatalogQoderRuntimeOptions(t *testing.T) {
+	raw := []byte(`{"data":{"chat":[{"id":"dfmodel","context_length":131072,"maxInputTokens":1000000,"contextConfig":{"200k":{"tokenCount":200000,"isDefault":true},"400k":{"tokenCount":400000},"1m":{"tokenCount":1000000},"bad":{"tokenCount":-1}},"thinkingConfig":{"enabled":{"isDefault":true,"efforts":{"low":{},"high":{"isDefault":true},"max":{},"injected":{}}},"disabled":{}}}]}}`)
+	models, ok := parseOfficialCatalog("qoder", raw, nil)
+	if !ok || len(models) != 1 {
+		t.Fatalf("catalog not parsed: %+v", models)
+	}
+	m := models[0]
+	if m.ContextLength != 200000 || m.InputTokenLimit != 1000000 || m.QoderRuntime.DefaultEffort != "high" || fmt.Sprint(m.QoderRuntime.ContextWindows) != "[200000 400000 1000000]" || strings.Join(m.Thinking.Levels, ",") != "none,low,high,max" {
+		t.Fatalf("wrong native options: %+v, %+v", m, m.QoderRuntime)
+	}
+	GlobalModelRegistry().RegisterClient(t.Name(), "qoder", models)
+	defer GlobalModelRegistry().UnregisterClient(t.Name())
+	copy := GlobalModelRegistry().GetModelsForClient(t.Name())
+	copy[0].QoderRuntime.ContextWindows[0] = 9
+	if GlobalModelRegistry().GetModelsForClient(t.Name())[0].QoderRuntime.ContextWindows[0] != 200000 {
+		t.Fatal("mutable model options escaped registry")
+	}
+}
+
+func TestOfficialCatalogLiveCapacityReplacesStaticDefaults(t *testing.T) {
+	for _, provider := range []string{"qoder", "workbuddy", "gemini", "antigravity"} {
+		t.Run(provider, func(t *testing.T) {
+			raw := []byte(`{"models":[{"id":"large","maxInputTokens":1000000},{"id":"selectable","contextWindow":{"defaultLength":200000},"maxInputTokens":1000000},{"id":"unknown"},{"id":"small","context_window":64000}]}`)
+			if provider == "antigravity" {
+				raw = []byte(`{"models":{"large":{"displayName":"Large","maxInputTokens":1000000},"selectable":{"displayName":"Selectable","contextWindow":{"defaultLength":200000},"maxInputTokens":1000000},"unknown":{"displayName":"Unknown"},"small":{"displayName":"Small","context_window":64000}},"agentModelSorts":[{"groups":[{"modelIds":["large","selectable","unknown","small"]}]}]}`)
+			}
+			fallback := []*ModelInfo{{ID: "large", ContextLength: 131072}, {ID: "selectable", ContextLength: 131072}, {ID: "unknown", ContextLength: 131072, InputTokenLimit: 131072}, {ID: "small", ContextLength: 131072}}
+			models, ok := parseOfficialCatalog(provider, raw, fallback)
+			if !ok || len(models) != 4 {
+				t.Fatalf("invalid catalog: %v %+v", ok, models)
+			}
+			expected := map[string]int{"large": 1000000, "selectable": 200000, "unknown": 0, "small": 64000}
+			for _, m := range models {
+				if m.ContextLength != expected[m.ID] {
+					t.Fatalf("%s: context %d, expected %d", m.ID, m.ContextLength, expected[m.ID])
+				}
+				if m.ID == "unknown" && m.InputTokenLimit != 0 {
+					t.Fatal("stale input capacity retained")
+				}
+			}
+		})
 	}
 }

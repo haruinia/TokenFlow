@@ -1,0 +1,23 @@
+{
+  "engineVersion": "codex-cli 0.166.0-alpha.5.1",
+  "scope": "isolated native Codex engine; synthetic API servers and ChatGPT credentials only",
+  "sharedProvider": true,
+  "apiBResumesSameThread": true,
+  "readableSummaryReused": true,
+  "officialLoginPreserved": true,
+  "inactiveApiHistoryOpens": true,
+  "requests": [
+    {
+      "phase": "api-a",
+      "hasSummary": false
+    },
+    {
+      "phase": "compact",
+      "hasSummary": false
+    },
+    {
+      "phase": "api-b",
+      "hasSummary": true
+    }
+  ]
+}

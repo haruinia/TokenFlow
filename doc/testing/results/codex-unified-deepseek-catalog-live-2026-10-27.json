@@ -1,0 +1,82 @@
+{
+  "engine": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+  "scope": "native engine, deterministic parent, real Qiniu DeepSeek child",
+  "catalogContext": true,
+  "loaded": 2,
+  "advertised": false,
+  "spawnResults": [
+    "{\"task_name\":\"/root/deepseek_probe\"}"
+  ],
+  "childCreated": true,
+  "childProvider": "token_flow",
+  "parentRelation": true,
+  "childStatus": "completed",
+  "childReply": [
+    "I received an empty task payload. Please send the coding task or question you want me to handle."
+  ],
+  "calls": [
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "compact": false
+    },
+    {
+      "model": "api-731ee387f7aff3e89a4133d7/deepseek/deepseek-v4.1-flash-1017",
+      "compact": false
+    }
+  ],
+  "error": "Gateway child absent from native tool catalog",
+  "toolShape": [
+    {
+      "type": "namespace",
+      "name": "functions",
+      "keys": [
+        "type",
+        "name",
+        "description",
+        "tools"
+      ],
+      "nested": [
+        "exec",
+        "wait",
+        "request_user_input",
+        "request_user_input_async"
+      ]
+    },
+    {
+      "type": "namespace",
+      "name": "clock",
+      "keys": [
+        "type",
+        "name",
+        "description",
+        "tools"
+      ],
+      "nested": [
+        "sleep"
+      ]
+    },
+    {
+      "type": "namespace",
+      "name": "collaboration",
+      "keys": [
+        "type",
+        "name",
+        "description",
+        "tools"
+      ],
+      "nested": [
+        "followup_task",
+        "interrupt_agent",
+        "list_agents",
+        "send_message",
+        "spawn_agent",
+        "wait_agent"
+      ]
+    }
+  ],
+  "transportErrors": []
+}

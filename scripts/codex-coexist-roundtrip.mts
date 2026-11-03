@@ -13,17 +13,18 @@ import {parse,stringify} from 'smol-toml';
 import YAML from 'yaml';
 import {ProxyAgent} from 'undici';
 const live=process.argv.includes('--live');
+const short=process.argv.includes('--short'),toolRound=process.argv.includes('--tools');
 const long=process.argv.includes('--long'),legacy=process.argv.includes('--legacy-local');
 if(!process.env.TF_ROUNDTRIP_ROOT){
  const root=await mkdtemp(join(await realpath(tmpdir()),'tf-coexist-roundtrip-'));
  try{
-  const child=spawn(process.execPath,['--import','tsx',resolve(process.argv[1]),...process.argv.slice(2)],{env:{PATH:process.env.PATH,HOME:root,CODEX_HOME:join(root,'codex'),TF_ROUNDTRIP_ROOT:root,TF_ROUNDTRIP_USER_HOME:homedir()},stdio:'inherit'});
+  const child=spawn(process.execPath,['--import','tsx',resolve(process.argv[1]),...process.argv.slice(2)],{env:{PATH:process.env.PATH,TF_PROBE_OFFICIAL_MODEL:process.env.TF_PROBE_OFFICIAL_MODEL,TF_PROBE_GATEWAY_MODEL:process.env.TF_PROBE_GATEWAY_MODEL,HOME:root,CODEX_HOME:join(root,'codex'),TF_ROUNDTRIP_ROOT:root,TF_ROUNDTRIP_USER_HOME:homedir()},stdio:'inherit'});
   process.exitCode=await new Promise<number>(r=>child.once('exit',c=>r(c??1)));
  }finally{await rm(root,{recursive:true,force:true});}
 }else{
  const root=process.env.TF_ROUNDTRIP_ROOT,userHome=process.env.TF_ROUNDTRIP_USER_HOME!;
  const binary='/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex';
- const officialModel='gpt-6-astra',upstreamModel='antigravity/gemini-3.8-flash-low';
+ const officialModel=process.env.TF_PROBE_OFFICIAL_MODEL??'gpt-6-astra',upstreamModel=process.env.TF_PROBE_GATEWAY_MODEL??'antigravity/gemini-3.8-flash-low';
  const home=join(root,'codex'),config=join(home,'config.toml');await mkdir(home,{recursive:true});
  const cached=JSON.parse(await readFile(join(userHome,'.codex/models_cache.json'),'utf8'));
  const officialEntry=cached.models.find((m:any)=>m.slug===officialModel);assert.ok(officialEntry);
@@ -31,7 +32,7 @@ if(!process.env.TF_ROUNDTRIP_ROOT){
  const jwt=Buffer.from('{"alg":"none"}').toString('base64url')+'.'+Buffer.from(JSON.stringify(claims)).toString('base64url')+'.fixture';
  const auth=live?JSON.parse(await readFile(join(userHome,'.codex/auth.json'),'utf8')):{auth_mode:'chatgpt',tokens:{id_token:jwt,access_token:jwt,account_id:'fixture'}};
  const login=JSON.stringify({...auth,tokens:{...auth.tokens,refresh_token:'verification-refresh-disabled'},last_refresh:new Date().toISOString()});
- await writeFile(join(home,'auth.json'),login,{mode:0o600});await writeFile(config,'cli_auth_credentials_store="file"\n[features]\napps=false\n');
+ await writeFile(join(home,'auth.json'),login,{mode:0o600});await writeFile(config,'cli_auth_credentials_store="file"\nweb_search="disabled"\n[features]\napps=false\n');
  const local=live?YAML.parse(await readFile(join(userHome,'Library/Application Support/desktop-browser-agent/cliproxy/config.yaml'),'utf8')):null;
  const proxyFlag=process.argv.indexOf('--proxy'),dispatcher=live&&proxyFlag>=0?new ProxyAgent(process.argv[proxyFlag+1]):undefined;
  const requests:any[]=[],rounds:any[]=[];let phase='setup',seq=0,seedBytes=0;
@@ -46,8 +47,15 @@ if(!process.env.TF_ROUNDTRIP_ROOT){
   const token='synthetic-official-'+(++seq);if(remote)fixtureCheckpoints.set(token,text);
   const answer=allMarkers.filter(m=>text.includes(m)).join(' ')+(long?' '+constraints.join('; '):'');
   const output=remote?[{type:'compaction',encrypted_content:token}]:[{type:'message',id:'msg_'+seq,role:'assistant',content:[{type:'output_text',text:answer||'OK'}]}];
+  if(short&&!official)output.unshift({type:'reasoning',id:'rs_chatcmpl_probe',encrypted_content:'',summary:[]} as any);
+  if(short&&toolRound&&!official&&!body.input?.some((i:any)=>i.call_id==='phase_probe_call')){
+   const declarations=[...(body.tools??[]),...(body.input??[]).flatMap((i:any)=>i.tools??[])];
+   const tools=declarations.flatMap((t:any)=>t.type==='namespace'?t.tools.map((x:any)=>({...x,namespace:t.name})):[t]);
+   const t=tools.find((t:any)=>t.name==='shell_command'||t.name==='exec_command');assert.ok(t,'Native shell tool missing');
+   output.push({type:'function_call',id:'fc_phase_probe',call_id:'phase_probe_call',name:t.name,...(t.namespace?{namespace:t.namespace}:{}),arguments:JSON.stringify(t.name==='shell_command'?{command:'printf TOOL_PHASE_OK',workdir:root,timeout_ms:1000}:{cmd:'printf TOOL_PHASE_OK',workdir:root,max_output_tokens:100}),status:'completed'} as any);
+  }
   const response={id:'resp_'+(++seq),status:'completed',model:body.model,output,usage:{input_tokens:100,output_tokens:10,total_tokens:110}};
-  const events=[{type:'response.created',response:{...response,status:'in_progress',output:[]}},{type:'response.output_item.done',output_index:0,item:output[0]},{type:'response.completed',response}];
+  const events=[{type:'response.created',response:{...response,status:'in_progress',output:[]}},...output.map((item,output_index)=>({type:'response.output_item.done',output_index,item})),{type:'response.completed',response}];
   return body.stream?new Response(events.map(e=>'data: '+JSON.stringify(e)+'\n\n').join(''),{headers:{'content-type':'text/event-stream'}}):Response.json(response);
  };
  // Synthetic archived work, emitted through the real engine so its rollout is
@@ -65,6 +73,7 @@ if(!process.env.TF_ROUNDTRIP_ROOT){
  };
  const observed=async(response:Response,record:any,started:number)=>{
   record.httpStatus=response.status;
+  if(!response.ok){const error=await response.clone().json().catch(()=>null);record.error=error?.error;}
   if(!response.body)return response;
   const decoder=new TextDecoder();let pending='';
   const inspect=(line:string)=>{if(!line.startsWith('data:'))return;try{const e=JSON.parse(line.slice(5));if(e.type==='response.completed'){record.durationMs=Math.round(performance.now()-started);const u=e.response?.usage;record.usage=u?{input_tokens:u.input_tokens,output_tokens:u.output_tokens,total_tokens:u.total_tokens,cached_tokens:u.input_tokens_details?.cached_tokens}:undefined;}}catch{}};
@@ -86,7 +95,9 @@ if(!process.env.TF_ROUNDTRIP_ROOT){
  const service=await createDesktopService({root:join(root,'data'),proxyPort,binary:resolve('tests/fixtures/fake-cliproxy.mjs'),token:'fixture-admin',localKey:'fixture-local',secrets:{persistent:true,get:async(k:string)=>secrets.get(k)??'',set:async(k:string,v:string)=>{secrets.set(k,v);}},agentProcesses:async()=>[],nativeProcesses:async()=>[],agentPaths:{codex:config,claude:join(root,'claude.json'),qoder:join(root,'qoder.json'),workbuddy:join(root,'workbuddy.json')},antigravityPath:join(root,'antigravity'),cursorLocalPath:join(root,'cursor'),codexOfficialFetch:async(url,init)=>{
   if(url.includes('/models?'))return Response.json({models:[officialEntry]});
   assert.equal(url,'https://chatgpt.com/backend-api/codex/responses');
-  const body=JSON.parse(String(init.body));assert.ok(!JSON.stringify(body).includes('tfctx1.'),'Local ciphertext leaked to official');
+  const body=JSON.parse(String(init.body));
+  if(short&&!live&&body.input?.some((i:any)=>i.type==='reasoning'&&!i.encrypted_content))return Response.json({error:{message:'Unsigned gateway reasoning is not native input',param:'input',type:'invalid_request_error'}},{status:400});
+  assert.ok(!JSON.stringify(body).includes('tfctx1.'),'Local ciphertext leaked to official');
   const record={phase,route:'official',model:body.model,fixtureSeed:phase.startsWith('long-seed-'),bytes:Buffer.byteLength(String(init.body)),localSummary:JSON.stringify(body.input).includes('CONTEXT CHECKPOINT COMPACTION'),remoteTrigger:!!body.input?.some((i:any)=>i.type==='compaction_trigger')};requests.push(record);const started=performance.now();
   if(record.fixtureSeed)return seedResponse(body);
   return observed(live?await fetch(url,{...init,signal:AbortSignal.timeout(300000),redirect:'error',...(dispatcher?{dispatcher}:{})} as RequestInit):fixture(body,true),record,started);
@@ -109,11 +120,15 @@ if(!process.env.TF_ROUNDTRIP_ROOT){
   const completed=async(start:number)=>{const until=Date.now()+360000;while(Date.now()<until){const e=events.slice(start).find(e=>e.method==='turn/completed');if(e){assert.equal(e.params.turn.status,'completed','Turn failed in '+phase+': '+JSON.stringify(e.params.turn.error));return events.slice(start).filter(e=>e.method==='item/completed'&&e.params?.item?.type==='agentMessage').map(e=>e.params.item.text).join('\n');}await new Promise(r=>setTimeout(r,30));}throw Error('Completion timeout in '+phase);};
   await rpc('initialize',{clientInfo:{name:'tokenflow_coexist_roundtrip',version:'1'},capabilities:{experimentalApi:true}});proc.stdin!.write('{"method":"initialized"}\n');
   const thread=(await rpc('thread/start',{cwd:root,model:officialModel,approvalPolicy:'never',sandbox:'read-only'})).thread.id;
-  const turn=async(name:string,selected:string,text:string,expected:string[])=>{phase=name;const start=events.length,started=performance.now();await rpc('turn/start',{threadId:thread,model:selected,effort:selected===officialModel?'low':'medium',input:[{type:'text',text}]});const answer=await completed(start);const required=long&&!name.startsWith('long-seed-')&&name!=='official-seed'?[...expected,...anchors]:expected;for(const marker of required)assert.ok(answer.includes(marker),'Missing retained requirement in '+phase);let constraintsVerified=0;if(long&&name==='official-final-return'){for(const value of ['eu-west-2','730','backup'])assert.ok(answer.toLowerCase().includes(value),'Missing semantic constraint '+value);constraintsVerified=3;}const record={phase,completed:true,markersVerified:required.length,constraintsVerified,durationMs:Math.round(performance.now()-started)};rounds.push(record);console.log(JSON.stringify(record));};
+  const turn=async(name:string,selected:string,text:string,expected:string[])=>{phase=name;const start=events.length,started=performance.now();await rpc('turn/start',{threadId:thread,model:selected,effort:selected===officialModel?'low':'medium',input:[{type:'text',text}]});const answer=await completed(start);const required=long&&!name.startsWith('long-seed-')&&name!=='official-seed'?[...expected,...anchors]:expected;for(const marker of required)assert.ok(answer.includes(marker),'Missing retained requirement in '+phase);let constraintsVerified=0;if(long&&name==='official-final-return'){for(const value of ['eu-west-2','730','backup'])assert.ok(answer.toLowerCase().includes(value),'Missing semantic constraint '+value);constraintsVerified=3;}const messagePhases=events.slice(start).filter(e=>e.method==='item/completed'&&e.params?.item?.type==='agentMessage').map(e=>e.params.item.phase??null);if(selected===model)assert.equal(messagePhases.at(-1),'final_answer','Gateway final phase missing');const record={phase,messagePhases,completed:true,markersVerified:required.length,constraintsVerified,durationMs:Math.round(performance.now()-started)};rounds.push(record);console.log(JSON.stringify(record));};
   const compact=async(name:string,official:boolean)=>{phase=name;const start=events.length,before=requests.length,started=performance.now();await rpc('thread/compact/start',{threadId:thread});await completed(start);const sent=requests.slice(before);if(legacy)assert.ok(sent.some(r=>r.localSummary),'Legacy Codex did not generate a summary');else if(official)assert.ok(sent.some(r=>r.route==='official'&&r.remoteTrigger),'Official did not use native compaction');else assert.ok(sent.some(r=>r.route==='gateway'&&r.summary),'Gateway did not generate a summary');const record={phase,completed:true,nativeRemote:official&&!legacy,gatewaySummaryCalls:sent.filter(r=>r.summary).length,durationMs:Math.round(performance.now()-started)};rounds.push(record);console.log(JSON.stringify(record));};
   const recall='Return every exact requirement identifier (A_, B_, C_, EARLY_, MIDDLE_, LATE_) recorded earlier, and the deployment region, budget ceiling, and backup restriction. Do not invent any. Do not use tools or files.';
   await turn('official-seed',officialModel,`This is an isolated continuity test. Never use tools or files. Retain the exact initial requirement identifier ${markers[0]} across future summaries. Reply with that identifier.`,[markers[0]]);
   if(long){for(let n=0;n<12;n++)await turn('long-seed-'+n,officialModel,'Archive the next synthetic validation batch. Preserve all task identifiers and constraints; acknowledge without tools.',[]);assert.ok(seedBytes>=384*1024);}
+  if(short){
+   await turn('gateway-short',model,recall,[markers[0]]);
+   await turn('official-short-return',officialModel,recall,[markers[0]]);
+  }else{
   await compact('official-compact-1',true);
   await turn('gateway-after-official-compact',model,recall,[markers[0]]);
   await turn('gateway-add-requirement',model,`Also retain this new requirement identifier ${markers[1]}. ${recall}`,[markers[0],markers[1]]);
@@ -126,12 +141,13 @@ if(!process.env.TF_ROUNDTRIP_ROOT){
   await turn('gateway-final-before-compact',model,recall,markers);
   await compact('gateway-compact-2',false);
   await turn('official-final-return',officialModel,recall,markers);
+  }
   assert.equal(await readFile(join(home,'auth.json'),'utf8'),login,'Verification changed isolated login');
  }catch(error){errorMessage=error instanceof Error?error.message:'Verification failed';process.exitCode=1;}
  finally{
   if(proc&&proc.exitCode===null&&proc.signalCode===null)await new Promise<void>(r=>{proc!.once('exit',()=>r());proc!.kill();});
   await service.app.close();gateway.closeAllConnections();await new Promise<void>(r=>gateway.close(()=>r()));await dispatcher?.close();
  }
- const report={passed:!errorMessage,live,long,legacyLocalComparison:legacy,seedBytes,seedUsageIsSynthetic:long,scope:'Installed Codex, production coexist routing, isolated login/config/history; explicit compaction and two model round trips',...(errorMessage?{error:errorMessage}:{}),rounds,requests};
+ const report={passed:!errorMessage,live,long,short,toolRound,legacyLocalComparison:legacy,seedBytes,seedUsageIsSynthetic:long,scope:short?'Installed Codex, production coexist routing, isolated login/config/history; three turns without compaction':'Installed Codex, production coexist routing, isolated login/config/history; explicit compaction and two model round trips',...(errorMessage?{error:errorMessage}:{}),rounds,requests};
  console.log(JSON.stringify(report));const out=process.argv.indexOf('--out');if(out>=0)await writeFile(resolve(process.argv[out+1]),JSON.stringify(report,null,2)+'\n');
 }

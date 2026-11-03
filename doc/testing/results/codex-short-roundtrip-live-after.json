@@ -1,0 +1,86 @@
+{
+  "passed": true,
+  "live": true,
+  "long": false,
+  "short": true,
+  "legacyLocalComparison": false,
+  "seedBytes": 0,
+  "seedUsageIsSynthetic": false,
+  "scope": "Installed Codex, production coexist routing, isolated login/config/history; three turns without compaction",
+  "rounds": [
+    {
+      "phase": "official-seed",
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 4924
+    },
+    {
+      "phase": "gateway-short",
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 72238
+    },
+    {
+      "phase": "official-short-return",
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 4065
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-seed",
+      "route": "official",
+      "model": "gpt-6.1-sol",
+      "fixtureSeed": false,
+      "bytes": 51483,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 3938,
+      "usage": {
+        "input_tokens": 10050,
+        "output_tokens": 13,
+        "total_tokens": 10063,
+        "cached_tokens": 0
+      }
+    },
+    {
+      "phase": "gateway-short",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "qoder/dfmodel",
+      "bytes": 72561,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 72153,
+      "usage": {
+        "input_tokens": 14730,
+        "output_tokens": 128,
+        "total_tokens": 14858,
+        "cached_tokens": 6016
+      }
+    },
+    {
+      "phase": "official-short-return",
+      "route": "official",
+      "model": "gpt-6.1-sol",
+      "fixtureSeed": false,
+      "bytes": 111074,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 3942,
+      "usage": {
+        "input_tokens": 22327,
+        "output_tokens": 51,
+        "total_tokens": 22378,
+        "cached_tokens": 9856
+      }
+    }
+  ]
+}

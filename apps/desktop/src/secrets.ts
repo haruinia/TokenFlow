@@ -31,6 +31,8 @@ export function createSecrets(root:string, storage:Storage, platform=process.pla
   const canEncrypt=()=>allowAccess&&storage.isEncryptionAvailable()&&!(platform==='linux'&&storage.getSelectedStorageBackend?.()==='basic_text');
   return {
     canEncrypt,
+    // Only an explicit import/switch action may reopen access skipped at startup.
+    enableAccess(){const previous=allowAccess;allowAccess=true;try{if(!canEncrypt())throw new Error('系统安全密钥存储不可用，请解锁后重试本机导入。');}catch(error){allowAccess=previous;throw error;}},
     warnings:()=>[...warnings.values()],
     async remove(name:string) {return mutate(name,async access=>{await rm(path(name),{force:true});access.invalidate();warnings.delete(name);readWarnings.delete(name);unreadable.delete(name);});},
     temporaryGateway:()=>{readWarnings.delete('cliproxy');warnings.set('cliproxy','系统安全密钥存储不可用，内部网关本次使用临时密钥；重启后会变化。原有登录账号和客户端 Key 不受影响。');},

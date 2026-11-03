@@ -1,0 +1,50 @@
+{
+  "engineVersion": "codex-cli 0.165.0-alpha.1.2",
+  "scope": "installed native engine, isolated HOME, synthetic upstream; no production auth/config/history or paid requests",
+  "sameParentThreadId": true,
+  "syntheticProviderRoute": [
+    "fixture_official",
+    "token_flow",
+    "fixture_official"
+  ],
+  "changes": [
+    {
+      "target": "v1",
+      "changedMetadataRecords": 2,
+      "allNonMetadataLinesByteIdentical": true
+    },
+    {
+      "target": "v2",
+      "changedMetadataRecords": 3,
+      "allNonMetadataLinesByteIdentical": true
+    }
+  ],
+  "calls": [
+    {
+      "phase": "original-v2",
+      "model": "gpt-6.1-sol",
+      "version": "v2"
+    },
+    {
+      "phase": "gateway-v1",
+      "model": "gpt-6.1-sol",
+      "version": "v1"
+    },
+    {
+      "phase": "gateway-v1",
+      "model": "gpt-6.1-sol",
+      "version": "v1"
+    },
+    {
+      "phase": "gateway-v1",
+      "model": "fixture/deepseek",
+      "version": "absent",
+      "childTask": true
+    },
+    {
+      "phase": "restored-v2",
+      "model": "gpt-6.1-sol",
+      "version": "v2"
+    }
+  ]
+}

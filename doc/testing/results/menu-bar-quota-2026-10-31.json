@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "readOnlyOnOpen": true,
+  "explicitRefresh": true,
+  "reusesWindow": true,
+  "blurDismiss": true,
+  "hiddenPollingStopped": true,
+  "manageAccounts": true,
+  "escapeDismiss": true,
+  "zeroUnknownAndLongLabels": true,
+  "consoleErrors": []
+}

@@ -2,6 +2,7 @@ import {lstat,opendir,realpath} from 'node:fs/promises';
 import {basename,dirname,isAbsolute,join,relative,resolve,sep} from 'node:path';
 import {cleanupCatalog,type CleanupRule} from './file-cleanup-catalog.js';
 import {cleanupPathKey} from './file-cleanup-paths.js';
+import {generatedOutputRule} from './file-cleanup-generated.js';
 import {packagingFolders} from './file-cleanup-artifacts.js';
 
 /** Enumerate accessible drive roots, never run a shell or request elevation. */
@@ -64,6 +65,7 @@ export async function discoverCleanupDirectories(options:DiscoveryOptions){
    if(['.venv','venv'].includes(leaf)){
     try{if((await lstat(join(path,'pyvenv.cfg'))).isFile()){await options.onRule(candidate(path,`${basename(dirname(path))} · ${basename(path)}`,'project','review','项目的 Python 虚拟环境，可能仍在使用。','清理后需重新创建环境并安装依赖；请先停止 Python 与 Agent 任务。'));return;}}catch{}
    }
+   const generated=await generatedOutputRule(path);if(generated){await options.onRule(generated);return;}
    if(['.turbo','.parcel-cache'].includes(leaf)||['.next/cache','node_modules/.vite'].some(suffix=>normalized.replaceAll('\\','/').endsWith(`/${suffix}`))){
     await options.onRule(candidate(path,`${basename(dirname(path))} · ${basename(path)}`,'build','rebuildable','开发工具生成的构建缓存。','请先停止构建；下次启动或构建会重新生成缓存。'));return;
    }

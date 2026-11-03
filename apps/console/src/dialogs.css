@@ -6,7 +6,7 @@
 :root .tfDialogContent>header{position:static;top:auto;padding:0;margin:0 0 20px;gap:16px}
 :root .tfDialogContent>header h2{font-size:17px;line-height:1.4}
 :root .tfDialog.tfRestartDialog{--tf-dialog-width:440px}
-:root .tfDialog.tfRestoreConfigDialog{--tf-dialog-width:520px}
+:root .tfDialog.tfRestoreConfigDialog,:root .tfDialog.tfSwitchDialog{--tf-dialog-width:440px}
 :root .tfDialog.tfVerifyDialog,:root .tfDialog.tfKeyRenameDialog{--tf-dialog-width:400px}
 :root .tfDialog.tfLoginDialog{--tf-dialog-width:520px}
 :root .tfDialog.tfKeyCreatedDialog{--tf-dialog-width:520px}
@@ -39,10 +39,10 @@
 :root :is(dialog.tfDialog,dialog.tfPicker,dialog.tfRepair):focus{outline:none}
 
 /* Application progress, result and restart choice retain one centered geometry. */
-:root .tfDialog.tfModelApplyDialog{width:min(var(--tf-dialog-width),calc(100vw - 24px));height:min(360px,calc(100dvh - 64px));overflow:hidden}
-:root dialog.tfDialog.tfModelApplyDialog::backdrop{backdrop-filter:none;-webkit-backdrop-filter:none}
+:root .tfDialog.tfModelApplyDialog{width:min(var(--tf-dialog-width),calc(100vw - 24px));height:min(280px,calc(100dvh - 64px));overflow:hidden}
+:root dialog.tfDialog.tfModelApplyDialog::backdrop{backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
 :root .tfModelApplyDialog .tfDialogContent{height:100%;display:flex;flex-direction:column}
 :root .tfModelApplyDialog .tfDialogContent>header{flex-shrink:0}
 :root .tfModelApplyBody{flex:1;min-height:0;overflow:auto;overflow-wrap:anywhere}
-:root .tfModelApplyBody .tfMigrationProgress{height:100%;box-sizing:border-box;justify-content:center;padding:64px 0 0;gap:12px}
+:root .tfModelApplyBody .tfMigrationProgress{height:100%;box-sizing:border-box;justify-content:center;padding:20px 0;gap:12px}
 :root .tfModelApplyDialog .tfDialogContent>footer{flex-shrink:0;min-height:32px;margin-top:16px}

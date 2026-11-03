@@ -8,6 +8,22 @@ import {NativeUsageLogins} from '../packages/core/src/native-usage-logins.js';
 import {nativeIdentity} from '../packages/core/src/local-usage.js';
 import {claudeDesktopDirectory} from '../packages/core/src/claude-desktop.js';
 
+it('indexes isolated API histories without traversing their desktop data or counting an imported chat twice',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'tf-api-usage-')),paths=agentPaths(root),api=join(root,'codex-api-workspaces','a'.repeat(24)),index=new LocalUsageIndex(root,paths);
+ const sample=(id:string)=>[
+  {type:'session_meta',payload:{id,model_provider:'api_direct_'+'a'.repeat(24)}},
+  {type:'turn_context',payload:{model:'api-model',auth_mode:'api_key'}},
+  {type:'event_msg',timestamp:new Date().toISOString(),payload:{type:'token_count',info:{total_token_usage:{total_tokens:15,input_tokens:10,output_tokens:5},last_token_usage:{input_tokens:10,output_tokens:5}}}},
+ ].map(row=>JSON.stringify(row)).join('\n');
+ const content=sample('owned-api-chat');
+ try{
+  for(const [directory,text]of [[join(root,'.codex','archived_sessions'),content],[join(api,'home','sessions'),content],[join(api,'desktop','logs'),sample('desktop-noise')]]){
+   await mkdir(directory,{recursive:true});await writeFile(join(directory,'fixture.jsonl'),text);
+  }
+  index.snapshot();await vi.waitFor(()=>{const state=index.snapshot();expect(state.scanning).toBe(false);expect(state.coverage.find(c=>c.target==='codex')).toMatchObject({files:2,indexed:2});expect(state.rows).toHaveLength(1);expect(state.rows[0]).toMatchObject({channel:'api',requests:1,inputTokens:10,outputTokens:5});},{timeout:5000,interval:25});
+ }finally{await index.close();await rm(root,{recursive:true,force:true});}
+});
+
 it.each(['cordis.patch.yml','profiles/desktop/cordis.patch.yml'])('indexes shared DeepSeek sessions with settings at %s',async config=>{
  const root=await mkdtemp(join(tmpdir(),'tf-deepseek-usage-')),home=join(root,'.dsh');
  const index=new LocalUsageIndex(root,{...agentPaths(root),deepseek:join(home,config)});
@@ -99,7 +115,7 @@ it('rebuilds v12 Codex cache so an unchanged parent log uses request-level child
   for(const e of Object.values(saved.files) as Array<{target:string;rows:any[]}>){if(e.target==='codex')for(const r of e.rows){r.nativeThreadId=nativeIdentity('thread','parent');delete r.nativeAccountId;delete r.nativeAccountEvidence;}}
   await writeFile(path,JSON.stringify(saved));index=new LocalUsageIndex(root,paths);index.snapshot();
   await vi.waitFor(()=>{const s=index.snapshot();expect(s.scanning).toBe(false);expect(s.rows[0]).toMatchObject({nativeAccountId:nativeIdentity('codex','payer'),nativeAccountEvidence:'otel',requests:1,inputTokens:100,outputTokens:20});},{timeout:5000,interval:25});
-  expect(JSON.parse(await readFile(path,'utf8')).version).toBe(18);
+  expect(JSON.parse(await readFile(path,'utf8')).version).toBe(21);
   await index.close();await writeFile(join(root,'usage-account-evidence.json'),JSON.stringify({version:1,records:[]}));
   const log=join(directory,'parent.jsonl');await writeFile(log,(await readFile(log,'utf8'))+'\n'+JSON.stringify({type:'token_usage_record',timestamp,payload:{response_id:'new-unconfirmed-response',thread_id:'child',usage:{input_tokens:10,output_tokens:2}}}));
   index=new LocalUsageIndex(root,paths);index.snapshot();

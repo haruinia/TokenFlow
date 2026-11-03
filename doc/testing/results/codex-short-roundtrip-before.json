@@ -1,0 +1,61 @@
+{
+  "passed": false,
+  "live": false,
+  "long": false,
+  "short": true,
+  "legacyLocalComparison": false,
+  "seedBytes": 0,
+  "seedUsageIsSynthetic": false,
+  "scope": "Installed Codex, production coexist routing, isolated login/config/history; three turns without compaction",
+  "error": "Turn failed in official-short-return: {\"message\":\"unexpected status 502 Bad Gateway: 无法连接 Codex 官方服务。, url: http://127.0.0.1:62723/codex/v1/responses\",\"codexErrorInfo\":{\"httpConnectionFailed\":{\"httpStatusCode\":502}},\"additionalDetails\":null,\"misalignment\":null}\n+ actual - expected\n\n+ 'failed'\n- 'completed'\n",
+  "rounds": [
+    {
+      "phase": "official-seed",
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 2777
+    },
+    {
+      "phase": "gateway-short",
+      "completed": true,
+      "markersVerified": 1,
+      "constraintsVerified": 0,
+      "durationMs": 1907
+    }
+  ],
+  "requests": [
+    {
+      "phase": "official-seed",
+      "route": "official",
+      "model": "gpt-6-astra",
+      "fixtureSeed": false,
+      "bytes": 51129,
+      "localSummary": false,
+      "remoteTrigger": false,
+      "httpStatus": 200,
+      "durationMs": 3,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    },
+    {
+      "phase": "gateway-short",
+      "route": "gateway",
+      "summary": false,
+      "localSummary": false,
+      "model": "antigravity/gemini-3.8-flash-low",
+      "bytes": 71826,
+      "opaque": 0,
+      "httpStatus": 200,
+      "durationMs": 0,
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "total_tokens": 110
+      }
+    }
+  ]
+}

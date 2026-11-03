@@ -36,8 +36,8 @@ export function UsageFold({title='用量统计',subtitle,rows,range,loaded=true,
  const toggle=()=>{place();setOpen(value=>!value);};
  if(!loaded)return <section className="tfUsageFold" aria-label={title}>{error?<LoadError message="用量暂不可用" retry={onRetry??(()=>{})}/>:<span className="tfSkeletonLine tfUsageFoldSkeleton" role="status" aria-label={`正在加载${title}`} aria-busy="true"/>}</section>;
  return <section className={`tfUsageFold${open?' open':''}`} aria-label={title}>
-  <button ref={button} type="button" className="tfUsageFoldHead" title={subtitle??title} aria-label={title} aria-expanded={open} aria-controls={id} onClick={toggle}><Icon name="tokens" size={17}/>{range==='today'&&<span>今日用量</span>}<b>{tokenTotalText(totals,true)}</b><span>Token</span>{totals.unmeasured>0&&<small>· {totals.unmeasured} 次未返回 Token</small>}<i aria-hidden="true">·</i><span>缓存命中 {percentText(totals.hitRate)}</span></button>
-  {open&&createPortal(<div ref={panel} tabIndex={-1} id={id} className="tfUsagePopover" role="dialog" aria-label={title} style={position}><header><strong>Token 用量</strong><b>{tokenTotalText(totals)} Token</b><button className="iconButton" aria-label="关闭用量" onClick={()=>setOpen(false)}><Icon name="close" size={14}/></button></header><dl>{totals.credits>0&&<div><dt>Credits 消耗</dt><dd>{creditsText(totals.credits)}</dd></div>}{totals.unmeasured>0&&<div><dt>未返回 Token</dt><dd>{totals.unmeasured} 次（未计入 Token 总数）</dd></div>}<div><dt>缓存命中</dt><dd>{percentText(totals.hitRate)}</dd></div><div><dt>{totals.unknownCacheTokens?'未缓存／未拆分输入':'未缓存输入'}</dt><dd>{formatTokens(totals.uncachedTokens)} Token</dd></div><div><dt>缓存读取</dt><dd>{formatTokens(totals.cachedTokens)} Token</dd></div>{totals.cacheWriteTokens>0&&<div><dt>缓存写入</dt><dd>{formatTokens(totals.cacheWriteTokens)} Token</dd></div>}<div><dt>输出</dt><dd>{formatTokens(totals.outputTokens)} Token</dd></div><div><dt>请求</dt><dd>{formatTokens(totals.requests)} 次 · {rangeLabel(range)}</dd></div></dl></div>,document.body)}
+  <button ref={button} type="button" className="tfUsageFoldHead" title={subtitle??title} aria-label={title} aria-expanded={open} aria-controls={id} onClick={toggle}><Icon name="tokens" size={17}/>{range==='today'&&<span>今日用量</span>}<b>{tokenTotalText(totals,true)}</b><span>Token</span>{totals.unmeasured>0&&<small>· {totals.unmeasured} 次计量不完整</small>}<i aria-hidden="true">·</i><span>缓存命中 {percentText(totals.hitRate)}</span></button>
+  {open&&createPortal(<div ref={panel} tabIndex={-1} id={id} className="tfUsagePopover" role="dialog" aria-label={title} style={position}><header><strong>Token 用量</strong><b>{tokenTotalText(totals)} Token</b><button className="iconButton" aria-label="关闭用量" onClick={()=>setOpen(false)}><Icon name="close" size={14}/></button></header><dl>{totals.credits>0&&<div><dt>Credits 消耗</dt><dd>{creditsText(totals.credits)}</dd></div>}{totals.unmeasured>0&&<div><dt>计量不完整</dt><dd>{totals.unmeasured} 次（已知部分已计入）</dd></div>}<div><dt>缓存命中</dt><dd>{percentText(totals.hitRate)}</dd></div><div><dt>{totals.unknownCacheTokens?'未缓存／未拆分输入':'未缓存输入'}</dt><dd>{formatTokens(totals.uncachedTokens)} Token</dd></div><div><dt>缓存读取</dt><dd>{formatTokens(totals.cachedTokens)} Token</dd></div>{totals.cacheWriteTokens>0&&<div><dt>缓存写入</dt><dd>{formatTokens(totals.cacheWriteTokens)} Token</dd></div>}<div><dt>输出</dt><dd>{formatTokens(totals.outputTokens)} Token</dd></div>{totals.unclassifiedTokens>0&&<div><dt>未分类／冲突总量</dt><dd>{formatTokens(totals.unclassifiedTokens)} Token</dd></div>}<div><dt>请求</dt><dd>{formatTokens(totals.requests)} 次 · {rangeLabel(range)}</dd></div></dl></div>,document.body)}
  </section>;
 }
 
@@ -60,7 +60,7 @@ export function UsageSummary({ title = 'Token 用量', rows, range, onRange, loa
       {tokenParts(totals).map(part => <div key={part.key}><dt><i style={{background:part.color}}/>{part.label}</dt><dd>{formatTokens(part.value)}</dd></div>)}
     </dl>
     <dl className="tfUsageMetrics">
-      <div><dt>请求</dt><dd>{formatTokens(totals.requests)}{totals.failed > 0 && <small className="bad"> · {formatTokens(totals.failed)} 失败</small>}{totals.unmeasured > 0 && <small title="客户端只返回积分或次数，没有返回 Token"> · {formatTokens(totals.unmeasured)} 次未返回 Token</small>}</dd></div>
+      <div><dt>请求</dt><dd>{formatTokens(totals.requests)}{totals.failed > 0 && <small className="bad"> · {formatTokens(totals.failed)} 失败</small>}{totals.unmeasured > 0 && <small title="可能只有部分字段、响应中断或缺少可核对的 Token"> · {formatTokens(totals.unmeasured)} 次计量不完整</small>}</dd></div>
       <div><dt>平均耗时</dt><dd>{durationText(totals.avgMs)}</dd></div>
       <div><dt>工具调用／返回</dt><dd>{totals.toolsMeasured?`${formatTokens(totals.toolCalls)} / ${formatTokens(totals.toolResults)}`:'未记录'}</dd></div><div><dt>生成速率（流式）</dt><dd>{totals.tokensPerSecond===null?'—':`${totals.tokensPerSecond.toFixed(1)} Token/s`}</dd></div>
     </dl>
@@ -94,7 +94,7 @@ export function DailyChart({ rows, range }: { rows: readonly UsageRow[]; range: 
 }
 
 export type BreakdownItem = { key: string; label: string; sub?: string; icon?: ReactNode; totals: UsageTotals; extra?: ReactNode };
-const tokenSeries=[['uncached','输入','uncachedTokens','#2563eb'],['cached','缓存读取','cachedTokens','#2bb59c'],['write','缓存写入','cacheWriteTokens','#9480cc'],['output','输出','outputTokens','#d89b32']] as const;
+const tokenSeries=[['uncached','输入','uncachedTokens','#2563eb'],['cached','缓存读取','cachedTokens','#2bb59c'],['write','缓存写入','cacheWriteTokens','#9480cc'],['output','输出','outputTokens','#d89b32'],['unclassified','未拆分／冲突','unclassifiedTokens','#858b98']] as const;
 const tokenParts=(totals:UsageTotals)=>tokenSeries.map(([key,label,field,color])=>({key,label:key==='uncached'?(totals.unknownCacheTokens?'输入／未拆分':'未缓存输入'):label,value:totals[field],color}));
 export function TokenLegend(){return <div className="tfTokenLegend" aria-label="Token 图例">{tokenSeries.map(([key,label,,color])=><span key={key}><i style={{background:color}}/>{label}</span>)}</div>;}
 /** Compare totals at rest; hover to inspect each row's full-width composition. */
@@ -116,11 +116,11 @@ export function UsageBreakdown({ title, items, empty, limit = 8, headerExtra }: 
         </div>
         <svg className="tfStackedTokens" viewBox="0 0 1000 20" preserveAspectRatio="none" role="img" aria-label={`${item.label} Token 构成，总量 ${formatTokens(item.totals.totalTokens)}；${tokenParts(item.totals).map(p=>`${p.label} ${formatTokens(p.value)}`).join('，')}`}>
          <g className="tfTokenComposition" style={{'--token-scale':item.totals.totalTokens/peak} as CSSProperties}>
-          {tokenParts(item.totals).map((part,index,parts)=><rect key={part.key} x={parts.slice(0,index).reduce((sum,p)=>sum+p.value,0)/Math.max(item.totals.totalTokens,1)*1000} y="2" width={part.value/Math.max(item.totals.totalTokens,1)*1000} height="16" fill={part.color}><title>{part.label} {formatTokens(part.value)} Token</title></rect>)}
+          {tokenParts(item.totals).map((part,index,parts)=><rect key={part.key} x={parts.slice(0,index).reduce((sum,p)=>sum+p.value,0)/Math.max(item.totals.totalTokens,1)*1000} y="2" width={part.value/Math.max(item.totals.totalTokens,1)*1000} height="16" fill={part.color}><title>{`${part.label} ${formatTokens(part.value)} Token`}</title></rect>)}
          </g>
         </svg>
         <dl className="tfBreakParts">{tokenParts(item.totals).filter(p=>p.key!=='write'||p.value>0).map(part=><div key={part.key}><dt>{part.label}</dt><dd>{formatTokens(part.value)}</dd></div>)}</dl>
-        <div className="tfBreakFacts"><span>缓存命中 <b>{percentText(item.totals.hitRate)}</b></span><span>{formatTokens(item.totals.requests)} 次请求</span>{item.totals.failed>0&&<span className="failed">{formatTokens(item.totals.failed)} 次失败</span>}{item.totals.unmeasured>0&&<span title="客户端只返回积分或次数，没有返回 Token">{formatTokens(item.totals.unmeasured)} 次未返回 Token</span>}</div>
+        <div className="tfBreakFacts"><span>缓存命中 <b>{percentText(item.totals.hitRate)}</b></span><span>{formatTokens(item.totals.requests)} 次请求</span>{item.totals.failed>0&&<span className="failed">{formatTokens(item.totals.failed)} 次失败</span>}{item.totals.unmeasured>0&&<span title="可能只有部分字段、响应中断或缺少可核对的 Token">{formatTokens(item.totals.unmeasured)} 次计量不完整</span>}</div>
         {item.extra}
       </li>)}
     </ul>
@@ -131,9 +131,12 @@ export function UsageBreakdown({ title, items, empty, limit = 8, headerExtra }: 
 
 /** The account or API behind a source id, as shown to the user. */
 export function describeSource(local: LocalAgentSnapshot, key: string, rows:readonly UsageRow[]=[]): { label: string; provider: string; sub: string } {
+  if(key==='codex-official'||key.startsWith('codex-official:')){const labels=[...new Set(rows.map(row=>row.usageAccountLabel).filter(Boolean))];return {label:labels.length===1?labels[0]!:key.includes(':')?`Codex 官方账号 · ${key.split(':')[1].slice(0,8)}`:'Codex 官方账号 · 历史未区分',provider:'codex',sub:labels.length===1?'Codex · 官方授权':'经 TokenFlow · 按请求时的认证账号区分'};}
   const inferred=rows.some(row=>row.nativeAccountEvidence==='login-snapshot');
   const account = local.accounts.find(item => item.id === key);
   if (account) return { label: account.label, provider: account.provider, sub: `${local.providers.find(item => item.id === account.provider)?.label ?? account.provider} · 官方授权${inferred?' · 含本机登录识别的用量':''}` };
+  const usageLabels=[...new Set(rows.map(row=>row.usageAccountLabel).filter(Boolean))];
+  if(usageLabels.length===1)return {label:usageLabels[0]!,provider:'codex',sub:'Codex · 官方授权'};
   const api = local.apiSources?.find(item => item.id === key);
   if (api) return { label: api.name, provider: 'api', sub: `API Key · ${api.baseURL}` };
   if(key.startsWith('native:')){const [,raw,channel,identity,email]=key.split(':');const provider=raw==='openai'||raw==='openai-codex'?'codex':raw;const label=local.providers.find(item=>item.id===provider)?.label??usageClientNames[provider]??provider;const names=[...new Set(rows.map(r=>r.nativeAccountLabel).filter(Boolean))];return {label:names.length===1?names[0]!: `${label} · ${channel==='official'?(identity?'官方登录':'账号未确认'):channel==='api'?'API Key':'渠道未确认'}`,provider,sub:inferred?`${label} · 按用量产生时的本机登录识别`:identity?`日志账号 ${(email||identity).slice(0,8)} · 未关联已保存账号`:'本机日志 · 未记录请求账号或接口'};}
@@ -148,11 +151,11 @@ export function SourceUsage({ local, rows, title = '按来源账号', empty = '�
     const info = describeSource(local, group.key, group.rows);
     const quota = showQuota ? local.quotas[group.key] : undefined;
     const remaining = quotaRemaining(quota);
-    const paths=[{key:'gateway',label:'经 TokenFlow',totals:totalsOf(group.rows.filter(row=>row.origin!=='native'))},{key:'native',label:'本机直连',totals:totalsOf(group.rows.filter(row=>row.origin==='native'))}];
+    const paths=[{key:'gateway',label:'经 TokenFlow',totals:totalsOf(group.rows.filter(row=>row.origin!=='native'))},{key:'native',label:'本机日志',totals:totalsOf(group.rows.filter(row=>row.origin==='native'))}];
     return {
       key: group.key, label: info.label, sub: info.sub, totals: group.totals,
       icon: <ProviderIcon provider={info.provider} size={28} />,
-      extra: <div className="tfSourceDetails"><details className="tfSourcePaths"><summary>用量详情</summary><dl>{paths.map(path=><div key={path.key}><dt>{path.label}</dt><dd><strong>{tokenTotalText(path.totals)} Token</strong><span>{formatTokens(path.totals.requests)} 次请求{path.totals.failed>0?` · ${formatTokens(path.totals.failed)} 次失败`:''}{path.totals.unmeasured>0?` · ${formatTokens(path.totals.unmeasured)} 次未返回 Token`:''}</span></dd></div>)}</dl></details>{quota&&expandQuota?<div className="tfBreakQuota"><QuotaDetails quota={quota} label={info.label} compact/></div>:quota ? <div className="tfBreakQuota">
+      extra: <div className="tfSourceDetails"><details className="tfSourcePaths"><summary>用量详情</summary><dl>{paths.map(path=><div key={path.key}><dt>{path.label}</dt><dd><strong>{tokenTotalText(path.totals)} Token</strong><span>{formatTokens(path.totals.requests)} 次请求{path.totals.failed>0?` · ${formatTokens(path.totals.failed)} 次失败`:''}{path.totals.unmeasured>0?` · ${formatTokens(path.totals.unmeasured)} 次计量不完整`:''}</span></dd></div>)}</dl></details>{quota&&expandQuota?<div className="tfBreakQuota"><QuotaDetails quota={quota} label={info.label} compact/></div>:quota ? <div className="tfBreakQuota">
         <button type="button" className="textButton" aria-expanded={open === group.key} onClick={() => setOpen(open === group.key ? '' : group.key)}>
           {remaining === null ? '额度' : `官方额度剩余 ${Math.round(remaining)}%`}{open === group.key ? ' · 收起' : ' · 详情'}
         </button>

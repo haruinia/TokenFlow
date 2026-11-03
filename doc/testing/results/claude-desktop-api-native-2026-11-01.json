@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "desktopUI": false,
+  "embeddedEngine": true,
+  "tokenflowRelay": false,
+  "productionRequests": 0,
+  "calls": [
+    {
+      "path": "/tenant/anthropic/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "keyMatches": true
+    }
+  ],
+  "exitCode": 0
+}

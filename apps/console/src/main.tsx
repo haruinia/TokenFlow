@@ -1,4 +1,5 @@
 import {ExpiredAccountNotice} from './ExpiredAccountNotice';
+import {QuotaPanel} from './QuotaPanel';
 import type {MaintenanceContext} from '../../../packages/core/src/maintenance-conversations';
 import {ThinkingFeedback,LoadingSkeleton,LoadError} from './LoadingState';
 import {SidebarDivider} from './SidebarDivider';
@@ -40,7 +41,8 @@ const used:[View,string,IconName][]=[['agents','本地 Agent','model'],['proxy',
 const secondary:[View,string,IconName][]=[['usage','用量总览','tokens'],['activity','活动','history'],['cleanup','文件清理','workspace'],['settings','设置','sliders']];
 
 function App(){
- const [view,setView]=useState<View>('agents');
+ const [view,setView]=useState<View>(()=>new URLSearchParams(window.location.search).get('view')==='accounts'?'accounts':'agents');
+ useEffect(()=>{const open=()=>setView('accounts');window.addEventListener('token-flow:open-accounts',open);return()=>window.removeEventListener('token-flow:open-accounts',open);},[]);
  const [pageSelections,setPageSelections]=useState<Partial<Record<View,MaintenanceContext>>>({});
  const setPageContext=useCallback((context:MaintenanceContext)=>setPageSelections(current=>({...current,[context.page]:context})),[]);
  const [theme,setTheme]=useState<'dark'|'light'>(()=>{try{return localStorage.getItem('token-flow.appearance')==='light'?'light':'dark';}catch{return 'dark';}});
@@ -49,7 +51,7 @@ function App(){
   document.documentElement.dataset.platform=desktop?.platform??'browser';void desktop?.setTheme?.(theme).catch(()=>{});
  },[theme]);
  const [local,setLocal]=useState<LocalAgentSnapshot>(empty);
- const [localLoaded,setLocalLoaded]=useState(false),[localError,setLocalError]=useState('');
+ const [localLoaded,setLocalLoaded]=useState(false),[localReady,setLocalReady]=useState(false),[localError,setLocalError]=useState('');
  const [notice,setNotice]=useState<Notice>();
  const [busy,setBusy]=useState(false);const lock=useRef(false);
  const [repair,setRepair]=useState<RepairSession>();const [repairOpen,setRepairOpen]=useState(false);
@@ -62,7 +64,7 @@ function App(){
 
  const refresh=useCallback(async()=>{
   let next:LocalAgentSnapshot;
-  try{next=visibleLocalAgent(await requestJSON<LocalAgentSnapshot>('/api/local-agent'));setLocal(next);setLocalLoaded(true);setLocalError('');}
+  try{next=visibleLocalAgent(await requestJSON<LocalAgentSnapshot>('/api/local-agent'));setLocal(next);setLocalLoaded(true);if(!next.accountsLoading)setLocalReady(true);setLocalError('');}
   catch(error){setLocalError('暂时无法获取账号与模型信息，请检查连接后重新加载。');throw error;}
   // Nothing to use yet: start where models are added.
   if(firstLoad.current&&next.state==='running'&&!next.accountsLoading){firstLoad.current=false;if(!next.models.length)setView('accounts');}
@@ -139,7 +141,7 @@ function App(){
    <ThinkingFeedback busy={busy}/>
    <div className="tfRequestStatus">{view!=='agents'&&localError&&<LoadError message={localError} retry={()=>refresh().catch(()=>{})}/>}</div>
    {view==='agents'&&<AgentsPage local={local} calls={calls} usage={usage} notify={setNotice} onRepair={openRepair} onAgent={setSelectedAgent} localError={localError} reloadLocal={refresh}/>}
-   {!localLoaded?(!localError&&view!=='agents'&&<div className="tfPage"><LoadingSkeleton label="正在加载账号与模型" variant={view==='usage'?'overview':'cards'}/></div>):<>
+   {!localReady?(!localError&&view!=='agents'&&<div className="tfPage"><LoadingSkeleton label="正在加载账号与模型" variant={view==='usage'?'overview':'cards'}/></div>):<>
 
    {view==='accounts'&&<AccountsPage local={local} usage={usage} disabled={busy} actions={accounts} notify={setNotice} onContext={setAccountContext}/>}
    {view==='apis'&&<div className="tfPage tfApiPage"><ApiInflow onContext={setPageContext} local={local} usage={usage} onChange={refresh} notify={setNotice}/></div>}
@@ -154,4 +156,4 @@ function App(){
   <RepairChat selectionContext={pageSelections[view]} range={usage.range} page={view} accountContext={accountContext} local={local} session={repair} selectedAgent={selectedAgent} open={repairOpen} onToggle={setRepairOpen} onNew={()=>setRepair({id:Date.now()})}/>
  </div>;
 }
-createRoot(document.getElementById('root')!).render(<App/>);
+createRoot(document.getElementById('root')!).render(new URLSearchParams(window.location.search).get('panel')==='quota'?<QuotaPanel/>:<App/>);

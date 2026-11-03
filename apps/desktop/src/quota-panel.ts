@@ -1,0 +1,49 @@
+import {BrowserWindow,screen,nativeTheme,type Tray} from 'electron';
+import {quotaPanelBounds} from './quota-panel-bounds.js';
+import {quotaPanelMaterialOptions} from './quota-panel-material.js';
+
+/** An independent, read-only view. Hiding either window never stops the gateway. */
+export function createQuotaPanel(options:{address:string;preload:string;icon:string;tray:Tray}){
+ let window:BrowserWindow|undefined;
+ let loading:Promise<void>|undefined;
+ let requested=false;
+ let lastBlur=0;
+ const material=()=>({glass:process.platform==='darwin'&&!nativeTheme.prefersReducedTransparency&&!nativeTheme.shouldUseHighContrastColors});
+ const updateMaterial=()=>{
+  const state=material();
+  if(window&&!window.isDestroyed()){
+   if(process.platform==='darwin')window.setVibrancy(state.glass?'popover':null);
+   window.setBackgroundColor(state.glass?'#00000000':nativeTheme.shouldUseDarkColors?'#202123':'#f7f8fa');
+   window.webContents.send('quota:material',state);
+  }
+  return state;
+ };
+ const hide=()=>{requested=false;window?.hide();};
+ const toggle=async()=>{
+  // On macOS the tray click first blurs the panel. Treat that click as a close.
+  if(requested||Date.now()-lastBlur<180){hide();return;}
+  requested=true;
+  if(!window){
+   // A macOS panel joins all Spaces and can become key without activating the
+   // application. A regular window pulls the user back to the workspace's Space.
+   const panel=new BrowserWindow({width:380,height:540,show:false,frame:false,resizable:false,minimizable:false,maximizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,...(process.platform==='darwin'?{type:'panel'}:{}),...quotaPanelMaterialOptions(),title:'TokenFlow · 账号额度',icon:options.icon,
+    webPreferences:{preload:options.preload,contextIsolation:true,nodeIntegration:false,sandbox:true}});
+   window=panel;
+   updateMaterial();nativeTheme.on('updated',updateMaterial);
+   panel.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+   panel.webContents.on('will-navigate',event=>event.preventDefault());
+   panel.on('blur',()=>{lastBlur=Date.now();hide();});
+   panel.on('show',()=>panel.webContents.send('quota:visibility',true));
+   panel.on('hide',()=>panel.webContents.send('quota:visibility',false));
+   panel.on('closed',()=>{nativeTheme.removeListener('updated',updateMaterial);window=undefined;loading=undefined;requested=false;});
+   loading=panel.loadURL(`${options.address}/?panel=quota`).catch(error=>{panel.destroy();throw error;});
+  }
+  await loading;
+  if(!requested||!window||window.isDestroyed())return;
+  const anchor=options.tray.getBounds();
+  const display=anchor.width?screen.getDisplayMatching(anchor):screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  window.setBounds(quotaPanelBounds(anchor,display.workArea));
+  window.show();
+ };
+ return {toggle,hide,window:()=>window,setAppearance:(theme:'dark'|'light')=>{if(nativeTheme.themeSource!==theme)nativeTheme.themeSource=theme;return updateMaterial();},destroy:()=>{requested=false;window?.destroy();}};
+}
