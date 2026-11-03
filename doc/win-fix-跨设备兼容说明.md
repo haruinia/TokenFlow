@@ -196,3 +196,26 @@ Windows 上判断"某个同名进程属于哪个应用"不能只看 exe 名字�
 - 纳入 macOS 侧 1 个提交：本地 Agent 列表中隐藏不受支持的 Qoder IDE（`AgentsPage.tsx`），并附测试记录；`buildVersion` 升至 10.15.26.81。
 - 无冲突，未触碰任何 Windows 适配文件。
 - 验证：`tsc --noEmit` 通过、`npm run build` 通过、`windows-agent-lifecycle` 45/45；打包配置抽查在位（`build.win.icon`、`asarUnpack` 9 项、`appId`、zip 目标）。
+
+### 2026-11-03（二）：合并 origin/main（43b427f..0a65bfd，21 个提交），合并提交 0643694
+
+**纳入内容**：macOS 侧 21 个提交（339 文件、+12807/-756），集中在菜单栏配额面板（quota rings/玻璃材质/信用余额卡片）、Codex 官方模型用量对账（统一各通道计数）、Claude Desktop API 直连、Codex 备份开销降低（`proper-lockfile` 跨进程锁 + 租约）、原生 Codex 图像请求走官方共存路由、Qoder 原生推理参数与所选上下文同步、版本升至 10.15.26.107。
+
+**冲突处理（8 个文件）**：
+
+| 冲突点 | 处理方式 |
+| --- | --- |
+| `packages/core/src/agent-connections.ts` | Windows Claude 进程识别两侧合成一份：保留 win-fix 的 CIM 查询（WindowsApps/多用户桌面目录排除 + `node.exe` cli.js 启动器识别），并入 main 的 `scope:'installation'` 过滤（`bundledClaude` 判定 VSCode 扩展/Claude 桌面内嵌运行时不算独立 CLI 安装）；tasklist 兜底保留 CIM 无法解析的 claude.exe（未知进程仍算阻断项） |
+| `packages/core/src/service.ts` | restore 保留 win-fix 的 `approval{revision,allowRunning,overwrite}` 语义（`overwrite` 默认 true、`fixedRoutes.delete`、`gatewayKeys.remove`），并入 main 的 `restoreConnectionConfig` 重构与 `codexApi.restore()` 直连步骤 |
+| `apps/desktop/src/main.ts` | 恢复 win-fix 的凭据守卫 `guardCredentialAccess`（qoder/qoderIde/claude keychain 三处，`claudeCredentialStore` 回包一层守卫）与 asar.unpacked `uiRoot`；tray/activate 保留 main 的 `quotaPanel` 生命周期与 win-fix 的 `startup?.focus()` 兜底 |
+| `apps/console/src/AgentsPage.tsx` | restore 请求带 `overwrite:true`，`saveDraft(clearModelsOnRestore?[]:models)` 保留 |
+| 4 个测试文件 | `a2a-service`：win32+codex 断言 `winOpen('codex',{})`（main 的 `launchEnv` 隔离路径随请求传递，合并提交 8df5410 修正了沿用旧断言的笔误）；`agent-installation`/`agent-processes`/`windows-agent-lifecycle`：两侧断言与夹具全保留 |
+| `package.json` | 补装 main 新增依赖 `@types/proper-lockfile`（合并时只带声明未安装） |
+
+**验证（2026-11-03，Windows 实机）**：
+
+- `tsc --noEmit` 通过；`npm run build` 通过；`windows-agent-lifecycle` **46/46**（较上轮 +1：Store 包注册启动 Claude）。
+- 新增 Claude 进程用例通过：Windows 忽略桌面/内嵌 helper 保留独立 CLI、installation 范围过滤 VSCode 扩展运行时、未知 claude.exe 保留为阻断项。
+- 全量套件 1965 用例：与合并前基线（97d2643 worktree，1690 用例）逐项 diff，新增失败分三类——① main 新增用例在纯 `origin/main` worktree 上同样失败的 Windows 宿主不兼容（`usage-ledger` 5、`file-cleanup-evidence` 2、`file-cleanup-partial` 软链接 1、`startup-credential-order`、`codex-api-direct`、`codex-official-images`、`local-usage-index`、`agent-installation` interrupted-npm 夹具为 macOS 布局）；② 双侧并行满载跑全量时的超时抖动（`codex-coexist-account-switch` 单独运行 23/23）；③ a2a-service 断言笔误（已修，15/15）。
+- 纯 `origin/main` 上同批文件失败更多（49 vs 合并后 32），本合并在这些文件上净修复 main 的多处 Windows 不兼容（含 a2a-service 15 个、codex 共存恢复等）。
+- 打包配置抽查在位：`buildVersion` 10.15.26.107、`asarUnpack`、`build.win.icon`。
