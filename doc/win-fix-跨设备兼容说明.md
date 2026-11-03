@@ -190,3 +190,9 @@ Windows 上判断"某个同名进程属于哪个应用"不能只看 exe 名字�
 - `tests/windows-agent-lifecycle.test.ts` **45/45 通过**。
 - `agent-installation` + `agent-processes` 共 10 项失败；在 `origin/main`（77d93c9）上用 worktree 跑同样测试，**失败集合完全一致**，属 main 自带的本机预存在失败，合并零回归。
 - Windows 兼容关键项抽查在位：`noAsar`、`AGENT_INSTALL_DIRS`/`windowsRegistryApp`、`updateDeepseekEnv`、`build.win.icon`、`asarUnpack`、`ELECTRON_RUN_AS_NODE` 删除写法。
+
+### 2026-11-03：合并 origin/main（43b427f）
+
+- 纳入 macOS 侧 1 个提交：本地 Agent 列表中隐藏不受支持的 Qoder IDE（`AgentsPage.tsx`），并附测试记录；`buildVersion` 升至 10.15.26.81。
+- 无冲突，未触碰任何 Windows 适配文件。
+- 验证：`tsc --noEmit` 通过、`npm run build` 通过、`windows-agent-lifecycle` 45/45；打包配置抽查在位（`build.win.icon`、`asarUnpack` 9 项、`appId`、zip 目标）。
