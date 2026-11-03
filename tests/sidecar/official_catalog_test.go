@@ -653,3 +653,22 @@ func TestOfficialCatalogZcodeProjectUsesFreshPickerWithoutAnUnimplementedModelsE
 		t.Fatal("missing catalog must not reveal static fallback models")
 	}
 }
+
+func TestOfficialCatalogWorkBuddyNativeReasoning(t *testing.T) {
+	for _, tc := range []struct{ name, fields, want string }{
+		{"native", `"reasoning":{"supportedEfforts":["low","high","max","unknown"]}`, "low,high,max"},
+		{"explicit_empty", `"supported_reasoning_levels":[],"reasoning":{"supportedEfforts":["high"]}`, ""},
+		{"explicit_priority", `"supported_reasoning_levels":["low"],"reasoning":{"supportedEfforts":["high"]}`, "low"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			models, ok := parseOfficialCatalog("workbuddy", []byte(`{"data":{"models":[{"id":"fixture",`+tc.fields+`}]}}`), nil)
+			if !ok || len(models) != 1 || models[0].Thinking == nil || strings.Join(models[0].Thinking.Levels, ",") != tc.want {
+				t.Fatalf("reasoning metadata lost: %+v", models)
+			}
+		})
+	}
+	models, ok := parseOfficialCatalog("workbuddy", []byte(`{"data":{"models":[{"id":"deepseek-looking-name","supportsReasoning":true}]}}`), nil)
+	if !ok || len(models) != 1 || models[0].Thinking != nil {
+		t.Fatal("invented efforts from name or boolean")
+	}
+}

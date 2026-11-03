@@ -109,6 +109,7 @@ export class CLIProxyManager {
   private metadata:ModelMetadataCache;
   private accountCapabilities=new Map<string,Map<string,ModelCapabilities>>();
   modelCapabilities(id:string,model:string){
+    if(this.cursor.owns(id))return this.cursor.modelCapabilities(id,model);
     const selected=this.preferredCredential(id,model),account=this.accounts.find(a=>a.id===selected);
     if(!account||account.disabled||account.authenticationRequired||!account.models?.includes(model))return undefined;
     return this.accountCapabilities.get(selected)?.get(model);

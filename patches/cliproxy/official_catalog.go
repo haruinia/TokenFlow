@@ -636,7 +636,13 @@ func parseOfficialCatalog(provider string, raw []byte, fallback []*ModelInfo) ([
 		}
 		// Live discrete efforts override registry presets, including an explicit
 		// empty list. Unknown fields are not guessed from the model's name.
-		if levels, ok := item["supported_reasoning_levels"].([]any); ok {
+		declaredLevels, declared := item["supported_reasoning_levels"]
+		if provider == "workbuddy" && !declared {
+			if reasoning, ok := item["reasoning"].(map[string]any); ok {
+				declaredLevels = reasoning["supportedEfforts"]
+			}
+		}
+		if levels, ok := declaredLevels.([]any); ok {
 			thinking := &registry.ThinkingSupport{Levels: []string{}}
 			for _, raw := range levels {
 				level, _ := raw.(string)

@@ -37,7 +37,7 @@ export function parseCodeBuddyInput(path:string,body:unknown){
   }
   return Object.fromEntries(Object.entries(v).map(([k,item])=>[k,normalize(item)]));
  };
- const fields=['model','stream','input','messages','instructions','system','tools','tool_choice','parallel_tool_calls','max_tokens','max_output_tokens','max_completion_tokens','reasoning','reasoning_effort'];
+ const fields=['model','stream','input','messages','instructions','system','tools','tool_choice','parallel_tool_calls','max_tokens','max_output_tokens','max_completion_tokens','reasoning','reasoning_effort','output_config'];
  const normalized=Object.fromEntries(fields.filter(k=>raw[k]!==undefined).map(k=>[k,normalize(raw[k])]));
  // Responses Lite carries additional declarations inside input. They are tool
  // definitions, not historical conversation turns. Top-level declarations win.
@@ -94,7 +94,12 @@ export function parseCodeBuddyInput(path:string,body:unknown){
  for(const field of ['input','messages'])if(Array.isArray(normalized[field])&&!(normalized[field] as unknown[]).length&&systemParts.length)normalized[field]=[{role:'user',content:'Continue following the supplied system instructions.'}];
  if(path==='messages'&&(normalized.tool_choice as {disable_parallel_tool_use?:boolean}|undefined)?.disable_parallel_tool_use===true)normalized.parallel_tool_calls=false;
  const parsed=parseCursorInput(path,normalized);
- return {...parsed,systemPrompt:systemParts.join('\n\n'),images,toolIdentities};
+ const effort=z.enum(['none','minimal','low','medium','high','xhigh','max']).optional().parse(parsed.effort);
+ const thinking=z.union([z.object({type:z.literal('adaptive')}),z.object({type:z.literal('disabled')}),z.object({type:z.literal('enabled'),budget_tokens:z.number().int().positive()})]).optional().parse(raw.thinking);
+ const sdkReasoning:Pick<SDKInput,'effort'|'thinking'>=effort==='none'||thinking?.type==='disabled'?{thinking:{type:'disabled'}}:{
+  ...(effort?{effort}:{}),...(thinking?{thinking:thinking.type==='enabled'?{type:'enabled',budgetTokens:thinking.budget_tokens}:thinking}:{}),
+ };
+ return {...parsed,sdkReasoning,systemPrompt:systemParts.join('\n\n'),images,toolIdentities};
 }
 
 /** Every request is scoped to the selected account. No local SDK tools or fallback account. */
@@ -147,7 +152,7 @@ export class WorkBuddySDKProvider {
    const cwd=join(directory,'workspace'),configDir=join(directory,'config');await mkdir(cwd);await mkdir(configDir,{mode:0o700});
    const model=input.model.slice('workbuddy/'.length).toLowerCase();
    stage='sdk';
-   const result=await this.run({...credential,model,onText,prompt:input.prompt,systemPrompt:input.systemPrompt,images:input.images,tools:input.tools,parallelToolCalls:input.parallel_tool_calls,signal:controller.signal,cwd,configDir,onDiagnostic:event=>{if(event.event==='failure'&&event.reason){sdkFailureCode=sdkFailureCodes[event.reason];sdkToolIssue=event.reason==='tool_protocol'?event.toolIssue:undefined;}}});
+   const result=await this.run({...credential,model,...input.sdkReasoning,onText,prompt:input.prompt,systemPrompt:input.systemPrompt,images:input.images,tools:input.tools,parallelToolCalls:input.parallel_tool_calls,signal:controller.signal,cwd,configDir,onDiagnostic:event=>{if(event.event==='failure'&&event.reason){sdkFailureCode=sdkFailureCodes[event.reason];sdkToolIssue=event.reason==='tool_protocol'?event.toolIssue:undefined;}}});
    if(controller.signal.aborted)throw new Error('Cancelled');
    if(result.failed&&result.errorCode==='source_policy_blocked')return Response.json({error:{type:'invalid_request_error',code:'a2a_source_policy_blocked',message:'WorkBuddy SDK upstream rejected the invocation channel (11128).'}},{status:400});
    if(result.failed&&result.errorCode==='authentication_error')return Response.json({error:{code:'workbuddy_authentication_failed',type:'authentication_error',message:'WorkBuddy 登录已失效，请重新授权所选账号。'}},{status:401});

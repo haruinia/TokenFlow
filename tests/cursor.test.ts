@@ -43,12 +43,14 @@ it('does not save credentials from a cancelled login, including late SDK complet
  const provider=new CursorProvider(root,secrets);await provider.beginLogin();await expect.poll(()=>provider.snapshot().login?.status).toBe('waiting_for_browser');provider.cancelLogin(provider.snapshot().login!.id);complete({apiKey:'must-not-save'});await provider.close();expect(values.size).toBe(0);expect(provider.snapshot().accounts).toEqual([]);
 });
 it('routes Cursor through the existing scoped API, meters tokens, isolates SDK tools, and denies unsupported server tools',async()=>{
+ sdk.models.mockResolvedValue([{id:'fixture-model',displayName:'Fixture model',parameters:[{id:'effort',values:[{value:'low'},{value:'high'}]}]}]);
  // Synthetic credentials must not reach the real REST catalog during a fallback.
  const originalFetch=globalThis.fetch;vi.spyOn(globalThis,'fetch').mockImplementation((url,init)=>String(url)==='https://api.cursor.com/v1/models'?Promise.resolve(Response.json({items:[{id:'fixture-model',displayName:'Fixture model'}]})):originalFetch(url,init));
  const {root,secrets}=await setup();await secrets.set('cursor-account',JSON.stringify({version:1,accounts:[{apiKey:'cursor-secret-fixture',disabled:false},{apiKey:'second-cursor-fixture',email:'second@example.test',disabled:false}]}));
  const allocator=createServer();await new Promise<void>(r=>allocator.listen(0,'127.0.0.1',r));const port=(allocator.address() as {port:number}).port;await new Promise<void>(r=>allocator.close(()=>r()));await mkdir(join(root,'cliproxy'));await writeFile(join(root,'cliproxy','fixture-accounts.json'),'[]');
  const service=await createDesktopService({root,binary:resolve('tests/fixtures/fake-cliproxy.mjs'),proxyPort:port,token:'admin-token',localKey:'internal-key',secrets});cleanup.push(()=>service.app.close());await service.proxy.start();await service.proxy.cursor.refresh();expect(service.proxy.snapshot().accounts.filter(a=>a.provider==='cursor'&&a.models?.includes('cursor/fixture-model')).length,JSON.stringify(service.proxy.cursor.snapshot().accounts)).toBe(2);
  const admin={host:'127.0.0.1:9527',authorization:'Bearer admin-token'};const account=service.proxy.snapshot().accounts[0];
+ expect(service.proxy.modelCapabilities(account.id,'cursor/fixture-model')).toEqual({reasoning:{levels:['low','high']}});
  const created=await service.app.inject({method:'POST',url:'/api/gateway-keys',headers:admin,payload:{name:'Cursor caller',models:['cursor/fixture-model'],sourceId:account.id,tokenLimit:100}});expect(created.statusCode,created.body).toBe(200);const client={host:admin.host,authorization:`Bearer ${created.json().apiKey}`};
  expect((await service.app.inject({url:'/v1/models',headers:client})).json().data[0].id).toBe('cursor/fixture-model');
  for(const path of ['responses','chat/completions','messages']){
@@ -408,7 +410,11 @@ it('uses the configured native database for the import endpoint as well as detec
 });
 
 const grokCatalog=()=>({id:'grok-4.7',displayName:'Grok 4.7',parameters:[{id:'context',values:[{value:'256k'},{value:'500k'}]},{id:'reasoning_effort',values:[{value:'high'},{value:'low'}]},{id:'fast',values:[{value:'true'}]}],variants:['500k','256k'].flatMap(context=>['high','low'].map(effort=>({displayName:context+effort,isDefault:context==='500k'&&effort==='high',params:[{id:'context',value:context},{id:'reasoning_effort',value:effort},{id:'fast',value:'true'}]})))});
-async function grokProvider(accounts=[{apiKey:'grok-fixture',email:'one@example.test'}]){const {root,secrets}=await setup();await secrets.set('cursor-account',JSON.stringify({version:1,accounts}));sdk.models.mockResolvedValue([grokCatalog()]);const provider=new CursorProvider(root,secrets);cleanup.push(()=>provider.close());await provider.load();return provider;}
+async function grokProvider(accounts=[{apiKey:'grok-fixture',email:'one@example.test'}]){
+ // Concurrent mocked SDK imports may exercise REST discovery; keep synthetic
+ // credentials in this fixture and return the same catalog on both transports.
+ const originalFetch=globalThis.fetch;vi.spyOn(globalThis,'fetch').mockImplementation((url,init)=>String(url)==='https://api.cursor.com/v1/models'?sdk.models().then((items:unknown)=>Response.json({items})):originalFetch(url,init));
+ const {root,secrets}=await setup();await secrets.set('cursor-account',JSON.stringify({version:1,accounts}));sdk.models.mockResolvedValue([grokCatalog()]);const provider=new CursorProvider(root,secrets);cleanup.push(()=>provider.close());await provider.load();return provider;}
 const grokRequest={model:'cursor/grok-4.7',input:'Reply OK'};
 const missingModel={code:'model_not_found',message:'PRIVATE model not found'};
 function grokRun(result:unknown){return {cancel:sdk.cancel,wait:async()=>result};}
@@ -444,7 +450,7 @@ it('does not cache a failed alternate or retry it repeatedly within one request'
 });
 it('isolates successful compatibility choices by account, effort and catalog, and expires them',async()=>{
  const provider=await grokProvider([{apiKey:'one-key',email:'one@example.test'},{apiKey:'two-key',email:'two@example.test'}]);sdk.create.mockImplementation(async(options)=>({close:sdk.close,send:async()=>grokRun(options.model.params[0].value==='500k'?{status:'error',error:missingModel}:{status:'finished',result:'OK'})}));
- const [one,two]=provider.snapshot().accounts;await provider.response('responses',grokRequest,new AbortController().signal,one.id);await provider.response('responses',grokRequest,new AbortController().signal,two.id);expect(sdk.create).toHaveBeenCalledTimes(4);
+ const [one,two]=provider.snapshot().accounts;for(const account of [one,two])expect(account.models,JSON.stringify(account)).toContain('cursor/grok-4.7');await provider.response('responses',grokRequest,new AbortController().signal,one.id);await provider.response('responses',grokRequest,new AbortController().signal,two.id);expect(sdk.create).toHaveBeenCalledTimes(4);
  await provider.response('responses',{...grokRequest,reasoning:{effort:'low'}},new AbortController().signal,one.id);expect(sdk.create).toHaveBeenCalledTimes(6);expect(sdk.create.mock.lastCall![0].model.params[1].value).toBe('low');
  const altered=grokCatalog();altered.parameters.push({id:'catalog_revision',values:[{value:'2'}]});sdk.models.mockResolvedValue([altered]);await provider.refresh();await provider.response('responses',grokRequest,new AbortController().signal,one.id);expect(sdk.create).toHaveBeenCalledTimes(8);
  const date=Date.now();vi.spyOn(Date,'now').mockReturnValue(date+5*60000+1);await provider.response('responses',grokRequest,new AbortController().signal,one.id);expect(sdk.create).toHaveBeenCalledTimes(10);
@@ -479,4 +485,16 @@ it('does not reuse a successful variant after the account grant changes',async()
  const provider=await grokProvider();sdk.create.mockImplementation(async(options)=>({close:sdk.close,send:async()=>grokRun(options.model.params[0].value==='256k'?{status:'finished',result:'OK'}:{status:'error',error:missingModel})}));
  await provider.response('responses',grokRequest,new AbortController().signal);expect(sdk.create).toHaveBeenCalledTimes(2);const account=provider.snapshot().accounts[0];await provider.setEnabled(false,account.id);await provider.setEnabled(true,account.id);
  await provider.response('responses',grokRequest,new AbortController().signal);expect(sdk.create.mock.calls.slice(2).map(([o])=>o.model.params[0].value)).toEqual(['500k','256k']);
+});
+
+it('discovers account-scoped SDK efforts and dispatches each advertised choice without changing speed or context',async()=>{
+ const provider=await grokProvider();const id=provider.id!,model='cursor/grok-4.7';
+ expect(provider.modelCapabilities(id,model)).toEqual({reasoning:{levels:['high','low'],default:'high'}});
+ expect(provider.modelCapabilities('other-account',model)).toBeUndefined();
+ for(const effort of ['high','low']){
+  const response=await provider.response('responses',{model,input:'OK',reasoning:{effort}},new AbortController().signal,id);
+  expect(response.status).toBe(200);
+  expect(sdk.create.mock.lastCall![0].model.params).toEqual([{id:'context',value:'500k'},{id:'reasoning_effort',value:effort},{id:'fast',value:'true'}]);
+ }
+ await provider.setEnabled(false,id);expect(provider.modelCapabilities(id,model)).toBeUndefined();
 });

@@ -93,7 +93,11 @@ it('applies the DeepSeek capacity and native default effort, restoring original 
  const catalog=JSON.parse(await readFile(String(applied.model_catalog_json),'utf8'));
  expect(catalog.models[0]).toMatchObject({context_window:1048576,max_context_window:1048576,auto_compact_token_limit:null,default_reasoning_level:'high',supported_reasoning_levels:[{effort:'low'},{effort:'high'},{effort:'max'}]});
  expect(applied.model_reasoning_effort).toBe('high');
- await manager.restore(codexConfigRevision(await readFile(config,'utf8')));expect(await readFile(config,'utf8')).toBe(before);
+ await manager.restore(codexConfigRevision(await readFile(config,'utf8')));const restored=parse(await readFile(config,'utf8'));
+ expect(restored.model_provider).toBe('openai');expect(restored.model_reasoning_effort).toBeUndefined();expect(restored.model_catalog_json).toBeUndefined();
+ // Retain the inactive provider identity so old API threads cannot fall through to OpenAI.
+ expect(restored.model_providers).toMatchObject({custom:{base_url:'http://127.0.0.1:9527/codex/inactive/v1',experimental_bearer_token:'tokenflow-inactive-provider'}});
+ expect(JSON.stringify(restored)).not.toContain('synthetic-key');
 });
 it('honors no-store and requires revalidation when official metadata disallows stale reuse',async()=>{
  const root=await directory(),config=join(root,'config.toml'),auth={tokens:{account_id:'a',access_token:'fixture'}};let calls=0;

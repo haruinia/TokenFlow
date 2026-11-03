@@ -12,6 +12,7 @@ import type { LocalAccount,LocalModel } from './cliproxy.js';
 import type { AccountQuota } from './quota/types.js';
 import type { LoginSession } from './login/types.js';
 import {CursorUsage} from './cursor-usage.js';
+import {cursorModelCapabilities,cursorReasoningParameter} from './cursor-model-capabilities.js';
 import {CursorLocalModelCompatibility,cursorLocalAlternative,cursorRetryableModelRejection,cursorGeneratedUsage} from './cursor-model-compatibility.js';
 import {localCursorSession} from './cursor-local.js';
 import {rememberCursorGatewayConversation} from './cursor-conversations.js';
@@ -90,6 +91,7 @@ class CursorAccount {
    quotas:c?{[this.id!]:this.quota&&this.quota.accountId===this.id?this.quota:{accountId:this.id!,provider:'cursor' as const,status:'ok' as const,observedAt:this.observedAt,windows:[],note:'正在查询 Cursor 官方用量与额度…'}}:{}};
  }
  assertSource(id:string,model:string){if(!this.owns(id)||!this.snapshot().models.some(m=>m.id===model))throw failure('Cursor 账号或模型当前不可用。',409);return `cursor:${id}`;}
+ modelCapabilities(model:string){if(!this.snapshot().models.some(m=>m.id===model))return;const entry=this.models.find(m=>`cursor/${m.id}`===model);return entry?cursorModelCapabilities(entry):undefined;}
  async beginLogin(){
   if(this.closed)throw failure('应用正在退出');
   if(this.loginTask)throw failure('Cursor 授权正在进行，请完成或取消。',409);
@@ -141,7 +143,7 @@ class CursorAccount {
    const model=this.models.find(m=>`cursor/${m.id}`===input.model)!;
    const defaults=model.variants?.find(v=>v.isDefault)?.params??[];
    const params=defaults.map(p=>({...p}));
-   if(input.effort){const parameter=model.parameters?.find(p=>['reasoning_effort','effort'].includes(p.id)&&p.values.some(v=>v.value===input.effort));if(parameter){const existing=params.find(p=>p.id===parameter.id);if(existing)existing.value=input.effort;else params.push({id:parameter.id,value:input.effort});}}
+   if(input.effort){const parameter=cursorReasoningParameter(model);if(parameter?.values.some(v=>v.value===input.effort)){const existing=params.find(p=>p.id===parameter.id);if(existing)existing.value=input.effort;else params.push({id:parameter.id,value:input.effort});}}
    let selectedParams=this.localModelCompatibility.select(credential,model,params)??params;
    let unsafeToReplay=false,compatibilityRecovered=false;
    const calls:CursorToolCall[]=[];let handoff!:()=>void;const toolRequested=new Promise<'tool'>(resolve=>{handoff=()=>resolve('tool');});
@@ -234,6 +236,7 @@ export class CursorProvider {
  private identity(c:Credential){return credentialEmail(c.email)??c.email?.trim().toLowerCase()??credentialFingerprint(c);}
  get id(){return this.accounts.find(a=>a.id)?.id;}
  owns(id:string){return this.accounts.some(a=>a.owns(this.aliases[id]??id));}
+ modelCapabilities(id:string,model:string){return this.owns(id)?this.account(id).modelCapabilities(model):undefined;}
  nativeUsageReaders(){return this.accounts.flatMap(a=>{const reader=a.nativeUsageReader();return reader?[reader]:[];});}
  nativeUsageAccounts(){const rows=this.accounts.flatMap(a=>{const email=a.nativeUsageEmail();return a.id&&email?[{id:a.id,provider:'cursor',accountId:email,email,organizationId:null,label:email}]:[];});return [...new Map(rows.map(row=>[row.email,row])).values()];}
  private account(id:string|undefined){const account=this.accounts.find(a=>a.owns(this.aliases[id??'']??id??''));if(!account)throw failure('Cursor 账号当前不可用。',409);return account;}
