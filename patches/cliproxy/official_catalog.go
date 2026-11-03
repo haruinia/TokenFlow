@@ -656,6 +656,17 @@ func parseOfficialCatalog(provider string, raw []byte, fallback []*ModelInfo) ([
 			}
 			m.Thinking = thinking
 		}
+		if provider == "qoder" {
+			m.QoderRuntime = registry.ParseQoderRuntimeOptions(item)
+			if q := m.QoderRuntime; q != nil {
+				if q.DefaultContext > 0 {
+					m.ContextLength = q.DefaultContext
+				}
+				if _, declared := item["thinkingConfig"]; declared {
+					m.Thinking = &registry.ThinkingSupport{Levels: q.Levels}
+				}
+			}
+		}
 		m.SupportsWebSearch = false
 		if searches, ok := data["webSearchModelIds"].([]any); ok {
 			for _, v := range searches {

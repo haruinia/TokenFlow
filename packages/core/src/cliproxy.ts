@@ -48,12 +48,12 @@ const accountSchema = z.object({
 // Optional capacity metadata must not invalidate an otherwise callable catalog.
 const modelCapacity = z.number().int().positive().safe().optional().catch(undefined);
 const modelSchema = z.object({id: z.string(), display_name: z.string().optional(), type: z.string().optional(), owned_by: z.string().optional(), supportedInputModalities:z.array(z.string()).optional(),context_length:modelCapacity,context_window:modelCapacity,inputTokenLimit:modelCapacity,
- max_output_tokens:modelCapacity,thinking:z.unknown().optional(),supported_reasoning_levels:z.unknown().optional(),default_reasoning_level:z.unknown().optional()});
+ max_output_tokens:modelCapacity,thinking:z.unknown().optional(),supported_reasoning_levels:z.unknown().optional(),default_reasoning_level:z.unknown().optional(),qoder_runtime:z.unknown().optional()});
 const qoderProfilesSchema=z.record(z.object({email:z.string().email().max(200),checkedAt:z.number().finite()}));
 const apiCallSchema = z.object({status_code: z.number().int(), header: z.record(z.array(z.string())).default({}), body: z.string().default('')});
 export function revokedCredential(file:{status?:string;status_message?:string}){return file.status==='error'&&/\b(?:invalid_grant|token_revoked|refresh_token_revoked|refresh_token_reused|refresh_token_expired)\b/i.test(file.status_message??'');}
 function credentialTokenRevision(raw:Record<string,unknown>){return typeof raw.access_token==='string'&&raw.access_token?createHash('sha256').update(JSON.stringify([raw.access_token,raw.refresh_token])).digest('hex'):undefined;}
-export type LocalAccount = {id: string; provider: string; label: string; nativeClients?:string[]; authorizations?:QoderAuthorization[]; status: string; disabled: boolean; unavailable: boolean; retryable?:boolean; authenticationRequired?:boolean; isDuplicate?: boolean;credentialAlias?:boolean;preferredCredentialId?:string;credentialCount?:number; modelError?:string; models?: string[]};
+export type LocalAccount = {modelCapabilities?:Record<string,ModelCapabilities>;id: string; provider: string; label: string; nativeClients?:string[]; authorizations?:QoderAuthorization[]; status: string; disabled: boolean; unavailable: boolean; retryable?:boolean; authenticationRequired?:boolean; isDuplicate?: boolean;credentialAlias?:boolean;preferredCredentialId?:string;credentialCount?:number; modelError?:string; models?: string[]};
 /** `provider` 为承接该模型的登录 Provider；未知类型（如 Gemini API Key）为空。 */
 // Unknown capabilities remain unknown; never infer vision from a model name.
 function modelImageCapabilities(model:z.infer<typeof modelSchema>,provider:string){
@@ -559,6 +559,7 @@ export class CLIProxyManager {
             if(metadataRevision&&res.catalog?.status==='live')await this.metadata.remember(scope,value).catch(()=>{});
           }
           this.accountCapabilities.set(account.id,capabilities);
+          if(provider==='qoder')account.modelCapabilities=Object.fromEntries(capabilities);
           for (const model of res.models) {
             if (!model.id) continue;
             const baseId = model.id.startsWith(`${provider}/`) ? model.id.slice(provider.length + 1) : model.id;

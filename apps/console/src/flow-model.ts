@@ -6,7 +6,7 @@ import {formatTokens} from './usage-model';
 
 export type ModelGroup={id:string;label:string;models:{id:string;label:string}[]};
 export type ModelSourceGroup=ModelGroup&{provider:string;providerLabel:string;accountLabel:string;remaining:number|null;quota?:LocalAgentSnapshot['quotas'][string]};
-export type Choice={sourceId:string;model:string};
+export type Choice={sourceId:string;model:string;contextWindow?:number};
 
 /** Models an Agent has used through token-flow, current first, newest next, limited to what is still served. */
 export function usedModels(target:{connection:(Choice&{selections?:Choice[]})|null;backups:(Choice&{selections?:Choice[]})[]},available:AvailableSourceModels,limit=8):Choice[]{

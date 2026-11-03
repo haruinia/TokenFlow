@@ -123,3 +123,22 @@ it('uses readable API names when older or temporarily unavailable models have no
  expect(codexModelCatalog([model],{[model]:'自定义名称'}).models[0].display_name).toBe('自定义名称');
  expect(modelLabel([],'qoder/kmodel_latest')).toBe('qoder/kmodel_latest');
 });
+
+it('upgrades legacy Qoder metadata but keeps explicitly selected windows and official entries unchanged',async()=>{
+ const {readModelCapabilities}=await import('../packages/core/src/model-capabilities.js');
+ const {qoderSelectedCapabilities}=await import('../packages/core/src/qoder-model-capabilities.js');
+ const root=await mkdtemp(join(await realpath(tmpdir()),'qoder-capacity-'));roots.push(root);
+ const configPath=join(root,'config.toml');await writeFile(configPath,'model="native"\n');
+ const connections=new AgentConnections(root,{codex:configPath},async()=>[]);
+ const qmodel='qoder/dfmodel';
+ await connections.apply({target:'codex',revision:(await connections.status()).find(t=>t.id==='codex')!.revision,origin:'http://127.0.0.1:9527',model:qmodel,sourceId,keyId:randomUUID(),key:'fixture',modelCapabilities:{[qmodel]:{contextWindow:131072,maxInputTokens:1000000}}});
+ const path=String(parse(await readFile(configPath,'utf8')).model_catalog_json);
+ const original=JSON.parse(await readFile(path,'utf8'));const official={slug:'gpt-official',context_window:400000,supported_reasoning_levels:[{effort:'ultra'}]};original.models.unshift(official);original.tokenflow_gateway_models=[qmodel];await writeFile(path,JSON.stringify(original));
+ const native=readModelCapabilities({context_length:200000,qoder_runtime:{default_context:200000,context_windows:[200000,400000,1000000]},thinking:{levels:['low','high','max']},default_reasoning_level:'high'});
+ const refresh=()=>connections.refreshCodexCompactionLimits(async()=>131072,async(_id,model,window)=>qoderSelectedCapabilities(model,native,window));
+ expect(await refresh()).toEqual({updated:1,failed:0});let current=JSON.parse(await readFile(path,'utf8'));
+ expect(current.models[0]).toEqual(official);expect(current.models[1]).toMatchObject({auto_compact_token_limit:180000,default_reasoning_level:'high'});
+ current.tokenflow_selected_context_windows={[qmodel]:1000000};await writeFile(path,JSON.stringify(current));
+ expect(await refresh()).toEqual({updated:1,failed:0});current=JSON.parse(await readFile(path,'utf8'));expect(current.models[1]).toMatchObject({context_window:1000000,auto_compact_token_limit:900000});
+ expect(await refresh()).toEqual({updated:0,failed:0});
+});

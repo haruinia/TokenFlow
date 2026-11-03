@@ -121,7 +121,7 @@ it('connects and restores a local Agent through admin APIs without exposing keys
    for(const target of ['codex','workbuddy','claude','deepseek']){
     const payload={target,...(target==='claude'?{client:'vscode'}:{})};
     expect((await service.app.inject({method:'POST',url:'/api/a2a/restart',headers,payload})).statusCode).toBe(200);
-    expect(restart).toHaveBeenLastCalledWith(target);
+    expect(restart).toHaveBeenLastCalledWith(...(target==='codex'?[target,{}]:[target]));
    }
    const claudeRestart=vi.spyOn(ClaudeTerminalLifecycle.prototype,'restart').mockResolvedValue({message:'Claude Code 已打开'});
    try{expect((await service.app.inject({method:'POST',url:'/api/a2a/restart',headers,payload:{target:'claude',client:'terminal'}})).statusCode).toBe(200);expect(claudeRestart).toHaveBeenCalledWith(undefined);}finally{claudeRestart.mockRestore();}

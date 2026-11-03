@@ -672,3 +672,22 @@ func TestOfficialCatalogWorkBuddyNativeReasoning(t *testing.T) {
 		t.Fatal("invented efforts from name or boolean")
 	}
 }
+
+func TestOfficialCatalogQoderRuntimeOptions(t *testing.T) {
+	raw := []byte(`{"data":{"chat":[{"id":"dfmodel","context_length":131072,"maxInputTokens":1000000,"contextConfig":{"200k":{"tokenCount":200000,"isDefault":true},"400k":{"tokenCount":400000},"1m":{"tokenCount":1000000},"bad":{"tokenCount":-1}},"thinkingConfig":{"enabled":{"isDefault":true,"efforts":{"low":{},"high":{"isDefault":true},"max":{},"injected":{}}},"disabled":{}}}]}}`)
+	models, ok := parseOfficialCatalog("qoder", raw, nil)
+	if !ok || len(models) != 1 {
+		t.Fatalf("catalog not parsed: %+v", models)
+	}
+	m := models[0]
+	if m.ContextLength != 200000 || m.InputTokenLimit != 1000000 || m.QoderRuntime.DefaultEffort != "high" || fmt.Sprint(m.QoderRuntime.ContextWindows) != "[200000 400000 1000000]" || strings.Join(m.Thinking.Levels, ",") != "none,low,high,max" {
+		t.Fatalf("wrong native options: %+v, %+v", m, m.QoderRuntime)
+	}
+	GlobalModelRegistry().RegisterClient(t.Name(), "qoder", models)
+	defer GlobalModelRegistry().UnregisterClient(t.Name())
+	copy := GlobalModelRegistry().GetModelsForClient(t.Name())
+	copy[0].QoderRuntime.ContextWindows[0] = 9
+	if GlobalModelRegistry().GetModelsForClient(t.Name())[0].QoderRuntime.ContextWindows[0] != 200000 {
+		t.Fatal("mutable model options escaped registry")
+	}
+}

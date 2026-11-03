@@ -431,6 +431,6 @@ export function AgentPanel({onRefreshAccounts,clientSwitch,target,update,login,l
   </section>}
   </div>
   <AgentUsageDetails target={target.id} local={local} usage={usage}/>
-  <AgentModelPicker open={picking} title={`${target.name} 使用的模型`} local={local} current={current} selected={models} onConfirm={choices=>{saveDraft(choices);void applySelected(choices);}} onClose={()=>setPicking(false)}/>
+  <AgentModelPicker contextSelection={target.id==='codex'} open={picking} title={`${target.name} 使用的模型`} local={local} current={current} selected={models} onConfirm={choices=>{saveDraft(choices);void applySelected(choices);}} onClose={()=>setPicking(false)}/>
  </section>;
 }

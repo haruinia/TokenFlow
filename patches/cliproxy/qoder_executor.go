@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qoder"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
@@ -172,7 +173,20 @@ func (e *QoderExecutor) executeNativeAttempt(ctx context.Context, auth *cliproxy
 		return nil, statusErr{code: http.StatusUnauthorized, msg: "qoder: account identity missing; sign in again"}
 	}
 
-	rawBody, errBuild := helps.BuildQoderRequestBody(req.Payload, modelKey, isReasoning)
+	var options *registry.QoderRuntimeOptions
+	if auth != nil {
+		for _, info := range registry.GetGlobalRegistry().GetModelsForClient(auth.ID) {
+			if info.ID == req.Model || strings.TrimPrefix(info.ID, "qoder/") == modelKey {
+				options = info.QoderRuntime
+				break
+			}
+		}
+	}
+	payload, runtimeErr := helps.ApplyQoderRuntimeOptions(req.Payload, opts.OriginalRequest, options)
+	if runtimeErr != nil {
+		return nil, statusErr{code: http.StatusBadRequest, msg: runtimeErr.Error()}
+	}
+	rawBody, errBuild := helps.BuildQoderRequestBody(payload, modelKey, isReasoning)
 	if errBuild != nil {
 		return nil, fmt.Errorf("qoder: failed to build request body: %w", errBuild)
 	}

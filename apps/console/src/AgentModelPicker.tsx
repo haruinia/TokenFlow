@@ -1,3 +1,4 @@
+import {ModelContextSelect} from './ModelContextSelect';
 import {useLayoutEffect,useRef,useState,useId,type ReactNode} from 'react';
 import type {LocalAgentSnapshot} from '../../../packages/core/src/cliproxy';
 import {modelGroups,type Choice} from './flow-model';
@@ -12,7 +13,7 @@ import {Icon} from './Icons';
 import {sourceSelectionState,sourceSelectionNotice} from './source-options';
 
 const same=(a:Choice,b:Choice)=>a.sourceId===b.sourceId&&a.model===b.model;
-export function AgentModelPicker({open,title,local,current,selected,onConfirm,onClose,embedded=false,busy=false,onSelectionChange,compact=false,applicationOptions}:{applicationOptions?:ReactNode;compact?:boolean;embedded?:boolean;busy?:boolean;onSelectionChange?:(choices:Choice[])=>void;open:boolean;title:string;local:LocalAgentSnapshot;current?:Choice;selected:Choice[];onConfirm:(choices:Choice[])=>void;onClose:()=>void}){
+export function AgentModelPicker({open,title,local,current,selected,onConfirm,onClose,embedded=false,busy=false,onSelectionChange,compact=false,applicationOptions,contextSelection=false}:{contextSelection?:boolean;applicationOptions?:ReactNode;compact?:boolean;embedded?:boolean;busy?:boolean;onSelectionChange?:(choices:Choice[])=>void;open:boolean;title:string;local:LocalAgentSnapshot;current?:Choice;selected:Choice[];onConfirm:(choices:Choice[])=>void;onClose:()=>void}){
  const catalogId=useId();
  const [query,setQuery]=useState(''),[draft,setDraft]=useState<Choice[]>([]),[source,setSource]=useState(''),[provider,setProvider]=useState(''),[quotaOpen,setQuotaOpen]=useState(false);
  const [order,,ranks,moveModel]=useModelOrder();const displayOrder=order==='manual'?'manual':'name';
@@ -90,7 +91,8 @@ export function AgentModelPicker({open,title,local,current,selected,onConfirm,on
        <button type="button" className={`tfPickModel ${on?'on':''}`} aria-label={model.label} aria-pressed={on} disabled={duplicate} title={duplicate?'已从其他账号选择此模型，请先移除原选择':model.id} onClick={()=>toggle(choice)}>
         <ProviderIcon provider={modelManufacturer(model.id,local)} size={28}/><span><strong>{model.label}</strong><small className="tfModelIdentity">{model.id}</small>{duplicate&&<small>已从其他账号选择</small>}</span><span className={`tfAgentPickCheck ${on?'on':''}`} aria-hidden="true">{on?'✓':<Icon name="plus" size={12}/>}</span>
        </button>
-      </div>;})}
+       {contextSelection&&on&&<ModelContextSelect modelLabel={model.label} capability={local.accounts.find(account=>account.id===active.id)?.modelCapabilities?.[model.id]} value={draft.find(item=>same(item,choice))?.contextWindow} disabled={busy} onChange={contextWindow=>updateDraft(items=>items.map(item=>same(item,choice)?{...item,contextWindow}:item))}/>}
+    </div>;})}
      </div></div>
     </>:<div className="tfAgentPickerEmpty"><Icon name={compact&&!q?'plus':'search'} size={24}/><strong>{compact&&!q&&groups.length?'选择来源查看模型':q?'没有匹配的模型':'还没有可用模型'}</strong>{(!compact||q||!groups.length)&&<p>{q?'试试其他模型名或账号':'在账号授权或 API 接口添加来源'}</p>}</div>}
    </section>}

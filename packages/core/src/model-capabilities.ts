@@ -6,6 +6,7 @@ export const reasoningEfforts=['none','minimal','low','medium','high','xhigh','m
 const effort=z.enum(reasoningEfforts);
 export const modelCapabilitiesSchema=z.object({
  contextWindow:count.optional(),maxInputTokens:count.optional(),maxOutputTokens:count.optional(),
+ contextWindows:z.array(count).optional(),
  autoCompactTokenLimit:count.nullable().optional(),effectiveContextPercent:z.number().int().min(1).max(100).optional(),
  inputModalities:z.array(z.enum(['text','image'])).optional(),
  reasoning:z.object({levels:z.array(effort).optional(),default:effort.optional(),minBudget:z.number().int().nonnegative().optional(),maxBudget:count.optional(),allowDisable:z.boolean().optional(),allowAuto:z.boolean().optional()}).optional(),
@@ -21,6 +22,9 @@ export function readModelCapabilities(value:unknown):ModelCapabilities{
  const input=number(raw,'max_input_tokens','maxInputTokens','inputTokenLimit','input_token_limit');
  const output=number(raw,'max_output_tokens','maxOutputTokens','outputTokenLimit','max_completion_tokens');
  if(context)result.contextWindow=context;if(input)result.maxInputTokens=input;if(output)result.maxOutputTokens=output;
+ const qoder=object(raw.qoder_runtime);
+ if(Array.isArray(qoder.context_windows))result.contextWindows=[...new Set(qoder.context_windows.filter((n):n is number=>count.safeParse(n).success))];
+ if(number(qoder,'default_context')&&result.contextWindows?.includes(qoder.default_context as number))result.contextWindow=qoder.default_context as number;
  if(raw.auto_compact_token_limit===null)result.autoCompactTokenLimit=null;
  else if(number(raw,'auto_compact_token_limit'))result.autoCompactTokenLimit=number(raw,'auto_compact_token_limit');
  const percent=raw.effective_context_window_percent;

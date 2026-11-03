@@ -27,6 +27,7 @@ import {maintenanceContext,type MaintenanceContext} from './maintenance-conversa
 import {modelProbeInput,probeModelHTTP,type ModelProbeInput} from './maintenance-http.js';
 import {CodexSwitchLifecycle} from './codex-switch-lifecycle.js';
 import {WorkBuddySDKProvider} from './codebuddy.js';
+import {qoderSelectedCapabilities,qoderRuntimeRequest} from './qoder-model-capabilities.js';
 import {CodexThreadMigration} from './codex-thread-migration.js';
 import {PiTerminalLifecycle} from './pi-terminal-lifecycle.js';
 import {ClaudeTerminalLifecycle} from './claude-terminal-lifecycle.js';
@@ -118,8 +119,8 @@ export async function createDesktopService(options:ServiceOptions) {
   const supplierImporter=new SupplierImporter(apiSources);
   const proxy=new CLIProxyManager(root,options.binary,options.localKey,proxyPort,{cursorLocalPath:options.cursorLocalPath,outboundProxyURL:options.outboundProxyURL,networkSnapshot:options.networkSnapshot,openExternal:options.openExternal,secrets:options.secrets,apiConfig:()=>apiSources.sidecarConfig(),apiModelIDs:()=>apiSources.sidecarModelIDs()});
   const selectedModelCapabilities=async(sourceId:string,model:string)=>apiSources.has(sourceId)?apiSources.modelCapabilities(sourceId,model):proxy.modelCapabilities(sourceId,model);
-  const selectedContextWindow=async(sourceId:string,model:string)=>{
-    const capability=await selectedModelCapabilities(sourceId,model);
+  const selectedContextWindow=async(sourceId:string,model:string,contextWindow?:number)=>{
+    const capability=qoderSelectedCapabilities(model,await selectedModelCapabilities(sourceId,model),contextWindow);
     return capability!==undefined?capability.contextWindow??capability.maxInputTokens:compactionModelWindow(model,proxy.snapshot().models,connections.paths.codex);
   };
   const localSnapshot=async():Promise<LocalAgentSnapshot>=>{
@@ -145,6 +146,7 @@ export async function createDesktopService(options:ServiceOptions) {
         ||accounts.some(account=>account.id===choice.sourceId&&account.models?.includes(choice.model))
         ||sources.some(source=>source.id===choice.sourceId&&source.models.some(model=>apiModelID(source.id,model)===choice.model));
       if(!known)throw Object.assign(new Error('所选模型尚未绑定此来源，请先从来源模型列表选择。'),{statusCode:409});
+      if(choice.contextWindow!==undefined)qoderSelectedCapabilities(choice.model,await selectedModelCapabilities(choice.sourceId,choice.model),choice.contextWindow);
     }
   };
   let probe:ProbeResult|undefined;
@@ -245,7 +247,7 @@ export async function createDesktopService(options:ServiceOptions) {
   const codexApi=new CodexApiAccess(root,connections.paths.codex,options.agentProcesses);
   const claudeApi=new ClaudeApiDirect(root,connections.paths.claude,options.agentProcesses);
   const refreshCodexCatalog=async()=>{
-    const catalogRefresh=await connections.refreshCodexCompactionLimits(model=>compactionModelWindow(model,proxy.snapshot().models,connections.paths.codex));
+    const catalogRefresh=await connections.refreshCodexCompactionLimits(model=>compactionModelWindow(model,proxy.snapshot().models,connections.paths.codex),async(sourceId,model,selectedWindow)=>qoderSelectedCapabilities(model,await selectedModelCapabilities(sourceId,model),selectedWindow));
     if(catalogRefresh.failed)app.log.warn({failed:catalogRefresh.failed},'Some generated Codex compaction metadata could not be refreshed; model routing remains available.');
   };
   const claudeDesktop=new ClaudeDesktopConnections(options.secrets,options.claudeDesktop);
@@ -484,7 +486,11 @@ export async function createDesktopService(options:ServiceOptions) {
     await validateConnectionSelections(input);
     if(input.target==='codex'&&await codexApi.status()){await codexApi.restore(await codexApi.revision());input={...input,revision:(await connections.status()).find(t=>t.id==='codex')!.revision};}
     if(input.target==='claude'&&await claudeApi.status()){await claudeApi.restore(input.revision);input={...input,revision:(await connections.status()).find(t=>t.id==='claude')!.revision};}
-    const selections=input.selections??[{sourceId:input.sourceId,model:input.model}];
+    const selections=await Promise.all((input.selections??[{sourceId:input.sourceId,model:input.model}]).map(async item=>{
+      const capability=qoderSelectedCapabilities(item.model,await selectedModelCapabilities(item.sourceId,item.model),item.contextWindow);
+      return item.model.startsWith('qoder/')&&capability?.contextWindow&&capability.contextWindows?.includes(capability.contextWindow)?{...item,contextWindow:capability.contextWindow}:item;
+    }));
+    if(input.selections||selections.some(item=>item.contextWindow!==undefined))input={...input,selections};
     if(!selections.some(item=>item.sourceId===input.sourceId&&item.model===input.model))throw Object.assign(new Error('默认模型必须在已选模型中'),{statusCode:400});
     if(input.fastModel&&!selections.some(item=>item.sourceId===input.fastSourceId&&item.model===input.fastModel))throw Object.assign(new Error('快速模型必须在已选模型中'),{statusCode:400});
     const existing=(await connections.status()).find(target=>target.id===input.target)?.connection;
@@ -498,8 +504,8 @@ export async function createDesktopService(options:ServiceOptions) {
     const created=await gatewayKeys.create(gatewayKeyInput.parse({name:`A2A · ${input.target}`,models:selections.map(item=>item.model),agents:[['workbuddy','workbuddy-ai','qoder','pi','deepseek'].includes(input.target)?'openai':input.target],...(input.selections?{modelSources:Object.fromEntries(selections.map(item=>[item.model,item.sourceId]))}:{sourceId:input.sourceId}),tokenLimit:input.tokenLimit}));
     try{
       const local=await localSnapshot(),catalog=local.models;
-      const modelContextWindows=input.target==='codex'?Object.fromEntries((await Promise.all(selections.map(async item=>[item.model,await selectedContextWindow(item.sourceId,item.model)] as const))).filter((entry):entry is readonly [string,number]=>entry[1]!==undefined)):undefined;
-      const modelCapabilities=input.target==='codex'?Object.fromEntries(await Promise.all(selections.map(async item=>[item.model,(await selectedModelCapabilities(item.sourceId,item.model))??{}]))):undefined;
+      const modelContextWindows=input.target==='codex'?Object.fromEntries((await Promise.all(selections.map(async item=>[item.model,await selectedContextWindow(item.sourceId,item.model,item.contextWindow)] as const))).filter((entry):entry is readonly [string,number]=>entry[1]!==undefined)):undefined;
+      const modelCapabilities=input.target==='codex'?Object.fromEntries(await Promise.all(selections.map(async item=>[item.model,qoderSelectedCapabilities(item.model,await selectedModelCapabilities(item.sourceId,item.model),item.contextWindow)??{}]))):undefined;
       const budgetReasoningModels=selections.filter(item=>!apiSources.has(item.sourceId)&&['claude','antigravity','gemini'].includes(local.accounts.find(a=>a.id===item.sourceId)?.provider??'')).map(item=>item.model);
       const record=await connections.apply({...input,codexDirectHybrid:hybrid,modelCapabilities,budgetReasoningModels,modelLabels:Object.fromEntries(selections.map(item=>[item.model,modelLabel(catalog,item.model,local.apiSources)])),modelSourceNames:Object.fromEntries(selections.map(item=>[item.model,local.apiSources?.find(source=>item.model.startsWith(`api-${source.id}/`))?.name??catalog.find(model=>model.id===item.model)?.provider??item.model.split('/')[0]])),modelContextWindows,officialCatalog,keyId:created.key.id,key:created.apiKey,origin});
       fixedRoutes.set(record.keyId,{target:record.target,sourceId:record.sourceId,model:record.model,fastModel:record.fastModel,selections:record.selections,modelAliases:record.modelAliases,codexCoexist:record.codexCoexist,codexDirectHybrid:record.codexDirectHybrid,officialModelSlugs:record.officialModelSlugs});
@@ -1423,6 +1429,7 @@ export async function createDesktopService(options:ServiceOptions) {
         return clock.watch(await inferenceFetch(`${upstreamURL.replace(/\/$/,'')}/${route}`,{method:req.method,headers:{'X-Token-Flow-Image-Generation':nativeCodexReceiver?'allow':'deny',...(selectedAuth?{'X-Token-Flow-Auth':selectedAuth}:{}),Authorization:`Bearer ${upstreamKey}`,'Content-Type':'application/json',...(typeof req.headers['anthropic-version']==='string'?{'anthropic-version':req.headers['anthropic-version']}:{}),...(typeof req.headers['anthropic-beta']==='string'?{'anthropic-beta':req.headers['anthropic-beta']}:{}),...(typeof req.headers['x-stainless-lang']==='string'?{'x-stainless-lang':req.headers['x-stainless-lang']}:{})},body:req.method==='POST'?JSON.stringify(body):undefined,redirect:'error',signal:clock.signal}));
       };
       const model=(req.body as {model?:string})?.model;
+      const qoderCapability=model?.startsWith('qoder/')?qoderSelectedCapabilities(model,await selectedModelCapabilities(client?.modelSources?.[model]??client?.sourceId??'',model),fixed?.selections?.find(item=>item.model===model)?.contextWindow):undefined;
       const bridgeContext=(path==='responses'||path==='responses/compact')&&!!(client||config.kind==='cliproxy'||apiSource)&&typeof model==='string'&&(fixed?.target==='codex'||/^(qoder|workbuddy|cursor)\//.test(model)||!!apiSource);
       const workbuddyModel=!!model?.startsWith('workbuddy/')&&!apiSource;
       const sdkSourceId=client?.modelSources?.[model!]??client?.sourceId??proxy.snapshot().accounts.find(a=>a.provider==='workbuddy'&&!a.disabled&&a.models?.includes(model!))?.id;
@@ -1431,7 +1438,8 @@ export async function createDesktopService(options:ServiceOptions) {
         return clock.watch(await workbuddySDK.response(sdkSourceId,route,body,clock.signal));
       }:send;
       const dispatch=async(route:string,body:unknown)=>{
-        const forward=nativeCodexReceiver&&route.startsWith('responses')?codexWebSearch(fixed?.codexCoexist?nativeAgentDiscovery(body as Record<string,any>):body as Record<string,any>):body;
+        const adapted=nativeCodexReceiver&&route.startsWith('responses')?codexWebSearch(fixed?.codexCoexist?nativeAgentDiscovery(body as Record<string,any>):body as Record<string,any>):body;
+        const forward=qoderRuntimeRequest(adapted,qoderCapability);
         if(!initialCompaction)return transport(route,forward);
         const clock=upstreamRequest();const cancel=()=>clock.abort();abort.signal.addEventListener('abort',cancel,{once:true});if(abort.signal.aborted)clock.abort();
         const detach=()=>abort.signal.removeEventListener('abort',cancel);
@@ -1439,7 +1447,7 @@ export async function createDesktopService(options:ServiceOptions) {
       };
       const sessionId=req.headers['session_id']??req.headers['session-id'];
       const importedHistory=fixed?.target==='codex'?await codexThreads.bootstrapHistory(typeof sessionId==='string'?sessionId:undefined):undefined;
-      const response=bridgeContext?await gatewayContext.response(path,req.body as {model:string},client?.id??'workspace',client?.modelSources?.[model]??client?.sourceId??apiSource?.id??upstreamURL,dispatch,fixed?.target==='codex'?{adaptResponse:codexGatewayResponse,rebuildsInstructions:true,prepareHybridHistory:fixed.codexDirectHybrid,bootstrapHistory:importedHistory?.revision,bootstrapRecordedAt:importedHistory?.recordedAt,contextWindowTokens:await selectedContextWindow(client?.modelSources?.[model]??client?.sourceId??apiSource?.id??'',model),scope:codexContextScope,threadId:typeof sessionId==='string'?sessionId:undefined,normalize:portableCodexItem,recover:async item=>codexContext.recover(item,await codexContextScopes())}:undefined,{signal:abort.signal,onContextObservation:report=>{if(contextObservations.length>=128)contextObservations.shift();contextObservations.push(report);},onCancel:()=>abort.abort(),onInitialCompaction:active=>{initialCompaction=active;},onCompaction:report=>{compaction=report;},onBillingUsage:usage=>{billingUsage=providerUsage(usage);},onError:error=>{contextFailureStatus=error.statusCode;callError={code:error.code,message:error.message};},onUsageIncomplete:()=>{contextUsageIncomplete=true;if(compaction)compaction={...compaction,unmetered:true};}}):await dispatch(path,req.body);
+      const response=bridgeContext?await gatewayContext.response(path,req.body as {model:string},client?.id??'workspace',client?.modelSources?.[model]??client?.sourceId??apiSource?.id??upstreamURL,dispatch,fixed?.target==='codex'?{adaptResponse:codexGatewayResponse,rebuildsInstructions:true,prepareHybridHistory:fixed.codexDirectHybrid,bootstrapHistory:importedHistory?.revision,bootstrapRecordedAt:importedHistory?.recordedAt,contextWindowTokens:qoderCapability?.contextWindow??await selectedContextWindow(client?.modelSources?.[model]??client?.sourceId??apiSource?.id??'',model),scope:codexContextScope,threadId:typeof sessionId==='string'?sessionId:undefined,normalize:portableCodexItem,recover:async item=>codexContext.recover(item,await codexContextScopes())}:undefined,{signal:abort.signal,onContextObservation:report=>{if(contextObservations.length>=128)contextObservations.shift();contextObservations.push(report);},onCancel:()=>abort.abort(),onInitialCompaction:active=>{initialCompaction=active;},onCompaction:report=>{compaction=report;},onBillingUsage:usage=>{billingUsage=providerUsage(usage);},onError:error=>{contextFailureStatus=error.statusCode;callError={code:error.code,message:error.message};},onUsageIncomplete:()=>{contextUsageIncomplete=true;if(compaction)compaction={...compaction,unmetered:true};}}):await dispatch(path,req.body);
       if(!response.ok){
         if(response.status===401){const failedSource=client?.modelSources?.[model!]??client?.sourceId;if(failedSource)refreshFailedSource(failedSource);}
         await settle(billingUsage??{inputTokens:null,outputTokens:null},contextUsageIncomplete||!!compaction?.unmetered||response.status>=500);

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/tidwall/gjson"
 )
 
@@ -107,5 +108,42 @@ func TestQoderSelectedModelReachesEveryNativeModelField(t *testing.T) {
 				t.Fatal("invalid model source or thinking controls")
 			}
 		})
+	}
+}
+
+func TestQoderRuntimeChoiceSurvivesNativeBody(t *testing.T) {
+	for _, effort := range []string{"low", "high", "max", "none"} {
+		for _, window := range []int{200000, 400000, 1000000} {
+			payload := []byte(fmt.Sprintf(`{"messages":[{"role":"user","content":"OK"}],"reasoning_effort":%q,"context_length":%d}`, effort, window))
+			body, err := BuildQoderRequestBody(payload, "dfmodel", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gjson.GetBytes(body, "parameters.context_length").Int() != int64(window) || gjson.GetBytes(body, "parameters.reasoning_effort").String() != effort {
+				t.Fatal("runtime choices lost")
+			}
+			for _, path := range []string{"parameters.enable_thinking", "model_config.is_reasoning", "chat_context.extra.modelConfig.is_reasoning"} {
+				if gjson.GetBytes(body, path).Bool() != (effort != "none") {
+					t.Fatalf("inconsistent thinking at %s", path)
+				}
+			}
+		}
+	}
+}
+
+func TestQoderRuntimeAccountValidationAndDefaults(t *testing.T) {
+	options := &registry.QoderRuntimeOptions{ThinkingDeclared: true, ContextWindows: []int{200000, 400000, 1000000}, DefaultContext: 200000, Levels: []string{"none", "low", "high", "max"}, DefaultEffort: "high"}
+	payload, err := ApplyQoderRuntimeOptions([]byte(`{"messages":[]}`), nil, options)
+	if err != nil || gjson.GetBytes(payload, "context_length").Int() != 200000 || gjson.GetBytes(payload, "reasoning_effort").String() != "high" {
+		t.Fatal("native defaults lost")
+	}
+	payload, err = ApplyQoderRuntimeOptions([]byte(`{"reasoning_effort":"low"}`), []byte(`{"context_length":1000000,"untrusted":"ignore"}`), options)
+	if err != nil || gjson.GetBytes(payload, "context_length").Int() != 1000000 || gjson.GetBytes(payload, "untrusted").Exists() {
+		t.Fatal("original envelope merge is not scoped")
+	}
+	for _, raw := range []string{`{"context_length":999999}`, `{"context_length":1.5}`, `{"context_length":-1}`, `{"context_length":"1000000"}`, `{"reasoning_effort":"medium"}`} {
+		if _, err = ApplyQoderRuntimeOptions([]byte(raw), nil, options); err == nil {
+			t.Fatalf("unsupported selection accepted: %s", raw)
+		}
 	}
 }
