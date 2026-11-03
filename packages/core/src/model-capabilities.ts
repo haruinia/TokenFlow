@@ -2,6 +2,7 @@ import {z} from 'zod';
 import {findModelPreset} from './model-presets.js';
 
 const count=z.number().int().positive().safe();
+export const DEFAULT_GATEWAY_CONTEXT_WINDOW=200000;
 export const reasoningEfforts=['none','minimal','low','medium','high','xhigh','max'] as const;
 const effort=z.enum(reasoningEfforts);
 export const modelCapabilitiesSchema=z.object({
@@ -18,7 +19,7 @@ const number=(raw:Record<string,unknown>,...keys:string[])=>keys.map(key=>raw[ke
 /** Whitelist metadata only. A catalog is data, not permission or executable policy. */
 export function readModelCapabilities(value:unknown):ModelCapabilities{
  const raw=object(value),thinking=object(raw.thinking),result:ModelCapabilities={};
- const context=number(raw,'context_window','context_length','contextWindow');
+ const context=number(raw,'context_window','context_length','contextWindow')??number(object(raw.contextWindow),'defaultLength');
  const input=number(raw,'max_input_tokens','maxInputTokens','inputTokenLimit','input_token_limit');
  const output=number(raw,'max_output_tokens','maxOutputTokens','outputTokenLimit','max_completion_tokens');
  if(context)result.contextWindow=context;if(input)result.maxInputTokens=input;if(output)result.maxOutputTokens=output;
@@ -60,5 +61,9 @@ export function modelCapabilityPreset(baseURL:string,protocol:string,model:strin
 }
 
 export function combineModelCapabilities(preset:ModelCapabilities|undefined,live:ModelCapabilities|undefined):ModelCapabilities{
- return {...preset,...live};
+ const result={...preset,...live};
+ // A live input limit supersedes a preset window, but never its own explicit
+ // default/selected window. Input capacity is used conservatively, not added to output.
+ if(live?.maxInputTokens&&live.contextWindow===undefined)result.contextWindow=live.maxInputTokens;
+ return result;
 }

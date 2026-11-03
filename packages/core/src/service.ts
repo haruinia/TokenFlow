@@ -1,3 +1,4 @@
+import {DEFAULT_GATEWAY_CONTEXT_WINDOW} from './model-capabilities.js';
 import {codexInactivePath,codexInactiveMessage} from './codex-inactive-provider.js';
 import {accountQuotaSnapshot} from './account-quota-snapshot.js';
 import {CodexSwitchProgress} from './codex-switch-progress.js';
@@ -121,7 +122,7 @@ export async function createDesktopService(options:ServiceOptions) {
   const selectedModelCapabilities=async(sourceId:string,model:string)=>apiSources.has(sourceId)?apiSources.modelCapabilities(sourceId,model):proxy.modelCapabilities(sourceId,model);
   const selectedContextWindow=async(sourceId:string,model:string,contextWindow?:number)=>{
     const capability=qoderSelectedCapabilities(model,await selectedModelCapabilities(sourceId,model),contextWindow);
-    return capability!==undefined?capability.contextWindow??capability.maxInputTokens:compactionModelWindow(model,proxy.snapshot().models,connections.paths.codex);
+    return capability!==undefined?(capability.contextWindow??capability.maxInputTokens??DEFAULT_GATEWAY_CONTEXT_WINDOW):(await compactionModelWindow(model,proxy.snapshot().models,connections.paths.codex)??DEFAULT_GATEWAY_CONTEXT_WINDOW);
   };
   const localSnapshot=async():Promise<LocalAgentSnapshot>=>{
     const sources=await apiSources.list();const local=proxy.snapshot();
@@ -247,7 +248,7 @@ export async function createDesktopService(options:ServiceOptions) {
   const codexApi=new CodexApiAccess(root,connections.paths.codex,options.agentProcesses);
   const claudeApi=new ClaudeApiDirect(root,connections.paths.claude,options.agentProcesses);
   const refreshCodexCatalog=async()=>{
-    const catalogRefresh=await connections.refreshCodexCompactionLimits(model=>compactionModelWindow(model,proxy.snapshot().models,connections.paths.codex),async(sourceId,model,selectedWindow)=>qoderSelectedCapabilities(model,await selectedModelCapabilities(sourceId,model),selectedWindow));
+    const catalogRefresh=await connections.refreshCodexCompactionLimits(model=>compactionModelWindow(model,proxy.snapshot().models,connections.paths.codex),async(sourceId,model,selectedWindow)=>{const capability=await selectedModelCapabilities(sourceId,model);return capability===undefined?undefined:qoderSelectedCapabilities(model,capability,selectedWindow);});
     if(catalogRefresh.failed)app.log.warn({failed:catalogRefresh.failed},'Some generated Codex compaction metadata could not be refreshed; model routing remains available.');
   };
   const claudeDesktop=new ClaudeDesktopConnections(options.secrets,options.claudeDesktop);
@@ -1072,7 +1073,7 @@ export async function createDesktopService(options:ServiceOptions) {
     return {targets:[...targets,...(desktopDirect?.sourceId===id?[{id:'claude-desktop',name:'Claude Desktop API 直连',model:desktopDirect.model}]:[]),...(desktop?.selections.some(item=>item.sourceId===id)?[{id:'claude-desktop',name:'Claude Desktop',model:desktop.selections[0].model}]:[])],keys,repair:maintenance.snapshot().selection?.sourceId===id,reviewer:approval.snapshot().policy.reviewer?.sourceId===id};
   };
   const sourceID=(req:{params:unknown})=>z.string().regex(/^[a-f0-9]{24}$/).parse((req.params as {id:string}).id);
-  const synchronizeSources=async()=>{try{await proxy.synchronizeAPIModels((await apiSources.list()).filter(s=>s.enabled).flatMap(s=>s.models.map(m=>apiModelID(s.id,m))));return undefined;}catch(error){return error instanceof RunnerCoreError&&error.code==='api_routes_pending'?'来源已保存，模型路由仍在同步，系统会自动重试。可查看卡片上的路由状态。':'来源已保存，但模型路由配置更新失败，请检查资料目录权限和网关状态。';}};
+  const synchronizeSources=async()=>{try{await proxy.synchronizeAPIModels((await apiSources.list()).filter(s=>s.enabled).flatMap(s=>s.models.map(m=>apiModelID(s.id,m))));await refreshCodexCatalog();return undefined;}catch(error){return error instanceof RunnerCoreError&&error.code==='api_routes_pending'?'来源已保存，模型路由仍在同步，系统会自动重试。可查看卡片上的路由状态。':'来源已保存，但模型路由配置更新失败，请检查资料目录权限和网关状态。';}};
   const recordSourceProbe=(sourceId:string,usage:ProtocolProbeUsage)=>activity.record({...usage,keyId:'api-probe',agent:'API 连通性测试',target:'internal',sourceId,model:sourceId?apiModelID(sourceId,usage.model):usage.model});
   app.post('/api/sources/:id/reveal-key',async(req,reply)=>{
     const id=z.string().regex(/^[a-f0-9]{24}$/).parse((req.params as {id:string}).id);
@@ -1171,7 +1172,7 @@ export async function createDesktopService(options:ServiceOptions) {
   });
   app.post('/api/sources/:id/models',async(req,reply)=>{
     const controller=new AbortController();const cancel=()=>{if(!reply.raw.writableEnded)controller.abort();};reply.raw.once('close',cancel);
-    try{return {models:await apiSources.models(sourceID(req),controller.signal)};}
+    try{const models=await apiSources.models(sourceID(req),controller.signal);await refreshCodexCatalog();return {models};}
     finally{reply.raw.off('close',cancel);if(mutationOwner===req.id)mutationOwner=undefined;}
   });
   app.post('/api/sources/:id/check',async(req,reply)=>{
@@ -1218,9 +1219,9 @@ export async function createDesktopService(options:ServiceOptions) {
 
     const provider=z.enum([...loginProviderIds,'cursor']).parse((req.params as {provider:string}).provider);
     const {force}=z.object({force:z.boolean().default(true)}).strict().parse(req.body??{});
-    return localOperation(()=>proxy.refreshProvider(provider,force));
+    return localOperation(async()=>{const result=await proxy.refreshProvider(provider,force);await refreshCodexCatalog();return result;});
   });
-  app.post('/api/local-agent/:action',async req=>{const action=z.enum(['start','stop','restart','refresh','quota','cursor',...loginProviderIds]).parse((req.params as {action:string}).action);if(action==='cursor'||isLoginProvider(action))return localOperation(()=>proxy.login(action));if(action==='refresh')return localOperation(async()=>{await proxy.cursor.refresh();return proxy.refreshAccounts();});if(action==='quota')return localOperation(async()=>{await proxy.refreshAccounts();return proxy.refreshQuota();});if(action==='restart')return localOperation(async()=>{await proxy.stop();return proxy.start();});return localOperation(()=>proxy[action]());});
+  app.post('/api/local-agent/:action',async req=>{const action=z.enum(['start','stop','restart','refresh','quota','cursor',...loginProviderIds]).parse((req.params as {action:string}).action);if(action==='cursor'||isLoginProvider(action))return localOperation(()=>proxy.login(action));if(action==='refresh')return localOperation(async()=>{await proxy.cursor.refresh();const result=await proxy.refreshAccounts();await refreshCodexCatalog();return result;});if(action==='quota')return localOperation(async()=>{await proxy.refreshAccounts();return proxy.refreshQuota();});if(action==='restart')return localOperation(async()=>{await proxy.stop();return proxy.start();});return localOperation(()=>proxy[action]());});
   app.post('/api/local-agent/login/:action',async req=>{
 
     const action=z.enum(['open','cancel','callback']).parse((req.params as {action:string}).action);
@@ -1232,7 +1233,7 @@ export async function createDesktopService(options:ServiceOptions) {
   });
   app.post('/api/local-agent/accounts/:id/refresh',async req=>{
     const id=z.string().regex(/^[a-f0-9]{24}$/).parse((req.params as {id:string}).id);
-    return localOperation(()=>proxy.refreshAccount(id));
+    return localOperation(async()=>{const result=await proxy.refreshAccount(id);await refreshCodexCatalog();return result;});
   });
   app.post('/api/local-agent/accounts/:id',async req=>{
     const {enabled}=z.object({enabled:z.boolean()}).strict().parse(req.body);

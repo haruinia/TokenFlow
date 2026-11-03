@@ -1,10 +1,10 @@
 import { apiModelDisplayName } from '../../../apps/shared/api-endpoint.js';
-import {codexReasoningMetadata,type ModelCapabilities} from './model-capabilities.js';
-/** Match the installed Codex client's unknown-model fallback. This is client
+import {DEFAULT_GATEWAY_CONTEXT_WINDOW,codexReasoningMetadata,type ModelCapabilities} from './model-capabilities.js';
+/** Product fallback for unknown gateway models. This is client
  * scheduling metadata, not a gateway request limit or a claim about the source. */
-export const CODEX_DEFAULT_CONTEXT_WINDOW=272000;
+export const CODEX_DEFAULT_CONTEXT_WINDOW=DEFAULT_GATEWAY_CONTEXT_WINDOW;
 export const CODEX_TOOL_OUTPUT_LIMIT=10000;
-export const CODEX_DEFAULT_COMPACT_TOKEN_LIMIT=244800;
+export const CODEX_DEFAULT_COMPACT_TOKEN_LIMIT=180000;
 const validWindow=(value?:number)=>typeof value==='number'&&Number.isSafeInteger(value)&&value>0?value:undefined;
 export function codexCompactionLimit(contextWindow?:number){
  return Math.max(1,Math.floor((validWindow(contextWindow)??CODEX_DEFAULT_CONTEXT_WINDOW)*0.9));
@@ -15,7 +15,7 @@ export function codexContextMetadata(contextWindow?:number):{context_window?:num
  // Across providers that model may not be authorized by the current key. For
  // these windows publish the same native 90% trigger without old-model pre-compaction.
  // Other models expose their window and let Codex derive the trigger itself.
- return capacity<CODEX_DEFAULT_CONTEXT_WINDOW?{auto_compact_token_limit:codexCompactionLimit(capacity)}:{context_window:capacity};
+ return capacity<272000?{auto_compact_token_limit:codexCompactionLimit(capacity)}:{context_window:capacity};
 }
 /** Codex reads this catalog at startup instead of its bundled OpenAI picker entries.
  * Keep it scoped to the models authorized by this connection's client key. */

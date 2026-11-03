@@ -489,7 +489,7 @@ it('does not reuse a successful variant after the account grant changes',async()
 
 it('discovers account-scoped SDK efforts and dispatches each advertised choice without changing speed or context',async()=>{
  const provider=await grokProvider();const id=provider.id!,model='cursor/grok-4.7';
- expect(provider.modelCapabilities(id,model)).toEqual({reasoning:{levels:['high','low'],default:'high'}});
+ expect(provider.modelCapabilities(id,model)).toEqual({contextWindow:500000,reasoning:{levels:['high','low'],default:'high'}});
  expect(provider.modelCapabilities('other-account',model)).toBeUndefined();
  for(const effort of ['high','low']){
   const response=await provider.response('responses',{model,input:'OK',reasoning:{effort}},new AbortController().signal,id);

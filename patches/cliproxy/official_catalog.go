@@ -609,6 +609,9 @@ func parseOfficialCatalog(provider string, raw []byte, fallback []*ModelInfo) ([
 			copyModel := *existing
 			m = &copyModel
 		}
+		// Capacity must come from this account's current catalog. Static registry
+		// defaults (often 128K) are not evidence of the currently selected window.
+		m.ContextLength, m.InputTokenLimit = 0, 0
 		if name := stringField(item, "display_name", "displayName", "displayNameZh", "name", "title"); name != "" {
 			m.DisplayName = name
 		}
@@ -627,8 +630,16 @@ func parseOfficialCatalog(provider string, raw []byte, fallback []*ModelInfo) ([
 		if n := numberField(item, "context_length", "context_window", "contextWindow"); n > 0 {
 			m.ContextLength = n
 		}
+		if window, ok := item["contextWindow"].(map[string]any); ok {
+			if n := numberField(window, "defaultLength"); n > 0 {
+				m.ContextLength = n
+			}
+		}
 		if n := numberField(item, "maxInputTokens", "max_input_tokens", "inputTokenLimit"); n > 0 {
 			m.InputTokenLimit = n
+			if m.ContextLength == 0 {
+				m.ContextLength = n
+			}
 		}
 		if n := numberField(item, "maxOutputTokens", "max_output_tokens", "outputTokenLimit", "max_completion_tokens"); n > 0 {
 			m.MaxCompletionTokens = n

@@ -1,4 +1,4 @@
-import {codexReasoningMetadata,type ModelCapabilities} from './model-capabilities.js';
+import {DEFAULT_GATEWAY_CONTEXT_WINDOW,codexReasoningMetadata,type ModelCapabilities} from './model-capabilities.js';
 import {macAppIdentity,macQoderIdeProcesses} from './agent-lifecycle.js';
 import {codexDefaultModel} from './codex-runtime.js';
 import {codexRoutingMode} from './codex-routing-mode.js';
@@ -455,7 +455,11 @@ export class AgentConnections {
   private catalogPath(model:string){return join(this.dir(),`codex-models-${hash(model)}.json`);}
   /** Update only app-generated model metadata. Routing, credentials, history and
    * the user's config bytes stay intact; Codex reads the catalog on startup. */
-  async refreshCodexCompactionLimits(window:(model:string)=>Promise<number|undefined>,qoderCapability?:(sourceId:string,model:string,selectedWindow?:number)=>Promise<ModelCapabilities|undefined>){
+  refreshCodexCompactionLimits(window:(model:string)=>Promise<number|undefined>,capabilityFor?:(sourceId:string,model:string,selectedWindow?:number)=>Promise<ModelCapabilities|undefined>){
+    const task=this.tail.then(()=>this.refreshCatalogMetadata(window,capabilityFor));
+    this.tail=task.catch(()=>{});return task;
+  }
+  private async refreshCatalogMetadata(window:(model:string)=>Promise<number|undefined>,capabilityFor?:(sourceId:string,model:string,selectedWindow?:number)=>Promise<ModelCapabilities|undefined>){
     const {readdir}=await import('node:fs/promises');
     const files=await readdir(this.dir()).catch(error=>{if(error.code==='ENOENT')return [];throw error;});
     const capacities=new Map<string,number|undefined>();let updated=0,failed=0;
@@ -471,21 +475,22 @@ export class AgentConnections {
         const windows={...object(catalog.tokenflow_context_windows??{})};let changed=legacy;
         for(const model of catalog.models){
           if(gatewayModels&&!gatewayModels.includes(model.slug))continue;
-          let resolvedQoder:ModelCapabilities|undefined;
-          if(model.slug.startsWith('qoder/')&&catalog.tokenflow_model_sources?.[model.slug]&&qoderCapability){
-            resolvedQoder=await qoderCapability(catalog.tokenflow_model_sources[model.slug],model.slug,catalog.tokenflow_selected_context_windows?.[model.slug]);
-            if(resolvedQoder?.contextWindows?.length&&resolvedQoder.contextWindow&&resolvedQoder.contextWindows.includes(resolvedQoder.contextWindow)){
+          let resolvedCapability:ModelCapabilities|undefined;
+          const sourceId=catalog.tokenflow_model_sources?.[model.slug];
+          if(sourceId&&capabilityFor){
+            resolvedCapability=await capabilityFor(sourceId,model.slug,catalog.tokenflow_selected_context_windows?.[model.slug]);
+            // An unavailable source must not erase previously verified capacities.
+            if(resolvedCapability===undefined)continue;
+            if(resolvedCapability!==undefined){
               catalog.tokenflow_capabilities??={};
-              if(!isDeepStrictEqual(catalog.tokenflow_capabilities[model.slug],resolvedQoder)){catalog.tokenflow_capabilities[model.slug]=resolvedQoder;changed=true;}
-              for(const [field,value] of Object.entries(codexReasoningMetadata(resolvedQoder,false)))if(!isDeepStrictEqual(model[field],value)){model[field]=value;changed=true;}
-              if(windows[model.slug]!==resolvedQoder.contextWindow){windows[model.slug]=resolvedQoder.contextWindow;changed=true;}
-            }else resolvedQoder=undefined;
+              if(!isDeepStrictEqual(catalog.tokenflow_capabilities[model.slug],resolvedCapability)){catalog.tokenflow_capabilities[model.slug]=resolvedCapability;changed=true;}
+              if(model.slug.startsWith('qoder/'))for(const [field,value] of Object.entries(codexReasoningMetadata(resolvedCapability,false)))if(!isDeepStrictEqual(model[field],value)){model[field]=value;changed=true;}
+            }
           }
-          if(!resolvedQoder&&catalog.tokenflow_model_sources?.[model.slug]&&Object.keys(catalog.tokenflow_capabilities?.[model.slug]??{}).length)continue;
           // Migrate only our former unlimited sentinel; preserve user/source budgets.
           if(model.truncation_policy?.mode==='bytes'&&model.truncation_policy.limit===Number.MAX_SAFE_INTEGER){model.truncation_policy={mode:'bytes',limit:CODEX_TOOL_OUTPUT_LIMIT};changed=true;}
-          if(!capacities.has(model.slug))capacities.set(model.slug,await window(model.slug));
-          const discovered=resolvedQoder?.contextWindow??capacities.get(model.slug);
+          if(resolvedCapability===undefined&&!capacities.has(model.slug))capacities.set(model.slug,await window(model.slug));
+          const discovered=resolvedCapability!==undefined?(resolvedCapability.contextWindow??resolvedCapability.maxInputTokens??DEFAULT_GATEWAY_CONTEXT_WINDOW):capacities.get(model.slug);
           if(positive(discovered)&&windows[model.slug]!==discovered){windows[model.slug]=discovered;changed=true;}
           const known=windows[model.slug];
           // Preserve existing metadata when discovery is unavailable. Older
@@ -496,7 +501,7 @@ export class AgentConnections {
           const limit=positive(model.auto_compact_token_limit)?model.auto_compact_token_limit:undefined;
           const capacity=positive(known)?known:declared;
           const next:ReturnType<typeof codexContextMetadata>=capacity!==undefined?codexContextMetadata(capacity):limit!==undefined&&!(legacy&&[65536,128000,217600].includes(limit))?{auto_compact_token_limit:limit}:codexContextMetadata();
-          if(resolvedQoder?.autoCompactTokenLimit)next.auto_compact_token_limit=resolvedQoder.autoCompactTokenLimit;
+          if(resolvedCapability?.autoCompactTokenLimit!=null)next.auto_compact_token_limit=resolvedCapability.autoCompactTokenLimit;
           for(const field of ['context_window','max_context_window','auto_compact_token_limit'] as const){
             const value=field==='max_context_window'?undefined:next[field];
             if(value===undefined){if(field in model){delete model[field];changed=true;}}

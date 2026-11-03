@@ -691,3 +691,28 @@ func TestOfficialCatalogQoderRuntimeOptions(t *testing.T) {
 		t.Fatal("mutable model options escaped registry")
 	}
 }
+
+func TestOfficialCatalogLiveCapacityReplacesStaticDefaults(t *testing.T) {
+	for _, provider := range []string{"qoder", "workbuddy", "gemini", "antigravity"} {
+		t.Run(provider, func(t *testing.T) {
+			raw := []byte(`{"models":[{"id":"large","maxInputTokens":1000000},{"id":"selectable","contextWindow":{"defaultLength":200000},"maxInputTokens":1000000},{"id":"unknown"},{"id":"small","context_window":64000}]}`)
+			if provider == "antigravity" {
+				raw = []byte(`{"models":{"large":{"displayName":"Large","maxInputTokens":1000000},"selectable":{"displayName":"Selectable","contextWindow":{"defaultLength":200000},"maxInputTokens":1000000},"unknown":{"displayName":"Unknown"},"small":{"displayName":"Small","context_window":64000}},"agentModelSorts":[{"groups":[{"modelIds":["large","selectable","unknown","small"]}]}]}`)
+			}
+			fallback := []*ModelInfo{{ID: "large", ContextLength: 131072}, {ID: "selectable", ContextLength: 131072}, {ID: "unknown", ContextLength: 131072, InputTokenLimit: 131072}, {ID: "small", ContextLength: 131072}}
+			models, ok := parseOfficialCatalog(provider, raw, fallback)
+			if !ok || len(models) != 4 {
+				t.Fatalf("invalid catalog: %v %+v", ok, models)
+			}
+			expected := map[string]int{"large": 1000000, "selectable": 200000, "unknown": 0, "small": 64000}
+			for _, m := range models {
+				if m.ContextLength != expected[m.ID] {
+					t.Fatalf("%s: context %d, expected %d", m.ID, m.ContextLength, expected[m.ID])
+				}
+				if m.ID == "unknown" && m.InputTokenLimit != 0 {
+					t.Fatal("stale input capacity retained")
+				}
+			}
+		})
+	}
+}

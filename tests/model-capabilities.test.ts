@@ -106,3 +106,10 @@ it('honors no-store and requires revalidation when official metadata disallows s
  await loadOfficialCodexCatalogForAuth(config,auth,async()=>Response.json(official,{headers:{'cache-control':'no-cache, must-revalidate'}}));
  await expect(loadOfficialCodexCatalogForAuth(config,auth,async()=>{throw Error('network down');})).rejects.toThrow('无法连接');
 });
+
+it('refreshes stale preset capacities from live input limits while preserving explicit source defaults',async()=>{
+ const {combineModelCapabilities}=await import('../packages/core/src/model-capabilities.js');
+ expect(combineModelCapabilities({contextWindow:128000},{maxInputTokens:1000000})).toEqual({contextWindow:1000000,maxInputTokens:1000000});
+ expect(combineModelCapabilities({contextWindow:128000},{contextWindow:200000,maxInputTokens:1000000}).contextWindow).toBe(200000);
+ expect(readModelCapabilities({contextWindow:{defaultLength:200000,maxLength:1000000}})).toEqual({contextWindow:200000});
+});

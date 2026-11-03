@@ -1,16 +1,19 @@
 import type {ModelCapabilities} from './model-capabilities.js';
 
 /** Metadata fallback, not a model allowlist or proof of live API compatibility.
- * Source: farion1231/cc-switch b76426741ef93069e2f374ac01ca7ef5760e1d0e,
- * src/config/codexProviderPresets.ts (reviewed 2026-10-29).
+ * Source: farion1231/cc-switch 7afceec14b977ecc2f4373e8ffb40e7223b435ac,
+ * src/config/codexProviderPresets.ts (reviewed 2026-11-02).
  * DeepSeek also checked against its official Codex integration document. */
 export type ModelPreset={baseURLs:string[];protocol:'responses'|'chat';model:string;capabilities:ModelCapabilities;thinkingParameter?:'enable_thinking'};
 export const modelPresets:readonly ModelPreset[]=[
  ...['deepseek-flash','deepseek-v4-pro'].map(model=>({baseURLs:['https://api.deepseek.com','https://api.deepseek.com/v1'],protocol:'responses' as const,model,
   capabilities:{contextWindow:1048576,autoCompactTokenLimit:null,effectiveContextPercent:95,inputModalities:model==='deepseek-flash'?['text','image'] as Array<'text'|'image'>:['text'] as Array<'text'>,reasoning:{levels:['low','high','max'] as Array<'low'|'high'|'max'>,default:'high' as const}}})),
  {baseURLs:['https://api.moonshot.cn/v1'],protocol:'responses',model:'kimi-k3',capabilities:{contextWindow:1048576,reasoning:{levels:['low','high','max']}}},
+ {baseURLs:['https://open.bigmodel.cn/api/v1'],protocol:'responses',model:'glm-5.3-flash',capabilities:{contextWindow:1048576,inputModalities:['text','image'],reasoning:{levels:['low','high','max'],default:'max'}}},
  {baseURLs:['https://open.bigmodel.cn/api/v1'],protocol:'responses',model:'glm-5.3',capabilities:{contextWindow:1048576,inputModalities:['text'],reasoning:{levels:['low','high','max'],default:'max'}}},
  {baseURLs:['https://api.minimax.cn/v1'],protocol:'responses',model:'MiniMax-M3.1-Flash',capabilities:{contextWindow:1000000,inputModalities:['text','image'],reasoning:{levels:['low','medium','high','xhigh','max']}}},
+ {baseURLs:['https://api.ppio.com/openai/v1'],protocol:'chat',model:'deepseek/deepseek-v4.1-flash',capabilities:{contextWindow:1048576,inputModalities:['text']}},
+ {baseURLs:['https://api.siliconflow.com/v1'],protocol:'chat',model:'MiniMaxAI/MiniMax-M3',capabilities:{contextWindow:1048576,reasoning:{levels:['none','high']}}},
  {baseURLs:['https://api.siliconflow.cn/v1'],protocol:'chat',model:'deepseek-ai/DeepSeek-V4-Flash',capabilities:{contextWindow:1048576,inputModalities:['text'],reasoning:{levels:['high','max'],default:'high'}},thinkingParameter:'enable_thinking'},
 ];
 export function findModelPreset(baseURL:string,protocol:string,model:string){

@@ -1,5 +1,6 @@
+import {accountModelCapabilities} from './account-context-presets.js';
 import {ModelMetadataCache} from './model-metadata-cache.js';
-import {readModelCapabilities,type ModelCapabilities} from './model-capabilities.js';
+import {type ModelCapabilities} from './model-capabilities.js';
 import {qoderAuthorization,type QoderAuthorization} from './qoder-authorizations.js';
 import {qoderProfile,qoderCredentialSchema,QoderIdentityError} from './qoder-credentials.js';
 import {retryOfficialRead,OfficialReadTransportError,refreshNetworkHint} from './official-refresh.js';
@@ -48,7 +49,7 @@ const accountSchema = z.object({
 // Optional capacity metadata must not invalidate an otherwise callable catalog.
 const modelCapacity = z.number().int().positive().safe().optional().catch(undefined);
 const modelSchema = z.object({id: z.string(), display_name: z.string().optional(), type: z.string().optional(), owned_by: z.string().optional(), supportedInputModalities:z.array(z.string()).optional(),context_length:modelCapacity,context_window:modelCapacity,inputTokenLimit:modelCapacity,
- max_output_tokens:modelCapacity,thinking:z.unknown().optional(),supported_reasoning_levels:z.unknown().optional(),default_reasoning_level:z.unknown().optional(),qoder_runtime:z.unknown().optional()});
+ max_output_tokens:modelCapacity,thinking:z.unknown().optional(),supported_reasoning_levels:z.unknown().optional(),default_reasoning_level:z.unknown().optional(),qoder_runtime:z.unknown().optional(),context_metadata_version:z.number().optional()});
 const qoderProfilesSchema=z.record(z.object({email:z.string().email().max(200),checkedAt:z.number().finite()}));
 const apiCallSchema = z.object({status_code: z.number().int(), header: z.record(z.array(z.string())).default({}), body: z.string().default('')});
 export function revokedCredential(file:{status?:string;status_message?:string}){return file.status==='error'&&/\b(?:invalid_grant|token_revoked|refresh_token_revoked|refresh_token_reused|refresh_token_expired)\b/i.test(file.status_message??'');}
@@ -554,7 +555,7 @@ export class CLIProxyManager {
             const id=model.id.startsWith(provider+'/')?model.id:provider+'/'+model.id;
             const scope=['account',account.id,provider,metadataRevision??'unversioned',id];
             const previous=metadataRevision?await this.metadata.capabilities(scope):undefined;
-            const value={...previous,...readModelCapabilities(model)};
+            const value=accountModelCapabilities(provider,model,previous);
             capabilities.set(id,value);
             if(metadataRevision&&res.catalog?.status==='live')await this.metadata.remember(scope,value).catch(()=>{});
           }

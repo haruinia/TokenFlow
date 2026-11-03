@@ -15,3 +15,10 @@ it('does not derive effort choices from model names, variants alone or unrelated
   expect(cursorModelCapabilities({id:'claude-thinking',displayName:'Thinking',...extra} as SDKModel)).toEqual({});
  }
 });
+
+it('uses only the declared default context, not the largest available SDK variant',()=>{
+ const model={id:'fixture',displayName:'Fixture',parameters:[{id:'context',values:[{value:'200k'},{value:'1m'}]}],variants:[{isDefault:true,displayName:'Default',params:[{id:'context',value:'200k'}]}]} as SDKModel;
+ expect(cursorModelCapabilities(model)).toEqual({contextWindow:200000});
+ model.variants![0]!.params[0]!.value='1m';expect(cursorModelCapabilities(model)).toEqual({contextWindow:1000000});
+ model.variants![0]!.params[0]!.value='2m';expect(cursorModelCapabilities(model)).toEqual({});
+});
