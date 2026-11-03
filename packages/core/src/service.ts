@@ -50,6 +50,7 @@ import {LocalUsageIndex} from './local-usage-index.js';
 import {CursorNativeUsage} from './cursor-native-usage.js';
 import {mergeLocalUsageRows,recentLocalUsageRows} from './local-usage.js';
 import {UsageAttribution,mapNativeAccounts} from './usage-attribution.js';
+import {codexUsageAccountAliases,displayCodexUsageAccount} from './usage-account-display.js';
 import {NativeUsageLogins} from './native-usage-logins.js';
 import {AgentUpdates} from './agent-updates.js';
 import { AgentConnections, modelSelectionSchema, modelSelectionsSchema, type ModelSelection, agentProcesses, targetSchema, type AgentPaths, type Target } from './agent-connections.js';
@@ -323,7 +324,7 @@ export async function createDesktopService(options:ServiceOptions) {
     const cursor=cursorNativeUsage.snapshot(snapshot);
     const accounts=await proxy.nativeUsageAccounts();
     const rows=mergeLocalUsageRows([...snapshot.rows,...cursor.rows]),recent=recentLocalUsageRows([...(snapshot.recent??[]),...cursor.rows]);
-    return {...snapshot,rows:mapNativeAccounts(rows,accounts,nativeUsageLogins.accounts()),recent:mapNativeAccounts(recent,accounts,nativeUsageLogins.accounts()),coverage:[...snapshot.coverage.filter(c=>c.target!=='cursor'),cursor.coverage],scanning:snapshot.scanning||cursor.scanning,warning:snapshot.warning||nativeUsageLogins.warning||cursor.warning};
+    return {...snapshot,usageAliases:codexUsageAccountAliases(accounts,nativeUsageLogins.accounts(),proxy.snapshot().accounts),rows:mapNativeAccounts(rows,accounts,nativeUsageLogins.accounts()),recent:mapNativeAccounts(recent,accounts,nativeUsageLogins.accounts()),coverage:[...snapshot.coverage.filter(c=>c.target!=='cursor'),cursor.coverage],scanning:snapshot.scanning||cursor.scanning,warning:snapshot.warning||nativeUsageLogins.warning||cursor.warning};
   };
   const desktopLifecycle=new QoderLifecycle();
   let discoveryTask:Promise<void>|undefined;
@@ -957,7 +958,7 @@ export async function createDesktopService(options:ServiceOptions) {
     const {days}=z.object({days:z.coerce.number().int().min(0).max(3650).default(7)}).parse(req.query);
     const native=await nativeUsageSnapshot();
     const sources=new Set((await apiSources.list()).map(s=>s.id));
-    const gateway=ledger.list(0).map(row=>({...row,origin:'gateway' as const,channel:sources.has(row.sourceId)||row.model.startsWith('api-')?'api' as const:'official' as const,provider:row.model.split('/')[0]}));
+    const gateway=ledger.list(0).map(row=>({...displayCodexUsageAccount(row,native.usageAliases),origin:'gateway' as const,channel:sources.has(row.sourceId)||row.model.startsWith('api-')?'api' as const:'official' as const,provider:row.model.split('/')[0]}));
     const nativeRows=native.rows;
     const allRows=[...gateway,...nativeRows];const cutoff=new Date();cutoff.setDate(cutoff.getDate()-Math.max(0,days-1));const day=`${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;const keep=(r:{day:string})=>!days||r.day>=day;
     return {rows:gateway.filter(keep),nativeRows:nativeRows.filter(keep),combinedRows:allRows.filter(keep),allRows,coverage:native.coverage,scanning:native.scanning,generatedAt:new Date().toISOString(),nativeUpdatedAt:native.updatedAt,warning:native.warning||ledger.warning||attributionWarning||attribution.warning||'',note:'本机记录与网关用量合并；带有 TokenFlow 路由标记的本机请求不重复累计。新用量可按当时的本机登录识别账号并标注；无法确认的历史用量单独显示，官方额度不换算为 Token。'};

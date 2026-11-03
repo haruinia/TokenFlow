@@ -5,9 +5,26 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createDesktopService } from '../packages/core/src/service.js';
 import type { UsageRow } from '../packages/core/src/usage-ledger.js';
+import {UsageLedger} from '../packages/core/src/usage-ledger.js';
+import {nativeIdentity} from '../packages/core/src/local-usage.js';
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
+
+it('adds account display aliases to overview without changing the raw ledger API',async()=>{
+ const {service,admin}=await open();
+ const row:UsageRow={day:'2026-11-02',target:'codex',keyId:'official-key',keyName:'Codex',sourceId:'codex-official',model:'gpt-test',requests:1,failed:0,unmeasured:0,inputTokens:100,cachedTokens:80,cacheBaseTokens:100,outputTokens:10,durationMs:10,last:'2026-11-02T00:00:00Z',billingAccountHash:nativeIdentity('codex','fixture-account'),taskKind:'subagent'};
+ const list=vi.spyOn(UsageLedger.prototype,'list').mockReturnValue([row]);
+ const accounts=vi.spyOn(service.proxy,'nativeUsageAccounts').mockResolvedValue([{id:'saved-account',provider:'codex',accountId:'fixture-account',email:'fixture@example.test',label:'Fixture account',organizationId:null}]);
+ try{
+  const overview=(await service.app.inject({url:'/api/usage/overview?days=0',headers:admin})).json();
+  expect(overview.rows).toMatchObject([{...row,usageSourceId:'saved-account',usageAccountLabel:'Fixture account'}]);
+  expect(overview.allRows.find((r:UsageRow)=>r.sourceId==='codex-official')).toMatchObject({usageSourceId:'saved-account'});
+  expect(JSON.stringify(overview)).not.toContain('fixture-account');
+  expect((await service.app.inject({url:'/api/gateway/usage?days=0',headers:admin})).json().rows).toEqual([row]);
+  expect(row).not.toHaveProperty('usageSourceId');
+ }finally{list.mockRestore();accounts.mockRestore();}
+});
 
 async function open(root?: string) {
   const dir = root ?? await mkdtemp(join(await realpath(tmpdir()), 'usage-ledger-'));

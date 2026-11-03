@@ -116,7 +116,7 @@ export function UsageBreakdown({ title, items, empty, limit = 8, headerExtra }: 
         </div>
         <svg className="tfStackedTokens" viewBox="0 0 1000 20" preserveAspectRatio="none" role="img" aria-label={`${item.label} Token 构成，总量 ${formatTokens(item.totals.totalTokens)}；${tokenParts(item.totals).map(p=>`${p.label} ${formatTokens(p.value)}`).join('，')}`}>
          <g className="tfTokenComposition" style={{'--token-scale':item.totals.totalTokens/peak} as CSSProperties}>
-          {tokenParts(item.totals).map((part,index,parts)=><rect key={part.key} x={parts.slice(0,index).reduce((sum,p)=>sum+p.value,0)/Math.max(item.totals.totalTokens,1)*1000} y="2" width={part.value/Math.max(item.totals.totalTokens,1)*1000} height="16" fill={part.color}><title>{part.label} {formatTokens(part.value)} Token</title></rect>)}
+          {tokenParts(item.totals).map((part,index,parts)=><rect key={part.key} x={parts.slice(0,index).reduce((sum,p)=>sum+p.value,0)/Math.max(item.totals.totalTokens,1)*1000} y="2" width={part.value/Math.max(item.totals.totalTokens,1)*1000} height="16" fill={part.color}><title>{`${part.label} ${formatTokens(part.value)} Token`}</title></rect>)}
          </g>
         </svg>
         <dl className="tfBreakParts">{tokenParts(item.totals).filter(p=>p.key!=='write'||p.value>0).map(part=><div key={part.key}><dt>{part.label}</dt><dd>{formatTokens(part.value)}</dd></div>)}</dl>
@@ -131,10 +131,12 @@ export function UsageBreakdown({ title, items, empty, limit = 8, headerExtra }: 
 
 /** The account or API behind a source id, as shown to the user. */
 export function describeSource(local: LocalAgentSnapshot, key: string, rows:readonly UsageRow[]=[]): { label: string; provider: string; sub: string } {
-  if(key==='codex-official'||key.startsWith('codex-official:'))return {label:key.includes(':')?`Codex 官方账号 · ${key.split(':')[1].slice(0,8)}`:'Codex 官方账号 · 历史未区分',provider:'codex',sub:'经 TokenFlow · 按请求时的认证账号区分'};
+  if(key==='codex-official'||key.startsWith('codex-official:')){const labels=[...new Set(rows.map(row=>row.usageAccountLabel).filter(Boolean))];return {label:labels.length===1?labels[0]!:key.includes(':')?`Codex 官方账号 · ${key.split(':')[1].slice(0,8)}`:'Codex 官方账号 · 历史未区分',provider:'codex',sub:labels.length===1?'Codex · 官方授权':'经 TokenFlow · 按请求时的认证账号区分'};}
   const inferred=rows.some(row=>row.nativeAccountEvidence==='login-snapshot');
   const account = local.accounts.find(item => item.id === key);
   if (account) return { label: account.label, provider: account.provider, sub: `${local.providers.find(item => item.id === account.provider)?.label ?? account.provider} · 官方授权${inferred?' · 含本机登录识别的用量':''}` };
+  const usageLabels=[...new Set(rows.map(row=>row.usageAccountLabel).filter(Boolean))];
+  if(usageLabels.length===1)return {label:usageLabels[0]!,provider:'codex',sub:'Codex · 官方授权'};
   const api = local.apiSources?.find(item => item.id === key);
   if (api) return { label: api.name, provider: 'api', sub: `API Key · ${api.baseURL}` };
   if(key.startsWith('native:')){const [,raw,channel,identity,email]=key.split(':');const provider=raw==='openai'||raw==='openai-codex'?'codex':raw;const label=local.providers.find(item=>item.id===provider)?.label??usageClientNames[provider]??provider;const names=[...new Set(rows.map(r=>r.nativeAccountLabel).filter(Boolean))];return {label:names.length===1?names[0]!: `${label} · ${channel==='official'?(identity?'官方登录':'账号未确认'):channel==='api'?'API Key':'渠道未确认'}`,provider,sub:inferred?`${label} · 按用量产生时的本机登录识别`:identity?`日志账号 ${(email||identity).slice(0,8)} · 未关联已保存账号`:'本机日志 · 未记录请求账号或接口'};}

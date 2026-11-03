@@ -1,5 +1,6 @@
 import type { UsageRow as GatewayUsageRow } from '../../../packages/core/src/usage-ledger';
-export type UsageRow=GatewayUsageRow&{origin?:'gateway'|'native';channel?:'official'|'api'|'unknown';provider?:string;nativeAccountId?:string;nativeEmailHash?:string;nativeOrganizationId?:string;nativeAccountLabel?:string;nativeAccountEvidence?:'otel'|'conflict'|'login-snapshot'|'billing'};
+import type {UsageAccountDisplay} from '../../../packages/core/src/usage-account-display';
+export type UsageRow=GatewayUsageRow&UsageAccountDisplay&{origin?:'gateway'|'native';channel?:'official'|'api'|'unknown';provider?:string;nativeAccountId?:string;nativeEmailHash?:string;nativeOrganizationId?:string;nativeAccountLabel?:string;nativeAccountEvidence?:'otel'|'conflict'|'login-snapshot'|'billing'};
 
 /** Time windows offered next to every usage summary. */
 export type RangeId = 'today' | '7d' | '30d' | 'all';
@@ -107,7 +108,7 @@ export function spentByPlatform(row:UsageRow,platform:{id:string;accounts:readon
 }
 
 /** Account or API source behind a ledger row; models served by the account catalog keep their provider prefix. */
-export const sourceKey = (row: UsageRow) => (row.billingAccountHash?`codex-official:${row.billingAccountHash}`:undefined)||row.sourceId || (row.origin==='native'?`native:${row.provider??row.target}:${row.channel??'unknown'}:${row.nativeAccountId??''}:${row.nativeEmailHash??''}${row.nativeOrganizationId?`:${row.nativeOrganizationId}`:''}`:undefined) || (row.model.match(/^api-([a-f0-9]{24})\//)?.[1] ?? `provider:${row.model.split('/')[0]}`);
+export const sourceKey = (row: UsageRow) => row.usageSourceId || (row.billingAccountHash?`codex-official:${row.billingAccountHash}`:undefined)||row.sourceId || (row.origin==='native'?`native:${row.provider??row.target}:${row.channel??'unknown'}:${row.nativeAccountId??''}:${row.nativeEmailHash??''}${row.nativeOrganizationId?`:${row.nativeOrganizationId}`:''}`:undefined) || (row.model.match(/^api-([a-f0-9]{24})\//)?.[1] ?? `provider:${row.model.split('/')[0]}`);
 
 /** Unknown token usage is not a measured zero. Credits retain their own unit. */
 export const tokenTotalText=(totals:UsageTotals,compact=false)=>totals.totalTokens===0&&totals.unmeasured>0?'未提供':(compact?compactTokens:formatTokens)(totals.totalTokens);
